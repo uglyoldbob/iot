@@ -1,0 +1,13 @@
+[package]
+name = "rust-iot"
+version = "0.0.1"
+authors = ["Thomas Epperson"]
+edition = "2018"
+
+[dependencies.tokio]
+version = "1.14.0"
+features = ["full"]
+
+[dependencies.hyper]
+version = "0.14.15"
+features = ["tcp", "http1", "http2", "server"]
