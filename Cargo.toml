@@ -4,6 +4,9 @@ version = "0.0.1"
 authors = ["Thomas Epperson"]
 edition = "2018"
 
+[dependencies]
+configparser = "3.0.0"
+
 [dependencies.tokio]
 version = "1.14.0"
 features = ["full"]
