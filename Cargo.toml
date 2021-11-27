@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 configparser = "3.0.0"
+regex = "1.5.4"
 
 [dependencies.tokio]
 version = "1.14.0"

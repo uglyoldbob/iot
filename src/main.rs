@@ -7,11 +7,13 @@ use std::collections::HashMap;
 
 use std::fs;
 use std::panic;
+use regex::Regex;
 
 #[derive(Clone)]
 struct HttpContext {
     dirmap : HashMap<String, fn() -> String>,
     root: String,
+    proxy: Option<String>,
 }
 
 async fn handle(
@@ -20,7 +22,12 @@ async fn handle(
     req: Request<Body>
     ) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path();
-    let sys_path = context.root + path;
+    let proxy = context.proxy.unwrap_or("".to_string());
+    let reg1 = format!("(^{})",proxy);
+    let reg1 = Regex::new(&reg1[..]).unwrap();
+    let fixed_path = reg1.replace_all(&path, "");
+    println!("Fixed path is {}", fixed_path);
+    let sys_path = context.root + &fixed_path;
     let s = "Hello world";
     println!("syspath is {}", sys_path);
     let mut contents : Result<String, String> = if context.dirmap.contains_key(path)
@@ -60,6 +67,7 @@ async fn main() {
     let hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
+        proxy: Some("/testing".to_string()),
     };
 
     let settings_file = fs::read_to_string("./settings.ini");
@@ -67,9 +75,14 @@ async fn main() {
         Ok(con) => con,
         Err(_) => "".to_string(),
     };
-
     let mut settings = configparser::ini::Ini::new();
     settings.read(settings_con);
+    
+    match &hc.proxy {
+        Some(s) => println!("Using {} as the proxy path", s),
+        None => println!("Not using a proxy path"),
+    }
+
     println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
     // Construct our SocketAddr to listen on...
