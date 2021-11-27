@@ -20,19 +20,38 @@ async fn handle(
     req: Request<Body>
     ) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path();
+    let sys_path = context.root + path;
     let s = "Hello world";
-    if context.dirmap.contains_key(path)
+    println!("syspath is {}", sys_path);
+    let mut contents : Result<String, String> = if context.dirmap.contains_key(path)
     {
         println!("{} exists", path);
         let fun = context.dirmap.get_key_value(path);
-        fun;
+        Err("Unable to run code".to_string())        
     }
     else
     {
-
-    }
-    let t = format!("{}{}",s, path);
+        let file = fs::read_to_string(sys_path.clone());
+        match file {
+            Ok(_) => println!("{} exists", sys_path),
+            Err(_) => println!("Could not open {}", sys_path),
+        }
+        match file {
+            Ok(c) => Ok(c),
+            Err(_) => Err("not found".to_string()),
+        }
+    };
+    let t = match (contents)
+    {
+        Ok(c) => format!("{}{}{}",s, path, c),
+        Err(e) => format!("error {} {} {}", s, path, e),
+    };
     Ok(Response::new(Body::from(t)))
+}
+
+fn get_string_setting(dat: configparser::ini::Ini, 
+                      s: String, v: String, def: String) -> String {
+    return dat.get(&s, &v).unwrap_or(def);
 }
 
 #[tokio::main]
@@ -40,7 +59,7 @@ async fn main() {
     let mut map : HashMap<String, fn() -> String> = HashMap::new();
     let hc = HttpContext {
         dirmap: map.clone(),
-        root: "/etc".to_string(),
+        root: ".".to_string(),
     };
 
     let settings_file = fs::read_to_string("./settings.ini");
