@@ -9,11 +9,17 @@ use std::fs;
 use std::panic;
 use regex::Regex;
 
+type Callback = fn(String) -> Option<String>;
+
 #[derive(Clone)]
 struct HttpContext {
-    dirmap : HashMap<String, fn() -> String>,
+    dirmap : HashMap<String, Callback>,
     root: String,
     proxy: Option<String>,
+}
+
+fn test_func(s: String) -> Option<String> {
+    Some("this is a test".to_string())
 }
 
 async fn handle(
@@ -30,11 +36,15 @@ async fn handle(
     let sys_path = context.root + &fixed_path;
     let s = "Hello world";
     println!("syspath is {}", sys_path);
-    let mut contents : Result<String, String> = if context.dirmap.contains_key(path)
+    let mut contents : Result<String, String> = if context.dirmap.contains_key(&fixed_path.to_string())
     {
-        println!("{} exists", path);
-        let fun = context.dirmap.get_key_value(path);
-        Err("Unable to run code".to_string())        
+        println!("script {} exists", &fixed_path.to_string());
+        let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
+        let f = fun("asdf".to_string());
+        match f {
+            Some(c) => Ok(c),
+            None => Err("Script failed".to_string())
+        }
     }
     else
     {
@@ -63,7 +73,8 @@ fn get_string_setting(dat: configparser::ini::Ini,
 
 #[tokio::main]
 async fn main() {
-    let mut map : HashMap<String, fn() -> String> = HashMap::new();
+    let mut map : HashMap<String, Callback> = HashMap::new();
+    map.insert("/asdf".to_string(), test_func);
     let hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
