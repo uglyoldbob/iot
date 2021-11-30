@@ -8,6 +8,10 @@ edition = "2018"
 configparser = "3.0.0"
 regex = "1.5.4"
 
+[dependencies.cookie]
+version = "0.14.1"
+features = ["secure"]
+
 [dependencies.tokio]
 version = "1.14.0"
 features = ["full"]

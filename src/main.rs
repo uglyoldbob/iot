@@ -6,10 +6,10 @@ use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
 
 use std::fs;
-use std::panic;
 use regex::Regex;
+use cookie::Cookie;
 
-type Callback = fn(String) -> Option<String>;
+type Callback = fn(String) -> Result<String, String>;
 
 #[derive(Clone)]
 struct HttpContext {
@@ -18,8 +18,8 @@ struct HttpContext {
     proxy: Option<String>,
 }
 
-fn test_func(s: String) -> Option<String> {
-    Some("this is a test".to_string())
+fn test_func(s: String) -> Result<String, String> {
+    Ok("this is a test".to_string())
 }
 
 async fn handle(
@@ -36,14 +36,40 @@ async fn handle(
     let sys_path = context.root + &fixed_path;
     let s = "Hello world";
     println!("syspath is {}", sys_path);
+
+    let hdrs = req.headers();
+    println!("These are the headers");
+
+    let cookies = hdrs.get("cookie").unwrap().to_str().unwrap().split(";");
+    let mut cookiemap = HashMap::new();
+    
+    for c in cookies {
+        let cookie = Cookie::parse(c).unwrap();
+        let (c1, c2) = cookie.name_value();
+        //println!("The cookie is {:?} {:?}", c1, c2);
+        cookiemap.insert(c1.to_owned(), c2.to_owned());
+    }
+
+    for (k, v) in cookiemap.iter() {
+        println!("COOKIE {:?} {:?}", k, v);
+    }
+
+    for (key, value) in hdrs.iter() {
+        println!(" {:?}: {:?}", key, value);
+    }
+
+    let mut response = Response::builder();
+    response = response.header("Set-Cookie", "asdf=pizza");
+ 
+
     let mut contents : Result<String, String> = if context.dirmap.contains_key(&fixed_path.to_string())
     {
         println!("script {} exists", &fixed_path.to_string());
         let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
         let f = fun("asdf".to_string());
         match f {
-            Some(c) => Ok(c),
-            None => Err("Script failed".to_string())
+            Ok(c) => {response = response.status(200);  Ok(c)},
+            Err(_) => { response = response.status(500); Err("Script failed".to_string()) }
         }
     }
     else
@@ -58,12 +84,12 @@ async fn handle(
             Err(_) => Err("not found".to_string()),
         }
     };
-    let t = match (contents)
+    let t = match contents
     {
         Ok(c) => format!("{}{}{}",s, path, c),
         Err(e) => format!("error {} {} {}", s, path, e),
     };
-    Ok(Response::new(Body::from(t)))
+    Ok(response.body(Body::from(t)).unwrap())
 }
 
 fn get_string_setting(dat: configparser::ini::Ini, 
