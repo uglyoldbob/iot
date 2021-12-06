@@ -5,21 +5,44 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
 
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::fs;
 use regex::Regex;
 use cookie::Cookie;
+use ttl_cache::TtlCache;
 
-type Callback = fn(String) -> Result<String, String>;
+type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Body;
+
+#[derive(Clone)]
+struct SessionContents {
+    id: u32,
+}
 
 #[derive(Clone)]
 struct HttpContext {
     dirmap : HashMap<String, Callback>,
     root: String,
+    cookiename: String,
     proxy: Option<String>,
+    sess: Arc<Mutex<TtlCache<u64,SessionContents>>>, //to be something else actually useful
 }
 
-fn test_func(s: String) -> Result<String, String> {
-    Ok("this is a test".to_string())
+struct WebPageContext {
+    proxy: String,
+    cookies: HashMap<String, String>,
+    ourcookie: Option<String>,
+}
+
+fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+    Body::from("this is a test".to_string())
+}
+
+fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+    bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
+    let url = format!("{}/main.rs", s.proxy.to_string());
+    bld.headers.insert("Location",hyper::http::header::HeaderValue::from_str(&url).unwrap());
+    Body::from("redirect goes here")
 }
 
 async fn handle(
@@ -32,13 +55,12 @@ async fn handle(
     let reg1 = format!("(^{})",proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
     let fixed_path = reg1.replace_all(&path, "");
+    println!("Proxy path is {}", proxy);
     println!("Fixed path is {}", fixed_path);
     let sys_path = context.root + &fixed_path;
     let s = "Hello world";
-    println!("syspath is {}", sys_path);
 
     let hdrs = req.headers();
-    println!("These are the headers");
 
     let cookies = hdrs.get("cookie").unwrap().to_str().unwrap().split(";");
     let mut cookiemap = HashMap::new();
@@ -50,27 +72,47 @@ async fn handle(
         cookiemap.insert(c1.to_owned(), c2.to_owned());
     }
 
-    for (k, v) in cookiemap.iter() {
-        println!("COOKIE {:?} {:?}", k, v);
-    }
+    let mut session_cache = context.sess.lock().unwrap();
 
-    for (key, value) in hdrs.iter() {
-        println!(" {:?}: {:?}", key, value);
-    }
+//    for (k, v) in cookiemap.iter() {
+//        println!("COOKIE {:?} {:?}", k, v);
+//    }
 
-    let mut response = Response::builder();
-    response = response.header("Set-Cookie", "asdf=pizza");
+//    for (key, value) in hdrs.iter() {
+//        println!(" {:?}: {:?}", key, value);
+//    }
+
+    let mut this_session: Option<SessionContents> = None;
+
+    let response = Response::new("dummy");
+    let (mut response, dummybody) = response.into_parts();
+
+    response.headers.insert("Set-Cookie", hyper::http::header::HeaderValue::from_str("asdf=pizza; HttpOnly").unwrap());
+
+    let ourcookie = if (cookiemap.contains_key(&context.cookiename))
+    {
+        println!("Our special cookie exists!");
+        //TODO replace this_session with actual session data
+        let (c, d) = cookiemap.get_key_value(&context.cookiename).unwrap();
+        Some(d.to_owned())
+    }
+    else
+    {
+        println!("Our special cookie does not exist");
+        None
+    };
  
 
-    let mut contents : Result<String, String> = if context.dirmap.contains_key(&fixed_path.to_string())
+    let body = if context.dirmap.contains_key(&fixed_path.to_string())
     {
         println!("script {} exists", &fixed_path.to_string());
         let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
-        let f = fun("asdf".to_string());
-        match f {
-            Ok(c) => {response = response.status(200);  Ok(c)},
-            Err(_) => { response = response.status(500); Err("Script failed".to_string()) }
-        }
+        let mut p = WebPageContext {
+            proxy: proxy,
+            cookies: cookiemap,
+            ourcookie: ourcookie,
+        };
+        fun(&mut p, &mut response)
     }
     else
     {
@@ -80,16 +122,11 @@ async fn handle(
             Err(_) => println!("Could not open {}", sys_path),
         }
         match file {
-            Ok(c) => Ok(c),
-            Err(_) => Err("not found".to_string()),
+            Ok(c) => Body::from(c),
+            Err(_) => Body::from("Not found".to_string()),
         }
     };
-    let t = match contents
-    {
-        Ok(c) => format!("{}{}{}",s, path, c),
-        Err(e) => format!("error {} {} {}", s, path, e),
-    };
-    Ok(response.body(Body::from(t)).unwrap())
+    Ok(hyper::http::Response::from_parts(response,body))
 }
 
 fn get_string_setting(dat: configparser::ini::Ini, 
@@ -101,10 +138,14 @@ fn get_string_setting(dat: configparser::ini::Ini,
 async fn main() {
     let mut map : HashMap<String, Callback> = HashMap::new();
     map.insert("/asdf".to_string(), test_func);
-    let hc = HttpContext {
+    map.insert("".to_string(), main_redirect);
+    map.insert("/".to_string(), main_redirect);
+    let mut hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
         proxy: Some("/testing".to_string()),
+        cookiename: "rustcookie".to_string(),
+        sess: Arc::new(Mutex::new(TtlCache::new(50))),
     };
 
     let settings_file = fs::read_to_string("./settings.ini");
@@ -114,6 +155,8 @@ async fn main() {
     };
     let mut settings = configparser::ini::Ini::new();
     settings.read(settings_con);
+
+    hc.cookiename = settings.get("general","cookie").unwrap_or("rustcookie".to_string());
     
     match &hc.proxy {
         Some(s) => println!("Using {} as the proxy path", s),
@@ -122,8 +165,19 @@ async fn main() {
 
     println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
+    let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
+    println!("Listening on port {}", http_port);
+
+    let mut session_cache_mut = hc.sess.clone();
+    let mut session_cache = session_cache_mut.lock().unwrap();
+    let newsess = SessionContents {
+        id: 5,
+    };
+    session_cache.insert(1,newsess.clone(),Duration::from_secs(60*24));
+    drop(session_cache);
+
     // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], http_port));
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(move |conn: &AddrStream| {
