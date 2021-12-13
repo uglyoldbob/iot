@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use hyper::{Body, Request, Response, Server};
+use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
@@ -38,6 +38,19 @@ fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> 
     Body::from("this is a test".to_string())
 }
 
+fn main_page(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+    let mut s : String = "<HTML>Welcome to the login page".to_string();
+    s.push_str("<form>");
+    s.push_str("<br>\nUsername: \n");
+    s.push_str("<input type=\"text\" id=\"username\" name=\"username\"><br>");
+    s.push_str("Password: ");
+    s.push_str("<input type=\"password\" id=\"password\" name=\"password\"><br>");
+    s.push_str("<input type=\"submit\" value=\"Login\" formmethod=\"post\"><br>\n");
+    s.push_str("</form>");
+    s.push_str("</HTML");
+    Body::from(s)
+}
+
 fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
     bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = format!("{}/main.rs", s.proxy.to_string());
@@ -50,7 +63,26 @@ async fn handle(
     addr: SocketAddr,
     req: Request<Body>
     ) -> Result<Response<Body>, Infallible> {
-    let path = req.uri().path();
+
+    let (rparts,body) = req.into_parts();
+
+    let mut post_data = HashMap::new();
+    let body_data = hyper::body::to_bytes(body).await;
+    let body_data = body_data.unwrap();
+    let body_data = std::str::from_utf8(&body_data);
+    let body_parts = body_data.unwrap().split("&");
+    for bel in body_parts {
+        let mut ele_split = bel.split("=").take(2);
+            let i1 = ele_split.next().unwrap_or_default();
+            let i2 = ele_split.next().unwrap_or_default();
+            post_data.insert(i1, i2);
+    }
+
+    for (k, v) in post_data.iter() {
+        println!("POST: {} = {}", k, v);
+    }
+
+    let path = rparts.uri.path();
     let proxy = context.proxy.unwrap_or("".to_string());
     let reg1 = format!("(^{})",proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
@@ -60,16 +92,18 @@ async fn handle(
     let sys_path = context.root + &fixed_path;
     let s = "Hello world";
 
-    let hdrs = req.headers();
+    let hdrs = rparts.headers;
 
-    let cookies = hdrs.get("cookie").unwrap().to_str().unwrap().split(";");
+    let cks_ga = hdrs.get_all("cookie");
     let mut cookiemap = HashMap::new();
-    
-    for c in cookies {
-        let cookie = Cookie::parse(c).unwrap();
-        let (c1, c2) = cookie.name_value();
-        //println!("The cookie is {:?} {:?}", c1, c2);
-        cookiemap.insert(c1.to_owned(), c2.to_owned());
+    for c in cks_ga.into_iter() {
+        let cookies = c.to_str().unwrap().split(";");
+        for ck in cookies {
+            let cookie = Cookie::parse(ck).unwrap();
+            let (c1, c2) = cookie.name_value();
+            //println!("The cookie is {:?} {:?}", c1, c2);
+            cookiemap.insert(c1.to_owned(), c2.to_owned());
+        }
     }
 
     let mut session_cache = context.sess.lock().unwrap();
@@ -78,9 +112,9 @@ async fn handle(
 //        println!("COOKIE {:?} {:?}", k, v);
 //    }
 
-//    for (key, value) in hdrs.iter() {
-//        println!(" {:?}: {:?}", key, value);
-//    }
+    for (key, value) in hdrs.iter() {
+        println!(" {:?}: {:?}", key, value);
+    }
 
     let mut this_session: Option<SessionContents> = None;
 
@@ -129,17 +163,13 @@ async fn handle(
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
-fn get_string_setting(dat: configparser::ini::Ini, 
-                      s: String, v: String, def: String) -> String {
-    return dat.get(&s, &v).unwrap_or(def);
-}
-
 #[tokio::main]
 async fn main() {
     let mut map : HashMap<String, Callback> = HashMap::new();
     map.insert("/asdf".to_string(), test_func);
     map.insert("".to_string(), main_redirect);
     map.insert("/".to_string(), main_redirect);
+    map.insert("/main.rs".to_string(), main_page);
     let mut hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
@@ -192,7 +222,7 @@ async fn main() {
     });
 
     // Then bind and serve...
-    let server = Server::bind(&addr).serve(make_service);
+   let server = Server::bind(&addr).serve(make_service);
 
     println!("Rust-iot server is running");
     // And run forever...
