@@ -5,12 +5,15 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
 
+use mysql::prelude::Queryable;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::fs;
 use regex::Regex;
 use cookie::Cookie;
 use ttl_cache::TtlCache;
+
+mod user;
 
 type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Body;
 
@@ -26,11 +29,14 @@ struct HttpContext {
     cookiename: String,
     proxy: Option<String>,
     sess: Arc<Mutex<TtlCache<u64,SessionContents>>>, //to be something else actually useful
+    pool: mysql::Pool,
 }
 
 struct WebPageContext {
     proxy: String,
     cookies: HashMap<String, String>,
+    post: HashMap<String, String>,
+    get: HashMap<String, String>,
     ourcookie: Option<String>,
 }
 
@@ -39,16 +45,30 @@ fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> 
 }
 
 fn main_page(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
-    let mut s : String = "<HTML>Welcome to the login page".to_string();
-    s.push_str("<form>");
-    s.push_str("<br>\nUsername: \n");
-    s.push_str("<input type=\"text\" id=\"username\" name=\"username\"><br>");
-    s.push_str("Password: ");
-    s.push_str("<input type=\"password\" id=\"password\" name=\"password\"><br>");
-    s.push_str("<input type=\"submit\" value=\"Login\" formmethod=\"post\"><br>\n");
-    s.push_str("</form>");
-    s.push_str("</HTML");
-    Body::from(s)
+    let mut c : String = "<HTML>".to_string();
+    if s.post.contains_key("username") && s.post.contains_key("password") {
+        c.push_str("login attempt\n");
+        let mut bob = "fdsa";
+        //TODO retrieve user details
+        if (1==1) {
+            //for when user data exists
+            //
+        }
+        else {
+            //login failed because account does not exist
+        }
+    }
+    c.push_str("
+Welcome to the login page!
+<form>
+    Username: 
+    <input type=\"text\" id=\"username\" name=\"username\"><br>
+    Password: 
+    <input type=\"password\" id=\"password\" name=\"password\"><br>
+    <input type=\"submit\" value=\"Login\" formmethod=\"post\"><br>
+    </form>
+</HTML");
+    Body::from(c)
 }
 
 fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
@@ -75,20 +95,32 @@ async fn handle(
         let mut ele_split = bel.split("=").take(2);
             let i1 = ele_split.next().unwrap_or_default();
             let i2 = ele_split.next().unwrap_or_default();
-            post_data.insert(i1, i2);
+            post_data.insert(i1.to_owned(), i2.to_owned());
     }
 
-    for (k, v) in post_data.iter() {
-        println!("POST: {} = {}", k, v);
+    let get_data = rparts.uri.query().unwrap_or("");
+    let get_split = get_data.split("&");
+    let mut get_map = HashMap::new();
+    for get_elem in get_split {
+        let mut ele_split = get_elem.split("=").take(2);
+            let i1 = ele_split.next().unwrap_or_default();
+            let i2 = ele_split.next().unwrap_or_default();
+            get_map.insert(i1.to_owned(), i2.to_owned());
     }
+
+//    for (k,v) in get_map.iter() {
+//        println!("GET: {} {}", k, v);
+//    }
 
     let path = rparts.uri.path();
     let proxy = context.proxy.unwrap_or("".to_string());
     let reg1 = format!("(^{})",proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
     let fixed_path = reg1.replace_all(&path, "");
-    println!("Proxy path is {}", proxy);
-    println!("Fixed path is {}", fixed_path);
+//    println!("Proxy path is {}", proxy);
+//    println!("Fixed path is {}", fixed_path);
+
+//    println!("{} access {}", addr, fixed_path);
     let sys_path = context.root + &fixed_path;
     let s = "Hello world";
 
@@ -112,9 +144,11 @@ async fn handle(
 //        println!("COOKIE {:?} {:?}", k, v);
 //    }
 
-    for (key, value) in hdrs.iter() {
-        println!(" {:?}: {:?}", key, value);
-    }
+//    for (key, value) in hdrs.iter() {
+//        println!(" {:?}: {:?}", key, value);
+//    }
+
+    let mysql = context.pool.get_conn().unwrap();
 
     let mut this_session: Option<SessionContents> = None;
 
@@ -139,9 +173,11 @@ async fn handle(
 
     let body = if context.dirmap.contains_key(&fixed_path.to_string())
     {
-        println!("script {} exists", &fixed_path.to_string());
+//        println!("script {} exists", &fixed_path.to_string());
         let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
         let mut p = WebPageContext {
+            post: post_data,
+            get: get_map,
             proxy: proxy,
             cookies: cookiemap,
             ourcookie: ourcookie,
@@ -151,10 +187,6 @@ async fn handle(
     else
     {
         let file = fs::read_to_string(sys_path.clone());
-        match file {
-            Ok(_) => println!("{} exists", sys_path),
-            Err(_) => println!("Could not open {}", sys_path),
-        }
         match file {
             Ok(c) => Body::from(c),
             Err(_) => Body::from("Not found".to_string()),
@@ -170,13 +202,6 @@ async fn main() {
     map.insert("".to_string(), main_redirect);
     map.insert("/".to_string(), main_redirect);
     map.insert("/main.rs".to_string(), main_page);
-    let mut hc = HttpContext {
-        dirmap: map.clone(),
-        root: ".".to_string(),
-        proxy: Some("/testing".to_string()),
-        cookiename: "rustcookie".to_string(),
-        sess: Arc::new(Mutex::new(TtlCache::new(50))),
-    };
 
     let settings_file = fs::read_to_string("./settings.ini");
     let settings_con = match settings_file {
@@ -185,6 +210,27 @@ async fn main() {
     };
     let mut settings = configparser::ini::Ini::new();
     settings.read(settings_con);
+
+    let mysql_pw = settings.get("database","password").unwrap_or("iinvalid".to_string());
+    let mysql_user = settings.get("database", "username").unwrap_or("invalid".to_string());
+    let mysql_dbname = settings.get("database", "name").unwrap_or("none".to_string());
+    let mysql_url = settings.get("database", "url").unwrap_or("invalid".to_string());
+    let mysql_conn_s = format!("mysql://{}:{}@{}/{}", mysql_user, mysql_pw, mysql_url, mysql_dbname);
+    let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
+    let mysql_pool = mysql::Pool::new(mysql_opt).unwrap();
+    let mut mysql_conn_s = mysql_pool.get_conn().unwrap();
+
+    let mut hc = HttpContext {
+        dirmap: map.clone(),
+        root: ".".to_string(),
+        proxy: Some("/testing".to_string()),
+        cookiename: "rustcookie".to_string(),
+        sess: Arc::new(Mutex::new(TtlCache::new(50))),
+        pool: mysql_pool,
+    };
+
+    user::check_user_table(&mut mysql_conn_s);
+    user::set_admin_login(&mut mysql_conn_s, &settings);
 
     hc.cookiename = settings.get("general","cookie").unwrap_or("rustcookie".to_string());
     

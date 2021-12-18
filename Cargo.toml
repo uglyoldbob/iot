@@ -8,6 +8,8 @@ edition = "2018"
 configparser = "3.0.0"
 regex = "1.5.4"
 ttl_cache = "0.5.1"
+mysql = "21.0.2"
+rust-crypto = "0.2.36"
 
 [dependencies.cookie]
 version = "0.14.1"
