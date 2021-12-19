@@ -10,8 +10,10 @@ pub struct User {
     n: u8,
 }
 
-fn get_admin_info(conn: &mut mysql::PooledConn) -> Option<User> {
-    let usertest = conn.query_map("SELECT id, username, passhash, n, r, p FROM users WHERE username='admin' LIMIT 1",
+fn get_user_info(conn: &mut mysql::PooledConn, user: String) -> Option<User> {
+    let quer = "SELECT id, username, passhash, n, r, p FROM users WHERE username=? LIMIT 1";
+
+    let usertest = conn.exec_map(quer, (user,),
         |(id, username, passhash, n, r, p)| {
             User{ id: id, username: username, hash: passhash, p: p, r: r, n: n}
         },
@@ -34,6 +36,16 @@ pub fn check_user_table(conn: &mut mysql::PooledConn) {
     };
 }
 
+pub fn try_user_login(conn: &mut mysql::PooledConn,
+                      user: String,
+                      pass: String) -> bool{
+    let userinfo = get_user_info(conn, user);
+    match userinfo {
+        Some (ref u) => crypto::scrypt::scrypt_check(&pass, u.hash.as_str()).unwrap(),
+        None => false,
+    }
+}
+
 pub fn set_admin_login(conn : &mut mysql::PooledConn,
                    settings: &configparser::ini::Ini) {
     let mut scrypt_password = settings.get("admin", "pass").unwrap();
@@ -43,15 +55,13 @@ pub fn set_admin_login(conn : &mut mysql::PooledConn,
     let scrypt_params: crypto::scrypt::ScryptParams = crypto::scrypt::ScryptParams::new(scrypt_n, scrypt_r, scrypt_p);
     let mut scrypt_out : String = "".to_string();;
 
-    let admin = get_admin_info(conn);
+    let admin = get_user_info(conn, "admin".to_string());
  
     let result = match admin {
-        Some(admin) => crypto::scrypt::scrypt_check(scrypt_password.as_str(), admin.hash.as_str()).unwrap(),
+        Some(ref admin) => crypto::scrypt::scrypt_check(scrypt_password.as_str(), admin.hash.as_str()).unwrap(),
         None => false,
     };
-    println!("Results of comparison {} {}", result, scrypt_out);
 
-    let admin = get_admin_info(conn);
     if (!result) {
         scrypt_out = crypto::scrypt::scrypt_simple(
             scrypt_password .as_str(),
@@ -70,10 +80,5 @@ pub fn set_admin_login(conn : &mut mysql::PooledConn,
     } else {
         println!("Not updating admin account");
     }
-
-    //select * from users where username = 'r' limit 1;
-    //insert into users value (NULL, 'q', 'g', '&', 6, 8, 8, 4) on duplicate key update id=id;
-    // update users set passhash='qwtreyu', salt='43879217845', n=1234, r=9, p=1, len=32 WHERE username='r';
 }
-
 

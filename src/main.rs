@@ -38,6 +38,7 @@ struct WebPageContext {
     post: HashMap<String, String>,
     get: HashMap<String, String>,
     ourcookie: Option<String>,
+    pool: mysql::PooledConn,
 }
 
 fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
@@ -48,14 +49,18 @@ fn main_page(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> 
     let mut c : String = "<HTML>".to_string();
     if s.post.contains_key("username") && s.post.contains_key("password") {
         c.push_str("login attempt\n");
-        let mut bob = "fdsa";
-        //TODO retrieve user details
-        if (1==1) {
+        let uname = &s.post["username"];
+        let pass = &s.post["password"];
+        let login_pass = user::try_user_login(
+            &mut s.pool, uname.to_string(), pass.to_string());
+        if (login_pass) {
+            c.push_str("Login success");
             //for when user data exists
             //
         }
         else {
             //login failed because account does not exist
+            c.push_str("Login fail");
         }
     }
     c.push_str("
@@ -181,6 +186,7 @@ async fn handle(
             proxy: proxy,
             cookies: cookiemap,
             ourcookie: ourcookie,
+            pool: mysql,
         };
         fun(&mut p, &mut response)
     }
@@ -239,7 +245,7 @@ async fn main() {
         None => println!("Not using a proxy path"),
     }
 
-    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
+//    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
     let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
     println!("Listening on port {}", http_port);
