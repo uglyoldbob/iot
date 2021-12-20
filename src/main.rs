@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use hyper::{Body, Request, Response, Server, StatusCode};
+use hyper::{Body, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
@@ -12,6 +12,8 @@ use std::fs;
 use regex::Regex;
 use cookie::Cookie;
 use ttl_cache::TtlCache;
+use rand::{distributions::Alphanumeric, Rng};
+
 
 mod user;
 
@@ -28,13 +30,12 @@ struct HttpContext {
     root: String,
     cookiename: String,
     proxy: Option<String>,
-    sess: Arc<Mutex<TtlCache<u64,SessionContents>>>, //to be something else actually useful
+    sess: Arc<Mutex<TtlCache<String,SessionContents>>>, //to be something else actually useful
     pool: mysql::Pool,
 }
 
 struct WebPageContext {
     proxy: String,
-    cookies: HashMap<String, String>,
     post: HashMap<String, String>,
     get: HashMap<String, String>,
     ourcookie: Option<String>,
@@ -42,6 +43,7 @@ struct WebPageContext {
 }
 
 fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+    s.ourcookie = None;
     Body::from("this is a test".to_string())
 }
 
@@ -160,34 +162,64 @@ async fn handle(
     let response = Response::new("dummy");
     let (mut response, dummybody) = response.into_parts();
 
-    response.headers.insert("Set-Cookie", hyper::http::header::HeaderValue::from_str("asdf=pizza; HttpOnly").unwrap());
+    let testcookie: cookie::Cookie = cookie::Cookie::build("name", "value")
+	    .http_only(true)
+	    .finish();
+	    
+    println!("Our demo cookie is {}", testcookie.to_string());
 
     let ourcookie = if (cookiemap.contains_key(&context.cookiename))
     {
-        println!("Our special cookie exists!");
+	let value  = &cookiemap[&context.cookiename];
+        println!("Our special cookie exists! {}", value);
+	let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, value)
+	    .http_only(true)
+	    .same_site(cookie::SameSite::Strict)
+	    .finish();
         //TODO replace this_session with actual session data
-        let (c, d) = cookiemap.get_key_value(&context.cookiename).unwrap();
-        Some(d.to_owned())
+        Some(value.to_owned())
     }
     else
     {
         println!("Our special cookie does not exist");
-        None
-    };
- 
+	let newcookie: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(64)
+            .map(char::from)
+            .collect();
+        let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, &newcookie)
+	    .http_only(true)
+	    .same_site(cookie::SameSite::Strict)
+	    .finish();
+	response.headers.insert("Set-Cookie", hyper::http::header::HeaderValue::from_str(
+	&testcookie.to_string()).unwrap());
+	Some(newcookie.to_owned())
+    }; 
+    
+    let mut session_cache_mut = hc.sess.clone();
+    let mut session_cache = session_cache_mut.lock().unwrap();
+    //determine if the session data exists
+    if session.cache.contains_key(ourcookie) {
+	println!("The session data does not exist");
+    }
+    else
+    {
+	println!("The session data exists!");
+    }
+    drop(session_cache);
+    
+    let mut p = WebPageContext {
+            post: post_data,
+            get: get_map,
+            proxy: proxy,
+            ourcookie: ourcookie,
+            pool: mysql,
+        };
 
     let body = if context.dirmap.contains_key(&fixed_path.to_string())
     {
 //        println!("script {} exists", &fixed_path.to_string());
         let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
-        let mut p = WebPageContext {
-            post: post_data,
-            get: get_map,
-            proxy: proxy,
-            cookies: cookiemap,
-            ourcookie: ourcookie,
-            pool: mysql,
-        };
         fun(&mut p, &mut response)
     }
     else
@@ -198,6 +230,11 @@ async fn handle(
             Err(_) => Body::from("Not found".to_string()),
         }
     };
+    
+    if let None = p.ourcookie {
+	println!("We need to delete the cookie!");
+    }
+    
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
@@ -223,7 +260,12 @@ async fn main() {
     let mysql_url = settings.get("database", "url").unwrap_or("invalid".to_string());
     let mysql_conn_s = format!("mysql://{}:{}@{}/{}", mysql_user, mysql_pw, mysql_url, mysql_dbname);
     let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
-    let mysql_pool = mysql::Pool::new(mysql_opt).unwrap();
+    let mysql_temp = mysql::Pool::new(mysql_opt);
+    match mysql_temp {
+        Ok(ref bla) => println!("I have a bla"),
+        Err(ref e) => println!("Error connecting to mysql: {}", e),
+    }
+    let mysql_pool = mysql_temp.unwrap();
     let mut mysql_conn_s = mysql_pool.get_conn().unwrap();
 
     let mut hc = HttpContext {
@@ -255,7 +297,7 @@ async fn main() {
     let newsess = SessionContents {
         id: 5,
     };
-    session_cache.insert(1,newsess.clone(),Duration::from_secs(60*24));
+    //session_cache.insert(1,newsess.clone(),Duration::from_secs(60*24));
     drop(session_cache);
 
     // Construct our SocketAddr to listen on...
