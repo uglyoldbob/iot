@@ -28,7 +28,7 @@ fn make_user_table(conn: &mut mysql::PooledConn) {
 
 pub fn check_user_table(conn: &mut mysql::PooledConn) {
     let r: Result<std::option::Option<mysql::Row>, mysql::Error> = conn.query_first("SELECT * FROM information_schema.tables WHERE table_schema = 'iot' AND table_name = 'users' LIMIT 1");
-    match (r.unwrap()) {
+    match r.unwrap() {
         Some(thing) => (),
         None => {
             make_user_table(conn);
@@ -53,7 +53,7 @@ pub fn set_admin_login(conn : &mut mysql::PooledConn,
     let scrypt_n : u8 = settings.get("admin", "n").unwrap().parse().unwrap();
     let scrypt_p : u32 = settings.get("admin", "p").unwrap().parse().unwrap();
     let scrypt_params: crypto::scrypt::ScryptParams = crypto::scrypt::ScryptParams::new(scrypt_n, scrypt_r, scrypt_p);
-    let mut scrypt_out : String = "".to_string();;
+    let mut scrypt_out : String = "".to_string();
 
     let admin = get_user_info(conn, "admin".to_string());
  
@@ -62,11 +62,11 @@ pub fn set_admin_login(conn : &mut mysql::PooledConn,
         None => false,
     };
 
-    if (!result) {
+    if !result {
         scrypt_out = crypto::scrypt::scrypt_simple(
             scrypt_password .as_str(),
             &scrypt_params).unwrap();
-        match (admin) {
+        match admin {
             Some(x) => {
                 println!("Updating the admin account");
                 conn.exec_drop("UPDATE users SET passhash=?, n=?, r=?, p=? WHERE username='admin'", (scrypt_out, scrypt_n, scrypt_r, scrypt_p));

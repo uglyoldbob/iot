@@ -5,9 +5,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::server::conn::AddrStream;
 use std::collections::HashMap;
 
-use mysql::prelude::Queryable;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use std::fs;
 use regex::Regex;
 use cookie::Cookie;
@@ -40,6 +38,7 @@ struct WebPageContext {
     get: HashMap<String, String>,
     ourcookie: Option<String>,
     pool: mysql::PooledConn,
+    session: SessionContents,
 }
 
 fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
@@ -49,13 +48,14 @@ fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> 
 
 fn main_page(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
+    s.session.id = 6;
     if s.post.contains_key("username") && s.post.contains_key("password") {
         c.push_str("login attempt\n");
         let uname = &s.post["username"];
         let pass = &s.post["password"];
         let login_pass = user::try_user_login(
             &mut s.pool, uname.to_string(), pass.to_string());
-        if (login_pass) {
+        if login_pass {
             c.push_str("Login success");
             //for when user data exists
             //
@@ -145,8 +145,6 @@ async fn handle(
         }
     }
 
-    let mut session_cache = context.sess.lock().unwrap();
-
 //    for (k, v) in cookiemap.iter() {
 //        println!("COOKIE {:?} {:?}", k, v);
 //    }
@@ -168,7 +166,7 @@ async fn handle(
 	    
     println!("Our demo cookie is {}", testcookie.to_string());
 
-    let ourcookie = if (cookiemap.contains_key(&context.cookiename))
+    let ourcookie = if cookiemap.contains_key(&context.cookiename)
     {
 	let value  = &cookiemap[&context.cookiename];
         println!("Our special cookie exists! {}", value);
@@ -195,25 +193,32 @@ async fn handle(
 	&testcookie.to_string()).unwrap());
 	Some(newcookie.to_owned())
     }; 
-    
-    let mut session_cache_mut = hc.sess.clone();
+    let mut session_cache_mut = context.sess;
     let mut session_cache = session_cache_mut.lock().unwrap();
     //determine if the session data exists
-    if session.cache.contains_key(ourcookie) {
-	println!("The session data does not exist");
-    }
-    else
-    {
-	println!("The session data exists!");
-    }
+    let session_data_maybe = session_cache.get(&ourcookie.as_ref().unwrap().to_owned());
+    let session_data = match session_data_maybe {
+        Some(x) => {
+            println!("There is something here in session data");
+            x.clone()
+        },
+        None => {
+            println!("There is nothing here at session data");
+            SessionContents { id: 5 }
+        },
+    };
+
     drop(session_cache);
+
+    println!("Session data is {}", session_data.id);
     
     let mut p = WebPageContext {
             post: post_data,
             get: get_map,
             proxy: proxy,
-            ourcookie: ourcookie,
+            ourcookie: ourcookie.clone(),
             pool: mysql,
+            session: session_data,
         };
 
     let body = if context.dirmap.contains_key(&fixed_path.to_string())
@@ -230,6 +235,13 @@ async fn handle(
             Err(_) => Body::from("Not found".to_string()),
         }
     };
+
+    println!("Session data is now {}", p.session.id);
+    let mut session_lock2 = session_cache_mut.lock().unwrap();
+    let index = &ourcookie.unwrap();
+    session_lock2.insert(index.to_owned(), p.session, std::time::Duration::from_secs(1440));
+    drop(session_lock2);
+
     
     if let None = p.ourcookie {
 	println!("We need to delete the cookie!");
@@ -291,14 +303,6 @@ async fn main() {
 
     let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
     println!("Listening on port {}", http_port);
-
-    let mut session_cache_mut = hc.sess.clone();
-    let mut session_cache = session_cache_mut.lock().unwrap();
-    let newsess = SessionContents {
-        id: 5,
-    };
-    //session_cache.insert(1,newsess.clone(),Duration::from_secs(60*24));
-    drop(session_cache);
 
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([127, 0, 0, 1], http_port));
