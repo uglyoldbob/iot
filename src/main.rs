@@ -20,6 +20,8 @@ type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Bo
 #[derive(Clone)]
 struct SessionContents {
     id: u32,
+    user: String,
+    passhash: String,
 }
 
 #[derive(Clone)]
@@ -41,30 +43,33 @@ struct WebPageContext {
     session: SessionContents,
 }
 
-fn test_func(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     s.ourcookie = None;
     Body::from("this is a test".to_string())
 }
 
-fn main_page(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
     s.session.id = 6;
     if s.post.contains_key("username") && s.post.contains_key("password") {
         c.push_str("login attempt\n");
         let uname = &s.post["username"];
         let pass = &s.post["password"];
-        let login_pass = user::try_user_login(
-            &mut s.pool, uname.to_string(), pass.to_string());
+	let useri = user::get_user_info(&mut s.pool, uname.to_string());
+        let login_pass = user::try_user_login2(
+            &useri, pass.to_string());
         if login_pass {
             c.push_str("Login success");
-            //for when user data exists
-            //
+	    let useru = useri.unwrap();
+	    s.session.user = useru.username;
+	    s.session.passhash = useru.hash;
         }
         else {
             //login failed because account does not exist
             c.push_str("Login fail");
         }
     }
+    println!("Username is {} hash is {}", s.session.user, s.session.passhash);
     c.push_str("
 Welcome to the login page!
 <form>
@@ -127,9 +132,9 @@ async fn handle(
 //    println!("Proxy path is {}", proxy);
 //    println!("Fixed path is {}", fixed_path);
 
+	println!("{} access {}", addr, fixed_path);
 //    println!("{} access {}", addr, fixed_path);
     let sys_path = context.root + &fixed_path;
-    let s = "Hello world";
 
     let hdrs = rparts.headers;
 
@@ -155,10 +160,8 @@ async fn handle(
 
     let mysql = context.pool.get_conn().unwrap();
 
-    let mut this_session: Option<SessionContents> = None;
-
     let response = Response::new("dummy");
-    let (mut response, dummybody) = response.into_parts();
+    let (mut response, _dummybody) = response.into_parts();
 
     let testcookie: cookie::Cookie = cookie::Cookie::build("name", "value")
 	    .http_only(true)
@@ -170,11 +173,6 @@ async fn handle(
     {
 	let value  = &cookiemap[&context.cookiename];
         println!("Our special cookie exists! {}", value);
-	let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, value)
-	    .http_only(true)
-	    .same_site(cookie::SameSite::Strict)
-	    .finish();
-        //TODO replace this_session with actual session data
         Some(value.to_owned())
     }
     else
@@ -193,8 +191,8 @@ async fn handle(
 	&testcookie.to_string()).unwrap());
 	Some(newcookie.to_owned())
     }; 
-    let mut session_cache_mut = context.sess;
-    let mut session_cache = session_cache_mut.lock().unwrap();
+    let session_cache_mut = context.sess;
+    let session_cache = session_cache_mut.lock().unwrap();
     //determine if the session data exists
     let session_data_maybe = session_cache.get(&ourcookie.as_ref().unwrap().to_owned());
     let session_data = match session_data_maybe {
@@ -204,7 +202,9 @@ async fn handle(
         },
         None => {
             println!("There is nothing here at session data");
-            SessionContents { id: 5 }
+            SessionContents { id: 0,
+		user: "".to_string(),
+		passhash: "".to_string()}
         },
     };
 
@@ -224,7 +224,7 @@ async fn handle(
     let body = if context.dirmap.contains_key(&fixed_path.to_string())
     {
 //        println!("script {} exists", &fixed_path.to_string());
-        let (key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
+        let (_key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
         fun(&mut p, &mut response)
     }
     else
@@ -264,7 +264,10 @@ async fn main() {
         Err(_) => "".to_string(),
     };
     let mut settings = configparser::ini::Ini::new();
-    settings.read(settings_con);
+    let settings_result = settings.read(settings_con);
+    if let Err(e) = settings_result {
+	println!("Failed to read settings {}", e);
+    }
 
     let mysql_pw = settings.get("database","password").unwrap_or("iinvalid".to_string());
     let mysql_user = settings.get("database", "username").unwrap_or("invalid".to_string());
@@ -274,7 +277,7 @@ async fn main() {
     let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
     let mysql_temp = mysql::Pool::new(mysql_opt);
     match mysql_temp {
-        Ok(ref bla) => println!("I have a bla"),
+        Ok(ref _bla) => println!("I have a bla"),
         Err(ref e) => println!("Error connecting to mysql: {}", e),
     }
     let mysql_pool = mysql_temp.unwrap();
