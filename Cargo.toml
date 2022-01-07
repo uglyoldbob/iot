@@ -11,6 +11,7 @@ ttl_cache = "0.5.1"
 mysql = "21.0.2"
 rust-crypto = "0.2.36"
 rand = "0.8.4"
+time = "0.2.27"
 
 [dependencies.cookie]
 version = "0.15.1"

@@ -46,6 +46,20 @@ pub fn try_user_login2(userinfo: &Option<User>, pass: String) -> bool {
     }
 }
 
+pub fn try_user_hash(conn: &mut mysql::PooledConn,
+                      user: String,
+                      hash: String) -> bool {
+	if user == "".to_string() {
+		return false;
+	}
+	let user_check = get_user_info(conn, user);
+        let result = match user_check {
+            Some (ref u) => hash == u.hash,
+            None => false,
+        };
+	result
+}
+
 pub fn try_user_login(conn: &mut mysql::PooledConn,
                       user: String,
                       pass: String) -> bool{

@@ -50,26 +50,29 @@ fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) ->
 
 fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
-    s.session.id = 6;
+    s.session.id = s.session.id+1;
     if s.post.contains_key("username") && s.post.contains_key("password") {
-        c.push_str("login attempt\n");
         let uname = &s.post["username"];
         let pass = &s.post["password"];
 	let useri = user::get_user_info(&mut s.pool, uname.to_string());
         let login_pass = user::try_user_login2(
             &useri, pass.to_string());
         if login_pass {
-            c.push_str("Login success");
-	    let useru = useri.unwrap();
-	    s.session.user = useru.username;
-	    s.session.passhash = useru.hash;
+            let useru = useri.unwrap();
+            s.session.user = useru.username;
+            s.session.passhash = useru.hash;
         }
         else {
             //login failed because account does not exist
             c.push_str("Login fail");
         }
     }
+    let logged_in = user::try_user_hash(&mut s.pool, 
+        s.session.user.to_owned(), 
+        s.session.passhash.to_owned());
+    println!("Is user considered logged in? {}", logged_in);
     println!("Username is {} hash is {}", s.session.user, s.session.passhash);
+    if !logged_in {
     c.push_str("
 Welcome to the login page!
 <form>
@@ -79,7 +82,12 @@ Welcome to the login page!
     <input type=\"password\" id=\"password\" name=\"password\"><br>
     <input type=\"submit\" value=\"Login\" formmethod=\"post\"><br>
     </form>
-</HTML");
+</HTML>");
+    }
+    else
+    {
+        c.push_str("You are logged in</HTML>")
+    }
     Body::from(c)
 }
 
@@ -129,11 +137,8 @@ async fn handle(
     let reg1 = format!("(^{})",proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
     let fixed_path = reg1.replace_all(&path, "");
-//    println!("Proxy path is {}", proxy);
-//    println!("Fixed path is {}", fixed_path);
 
 	println!("{} access {}", addr, fixed_path);
-//    println!("{} access {}", addr, fixed_path);
     let sys_path = context.root + &fixed_path;
 
     let hdrs = rparts.headers;
@@ -163,34 +168,20 @@ async fn handle(
     let response = Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let testcookie: cookie::Cookie = cookie::Cookie::build("name", "value")
-	    .http_only(true)
-	    .finish();
-	    
-    println!("Our demo cookie is {}", testcookie.to_string());
-
     let ourcookie = if cookiemap.contains_key(&context.cookiename)
     {
 	let value  = &cookiemap[&context.cookiename];
-        println!("Our special cookie exists! {}", value);
         Some(value.to_owned())
     }
     else
     {
-        println!("Our special cookie does not exist");
-	let newcookie: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
-        let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, &newcookie)
-	    .http_only(true)
-	    .same_site(cookie::SameSite::Strict)
-	    .finish();
-	response.headers.insert("Set-Cookie", hyper::http::header::HeaderValue::from_str(
-	&testcookie.to_string()).unwrap());
-	Some(newcookie.to_owned())
-    }; 
+        let newcookie: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(64)
+                .map(char::from)
+                .collect();
+        Some(newcookie.to_owned())
+    };
     let session_cache_mut = context.sess;
     let session_cache = session_cache_mut.lock().unwrap();
     //determine if the session data exists
@@ -210,8 +201,6 @@ async fn handle(
 
     drop(session_cache);
 
-    println!("Session data is {}", session_data.id);
-    
     let mut p = WebPageContext {
             post: post_data,
             get: get_map,
@@ -236,16 +225,33 @@ async fn handle(
         }
     };
 
-    println!("Session data is now {}", p.session.id);
     let mut session_lock2 = session_cache_mut.lock().unwrap();
-    let index = &ourcookie.unwrap();
+    let index = &ourcookie.clone().unwrap();
     session_lock2.insert(index.to_owned(), p.session, std::time::Duration::from_secs(1440));
     drop(session_lock2);
 
+    //this section expires the cookie if it needs to be deleted
+    //and makes the contents empty
+    let sent_cookie = match p.ourcookie {
+        Some(ref x) => {
+            let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, x)
+                .http_only(true)
+                .same_site(cookie::SameSite::Strict)
+                .finish();
+            testcookie
+        },
+        None => {
+            let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, "")
+                .http_only(true)
+                .expires(time::OffsetDateTime::unix_epoch())
+                .same_site(cookie::SameSite::Strict)
+                .finish();
+            testcookie
+        },
+    };
     
-    if let None = p.ourcookie {
-	println!("We need to delete the cookie!");
-    }
+    response.headers.append("Set-Cookie", hyper::http::header::HeaderValue::from_str(
+            &sent_cookie.to_string()).unwrap());
     
     Ok(hyper::http::Response::from_parts(response,body))
 }
