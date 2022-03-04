@@ -11,7 +11,7 @@ use regex::Regex;
 use cookie::Cookie;
 use ttl_cache::TtlCache;
 use rand::{distributions::Alphanumeric, Rng};
-
+use futures::FutureExt;
 
 mod user;
 
@@ -70,8 +70,6 @@ fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) ->
     let logged_in = user::try_user_hash(&mut s.pool, 
         s.session.user.to_owned(), 
         s.session.passhash.to_owned());
-    println!("Is user considered logged in? {}", logged_in);
-    println!("Username is {} hash is {}", s.session.user, s.session.passhash);
     if !logged_in {
     c.push_str("
 Welcome to the login page!
@@ -256,6 +254,33 @@ async fn handle(
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
+async fn webserver(hc: HttpContext,
+	http_port: u16) {
+    // Construct our SocketAddr to listen on...
+    let addr = SocketAddr::from(([127, 0, 0, 1], http_port));
+
+    // And a MakeService to handle each connection...
+    let make_service = make_service_fn(move |conn: &AddrStream| {
+        let context = hc.clone();
+        let addr = conn.remote_addr();
+        async move {
+        Ok::<_, Infallible>(service_fn(move|req| {
+            let context = context.clone();
+            async move { 
+                    handle(context.clone(),addr,req).await}} ))
+        }
+    });
+
+    // Then bind and serve...
+   let server = Server::bind(&addr).serve(make_service);
+
+    println!("Rust-iot server is running");
+    // And run forever...
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let mut map : HashMap<String, Callback> = HashMap::new();
@@ -313,27 +338,16 @@ async fn main() {
     let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
     println!("Listening on port {}", http_port);
 
-    // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], http_port));
+    tokio::spawn(async move {
+	webserver(hc, http_port).await;
+	});
 
-    // And a MakeService to handle each connection...
-    let make_service = make_service_fn(move |conn: &AddrStream| {
-        let context = hc.clone();
-        let addr = conn.remote_addr();
-        async move {
-        Ok::<_, Infallible>(service_fn(move|req| {
-            let context = context.clone();
-            async move { 
-                    handle(context.clone(),addr,req).await}} ))
-        }
-    });
-
-    // Then bind and serve...
-   let server = Server::bind(&addr).serve(make_service);
-
-    println!("Rust-iot server is running");
-    // And run forever...
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
-    }
+	loop {
+		futures::select! {
+			_ = tokio::signal::ctrl_c().fuse() => {
+				break;
+			}
+		}
+	}
+	println!("Ending the server");
 }
