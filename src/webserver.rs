@@ -12,36 +12,34 @@ use cookie::Cookie;
 use ttl_cache::TtlCache;
 use rand::{distributions::Alphanumeric, Rng};
 
-pub type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Body;
-
-#[derive(Clone)]
-pub struct SessionContents {
-    pub id: u32,
-    pub user: String,
-    pub passhash: String,
+pub trait Buildable {
+    fn new() -> Self;
+    fn duplicate(&self) -> Self;
 }
 
+pub type Callback<T> = fn(&mut WebPageContext<T>, &mut hyper::http::response::Parts) -> Body;
+
 #[derive(Clone)]
-pub struct HttpContext {
-    pub dirmap : HashMap<String, Callback>,
+pub struct HttpContext<T> where T: Clone {
+    pub dirmap : HashMap<String, Callback<T>>,
     pub root: String,
     pub cookiename: String,
     pub proxy: Option<String>,
-    pub sess: Arc<Mutex<TtlCache<String,SessionContents>>>, //to be something else actually useful
+    pub sess: Arc<Mutex<TtlCache<String,T>>>, //to be something else actually useful
     pub pool: mysql::Pool,
 }
 
-pub struct WebPageContext {
+pub struct WebPageContext<T> {
     pub proxy: String,
     pub post: HashMap<String, String>,
     get: HashMap<String, String>,
     pub ourcookie: Option<String>,
     pub pool: mysql::PooledConn,
-    pub session: SessionContents,
+    pub session: T,
 }
 
-async fn handle(
-    context: HttpContext,
+async fn handle<T: Buildable + std::clone::Clone>(
+    context: HttpContext<T>,
     addr: SocketAddr,
     req: Request<Body>
     ) -> Result<Response<Body>, Infallible> {
@@ -131,13 +129,11 @@ async fn handle(
     let session_data = match session_data_maybe {
         Some(x) => {
             println!("There is something here in session data");
-            x.clone()
+            x.duplicate()
         },
         None => {
             println!("There is nothing here at session data");
-            SessionContents { id: 0,
-		user: "".to_string(),
-		passhash: "".to_string()}
+            T::new()
         },
     };
 
@@ -198,10 +194,10 @@ async fn handle(
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
-pub async fn webserver(hc: HttpContext,
+pub async fn webserver<T:'static + Clone + Buildable + Send>(hc: HttpContext<T>,
 	http_port: u16) {
     // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([127, 0, 0, 1], http_port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(move |conn: &AddrStream| {

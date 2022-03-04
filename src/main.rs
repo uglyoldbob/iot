@@ -12,12 +12,34 @@ mod webserver;
 
 use crate::webserver::*;
 
-fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
+#[derive(Clone)]
+struct Session {
+    something: u32,
+    id: u32,
+    passhash: String,
+    user: String,
+}
+
+impl Buildable for Session {
+    fn new() -> Self {
+        Session {
+            something: 0,
+            id: 0,
+            passhash: "".to_string(),
+            user: "".to_string(),
+        }
+    }
+    fn duplicate(&self) -> Self {
+        self.clone()
+    }
+}
+
+fn test_func(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::Parts) -> Body {
     s.ourcookie = None;
     Body::from("this is a test".to_string())
 }
 
-fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
+fn main_page(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
     s.session.id = s.session.id+1;
     if s.post.contains_key("username") && s.post.contains_key("password") {
@@ -58,7 +80,7 @@ Welcome to the login page!
     Body::from(c)
 }
 
-fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
+fn main_redirect(s: &mut WebPageContext<Session>, bld: &mut hyper::http::response::Parts) -> Body {
     bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = format!("{}/main.rs", s.proxy.to_string());
     bld.headers.insert("Location",hyper::http::header::HeaderValue::from_str(&url).unwrap());
@@ -67,7 +89,7 @@ fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts)
 
 #[tokio::main]
 async fn main() {
-    let mut map : HashMap<String, Callback> = HashMap::new();
+    let mut map : HashMap<String, Callback<Session>> = HashMap::new();
     map.insert("/asdf".to_string(), test_func);
     map.insert("".to_string(), main_redirect);
     map.insert("/".to_string(), main_redirect);
