@@ -1,9 +1,8 @@
-use futures::{future, stream::{StreamExt, TryStreamExt}};
-use hyper::server::accept::{from_stream, Accept};
+use hyper::server::accept::Accept;
 use tokio_native_tls::native_tls::Identity;
 use std::net::SocketAddr;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_native_tls::TlsStream;

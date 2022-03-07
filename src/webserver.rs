@@ -224,10 +224,7 @@ pub async fn http_webserver<T:'static + Clone + Buildable + Send>(hc: HttpContex
 pub mod tls;
 use crate::webserver::tls::*;
 use hyper::server::conn::AddrIncoming;
-use std::future::ready;
-use tokio::net::TcpListener;
 use tls_listener::TlsListener;
-use std::io::{self, Read};
 
 pub async fn https_webserver<T:'static + Clone + Buildable + Send>
     (
@@ -263,5 +260,8 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
 
     let server = Server::builder(incoming).serve(make_service);
     println!("Listening on https://{}", addr);
+    if let Err(e) = server.await {
+        eprintln!("https server error: {}", e);
+    }
     Ok(())
 }
