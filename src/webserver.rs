@@ -194,7 +194,7 @@ async fn handle<T: Buildable + std::clone::Clone>(
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
-pub async fn webserver<T:'static + Clone + Buildable + Send>(hc: HttpContext<T>,
+pub async fn http_webserver<T:'static + Clone + Buildable + Send>(hc: HttpContext<T>,
 	http_port: u16) {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
@@ -221,3 +221,47 @@ pub async fn webserver<T:'static + Clone + Buildable + Send>(hc: HttpContext<T>,
     }
 }
 
+pub mod tls;
+use crate::webserver::tls::*;
+use hyper::server::conn::AddrIncoming;
+use std::future::ready;
+use tokio::net::TcpListener;
+use tls_listener::TlsListener;
+use std::io::{self, Read};
+
+pub async fn https_webserver<T:'static + Clone + Buildable + Send>
+    (
+    hc:HttpContext<T>, 
+    http_port: u16,
+    tls_config: TlsConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let addr = SocketAddr::from(([0,0,0,0], http_port));
+
+    let cert = load_private_key(&tls_config.key_file, &tls_config.key_password).unwrap(); 
+
+//    let incoming = TlsObject::new(cert,addr).await;
+      let incoming = TlsListener::new(tls_acceptor(cert), AddrIncoming::bind(&addr)?);
+/*          .filter(|conn| {
+        if let Err(err) = conn {
+            eprintln!("Error: {:?}", err);
+            ready(false)
+        } else {
+            ready(true)
+        }
+    });
+*/
+    // And a MakeService to handle each connection...
+    let make_service = make_service_fn(move |conn: &tokio_native_tls::TlsStream<AddrStream>| {
+        let context = hc.clone();
+        let addr = conn.get_ref().get_ref().get_ref().remote_addr();
+        async move {
+        Ok::<_, Infallible>(service_fn(move|req| {
+            let context = context.clone();
+            async move { 
+                    handle(context.clone(),addr,req).await}} ))
+        }
+    });
+
+    let server = Server::builder(incoming).serve(make_service);
+    println!("Listening on https://{}", addr);
+    Ok(())
+}

@@ -11,6 +11,7 @@ mod user;
 mod webserver;
 
 use crate::webserver::*;
+use crate::webserver::tls::*;
 
 #[derive(Clone)]
 struct Session {
@@ -141,12 +142,42 @@ async fn main() {
 
 //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
-    let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
-    println!("Listening on port {}", http_port);
+    let http_enable = match settings.get("http","enabled").unwrap().as_str() {
+        "yes" => true,
+        _ => false,
+    };
 
-    tokio::spawn(async move {
-	webserver(hc, http_port).await;
-	});
+    let https_enable = match settings.get("https","enabled").unwrap().as_str() {
+        "yes" => true,
+        _ => false,
+    };
+
+
+    if http_enable {
+        let http_port = settings.getint("http", "port").unwrap_or(None).unwrap_or(3001) as u16;
+        println!("Listening http on port {}", http_port);
+
+        let hc_http = hc.clone();
+        tokio::spawn(async move {
+        	http_webserver(hc_http, http_port).await;
+	    });
+
+    }
+
+    if https_enable {
+        let https_port = settings.getint("https", "port").unwrap_or(None).unwrap_or(3001) as u16;
+        println!("Listening https on port {}", https_port);
+
+        let tls_cert = settings.get("https","certificate").unwrap();
+        let tls_pass = settings.get("https","certpass").unwrap();
+        let tls = TlsConfig::new(tls_cert, tls_pass);
+
+        let hc_https = hc.clone();
+
+        tokio::spawn(async move {
+            https_webserver(hc_https, https_port, tls).await;
+        });
+    }
 
 	loop {
 		futures::select! {

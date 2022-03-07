@@ -13,10 +13,15 @@ rust-crypto = "0.2.36"
 rand = "0.8.4"
 time = "0.2.27"
 futures="0.3.19"
+tokio-native-tls = "0.3.0"
 
 [dependencies.cookie]
 version = "0.15.1"
 features = ["secure"]
+
+[dependencies.tls-listener]
+version = "0.4.0"
+features = ["native-tls", "hyper-h2"]
 
 [dependencies.tokio]
 version = "1.14.0"
@@ -24,4 +29,5 @@ features = ["full"]
 
 [dependencies.hyper]
 version = "0.14.16"
-features = ["tcp", "http1", "http2", "server"]
+features = ["tcp", "http1", "http2", "server", "stream"]
+
