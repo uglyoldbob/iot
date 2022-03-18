@@ -36,12 +36,16 @@ pub struct WebPageContext<T> {
     pub ourcookie: Option<String>,
     pub pool: mysql::PooledConn,
     pub session: T,
+    pub pc: Option<Certificate>
 }
+
+use tokio_native_tls::native_tls::Certificate;
 
 async fn handle<T: Buildable + std::clone::Clone>(
     context: HttpContext<T>,
     addr: SocketAddr,
-    req: Request<Body>
+    req: Request<Body>,
+    pc: Option<Certificate>
     ) -> Result<Response<Body>, Infallible> {
 
     let (rparts,body) = req.into_parts();
@@ -146,6 +150,7 @@ async fn handle<T: Buildable + std::clone::Clone>(
             ourcookie: ourcookie.clone(),
             pool: mysql,
             session: session_data,
+            pc: pc,
         };
 
     let body = if context.dirmap.contains_key(&fixed_path.to_string())
@@ -207,7 +212,7 @@ pub async fn http_webserver<T:'static + Clone + Buildable + Send>(hc: HttpContex
         Ok::<_, Infallible>(service_fn(move|req| {
             let context = context.clone();
             async move { 
-                    handle(context.clone(),addr,req).await}} ))
+                    handle(context.clone(),addr,req,None).await}} ))
         }
     });
 
@@ -250,12 +255,28 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(move |conn: &tokio_native_tls::TlsStream<AddrStream>| {
         let context = hc.clone();
-        let addr = conn.get_ref().get_ref().get_ref().remote_addr();
+        let con = conn.get_ref();
+        let peercert = con.peer_certificate();
+        let pc = if let Ok(s) = peercert {
+            if let Some(cert) = s {
+                Some(cert)
+            }
+            else
+            {
+                None
+            }
+        }
+        else
+        {
+            None
+        };
+        let addr = con.get_ref().get_ref().remote_addr();
         async move {
         Ok::<_, Infallible>(service_fn(move|req| {
             let context = context.clone();
+            let pc2 = pc.clone();
             async move { 
-                    handle(context.clone(),addr,req).await}} ))
+                    handle(context.clone(),addr,req,pc2).await}} ))
         }
     });
 

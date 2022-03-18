@@ -43,6 +43,9 @@ fn test_func(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::
 fn main_page(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
     s.session.id = s.session.id+1;
+    if let Some(pc) = &s.pc {
+        c.push_str("you have a certificate<br>");
+    }
     if s.post.contains_key("username") && s.post.contains_key("password") {
         let uname = &s.post["username"];
         let pass = &s.post["password"];
