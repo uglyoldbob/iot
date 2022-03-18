@@ -175,7 +175,10 @@ async fn main() {
         let hc_https = hc.clone();
 
         tokio::spawn(async move {
-            https_webserver(hc_https, https_port, tls).await;
+            if let Err(e) = https_webserver(hc_https, https_port, tls).await {
+                println!("https web server errored {}", e);
+            }
+
         });
     }
 

@@ -225,6 +225,8 @@ pub mod tls;
 use crate::webserver::tls::*;
 use hyper::server::conn::AddrIncoming;
 use tls_listener::TlsListener;
+use futures::StreamExt;
+use futures::future::ready;
 
 pub async fn https_webserver<T:'static + Clone + Buildable + Send>
     (
@@ -236,8 +238,7 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
     let cert = load_private_key(&tls_config.key_file, &tls_config.key_password).unwrap(); 
 
 //    let incoming = TlsObject::new(cert,addr).await;
-      let incoming = TlsListener::new(tls_acceptor(cert), AddrIncoming::bind(&addr)?);
-/*          .filter(|conn| {
+      let incoming = TlsListener::new(tls_acceptor(cert), AddrIncoming::bind(&addr)?)      .filter(|conn| {
         if let Err(err) = conn {
             eprintln!("Error: {:?}", err);
             ready(false)
@@ -245,7 +246,7 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
             ready(true)
         }
     });
-*/
+
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(move |conn: &tokio_native_tls::TlsStream<AddrStream>| {
         let context = hc.clone();
@@ -258,7 +259,7 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
         }
     });
 
-    let server = Server::builder(incoming).serve(make_service);
+    let server = Server::builder(hyper::server::accept::from_stream(incoming)).serve(make_service);
     println!("Listening on https://{}", addr);
     if let Err(e) = server.await {
         eprintln!("https server error: {}", e);

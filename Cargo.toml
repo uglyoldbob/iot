@@ -20,8 +20,9 @@ version = "0.15.1"
 features = ["secure"]
 
 [dependencies.tls-listener]
-version = "0.4.0"
+version = "0.4.1"
 features = ["native-tls", "hyper-h2"]
+#path="../tls-listener"
 
 [dependencies.tokio]
 version = "1.14.0"
