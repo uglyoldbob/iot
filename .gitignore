@@ -1,1 +1,16 @@
 target/*
+android/*.iml
+.gradle
+android/local.properties
+android/.idea/caches
+android/.idea/libraries
+android/.idea/modules.xml
+android/.idea/workspace.xml
+android/.idea/navEditor.xml
+android/.idea/assetWizardSettings.xml
+.DS_Store
+android/build
+android/captures
+.externalNativeBuild
+.cxx
+android/local.properties
