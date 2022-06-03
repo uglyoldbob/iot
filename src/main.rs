@@ -45,6 +45,8 @@ fn main_page(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::
     s.session.id = s.session.id+1;
     if let Some(pc) = &s.pc {
         c.push_str("you have a certificate<br>");
+        for n in pc.subject_name().entries() {
+        }
     }
     if s.post.contains_key("username") && s.post.contains_key("password") {
         let uname = &s.post["username"];
@@ -127,7 +129,7 @@ async fn main() {
     let mut hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
-        proxy: Some("/testing".to_string()),
+        proxy: None,
         cookiename: "rustcookie".to_string(),
         sess: Arc::new(Mutex::new(TtlCache::new(50))),
         pool: mysql_pool,
@@ -137,6 +139,7 @@ async fn main() {
     user::set_admin_login(&mut mysql_conn_s, &settings);
 
     hc.cookiename = settings.get("general","cookie").unwrap_or("rustcookie".to_string());
+    hc.proxy = Some(settings.get("general","proxy").unwrap_or("".to_string()));
     
     match &hc.proxy {
         Some(s) => println!("Using {} as the proxy path", s),

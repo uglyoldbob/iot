@@ -36,16 +36,16 @@ pub struct WebPageContext<T> {
     pub ourcookie: Option<String>,
     pub pool: mysql::PooledConn,
     pub session: T,
-    pub pc: Option<Certificate>
+    pub pc: Option<X509>
 }
 
-use tokio_native_tls::native_tls::Certificate;
+use openssl::x509::X509;
 
 async fn handle<T: Buildable + std::clone::Clone>(
     context: HttpContext<T>,
     addr: SocketAddr,
     req: Request<Body>,
-    pc: Option<Certificate>
+    pc: Option<X509>
     ) -> Result<Response<Body>, Infallible> {
 
     let (rparts,body) = req.into_parts();
@@ -259,7 +259,10 @@ pub async fn https_webserver<T:'static + Clone + Buildable + Send>
         let peercert = con.peer_certificate();
         let pc = if let Ok(s) = peercert {
             if let Some(cert) = s {
-                Some(cert)
+                let der = cert.to_der().unwrap();
+                let x509 : openssl::x509::X509 =
+                    openssl::x509::X509::from_der(&der).unwrap();
+                Some(x509)
             }
             else
             {

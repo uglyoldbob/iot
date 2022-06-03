@@ -1466,6 +1466,7 @@ dependencies = [
  "futures",
  "hyper",
  "mysql",
+ "openssl",
  "rand 0.8.5",
  "regex",
  "rust-crypto",
