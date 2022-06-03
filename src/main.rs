@@ -12,32 +12,54 @@ use crate::webserver::*;
 use crate::webserver::tls::*;
 
 fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
-    s.ourcookie = None;
+    s.logincookie = None;
     Body::from("this is a test".to_string())
 }
 
 fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
+
+    let mut logged_in = false;
+    let mut username: String = "".to_string();
     if let Some(pc) = &s.pc {
         c.push_str("you have a certificate<br>");
         for n in pc.subject_name().entries() {
         }
     }
+    if let Some(cookie) = &s.logincookie {
+        //lookup login cookie
+        let display = format!("Looking up username for {}", cookie);
+        c.push_str(&display);
+        let value = cookie.parse::<u64>();
+        if let Ok(value) = value {
+            let user = user::check_login_entry(&mut s.pool, value);
+            if let Some(user) = user {
+                let words = format!("Found username {}", user);
+                c.push_str(&words);
+                logged_in = true;
+                username = user;
+            }
+        }
+    }
     if s.post.contains_key("username") && s.post.contains_key("password") {
         let uname = &s.post["username"];
         let pass = &s.post["password"];
-	let useri = user::get_user_info(&mut s.pool, uname.to_string());
+    	let useri = user::get_user_info(&mut s.pool, uname.to_string());
         let login_pass = user::try_user_login2(
             &useri, pass.to_string());
         if login_pass {
             let useru = useri.unwrap();
+            let value = user::new_user_login(&mut s.pool, useru);
+            let print = format!("Login pass {}", value);
+            c.push_str(&print);
+            let cookieval = format!("{}", value);
+            s.logincookie = Some(cookieval);
         }
         else {
             //login failed because account does not exist
             c.push_str("Login fail");
         }
     }
-    let logged_in = false;
     /*user::try_user_hash(&mut s.pool, 
         s.session.user.to_owned(), 
         s.session.passhash.to_owned());*/
@@ -57,7 +79,7 @@ Welcome to the login page!
     {
         c.push_str("You are logged in</HTML>")
     }
-    if let Some(cookie) = &s.ourcookie {
+    if let Some(cookie) = &s.logincookie {
         c.push_str("You have a cookie");
     }
     else {
@@ -116,6 +138,7 @@ async fn main() {
     };
 
     user::check_user_table(&mut mysql_conn_s);
+    user::check_login_table(&mut mysql_conn_s);
     user::set_admin_login(&mut mysql_conn_s, &settings);
 
     hc.proxy = settings.get("general","proxy").unwrap_or("".to_string());

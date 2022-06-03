@@ -1,4 +1,5 @@
 use mysql::prelude::Queryable;
+use rand::{distributions::Alphanumeric, Rng};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct User {
@@ -29,15 +30,54 @@ fn make_user_table(conn: &mut mysql::PooledConn) {
     }
 }
 
+fn make_login_table(conn: &mut mysql::PooledConn) {
+    println!("Making the user login table");
+    let result = conn.query_drop("CREATE TABLE login (id BIGINT, username VARCHAR(255), PRIMARY KEY(id))");
+    if let Err(e) = result {
+        println!("Failed to create user login table {}", e);
+    }
+}
+
+
 pub fn check_user_table(conn: &mut mysql::PooledConn) {
     let r: Result<std::option::Option<mysql::Row>, mysql::Error> = conn.query_first("SELECT * FROM information_schema.tables WHERE table_schema = 'iot' AND table_name = 'users' LIMIT 1");
-    match r.unwrap() {
-        Some(_thing) => (),
-        None => {
-            make_user_table(conn);
-        },
-    };
+    if let None = r.unwrap() {
+        make_user_table(conn);
+    }
 }
+
+pub fn check_login_table(conn: &mut mysql::PooledConn) {
+    let r: Result<std::option::Option<mysql::Row>, mysql::Error> = conn.query_first("SELECT * FROM information_schema.tables WHERE table_schema = 'iot' AND table_name = 'login' LIMIT 1");
+    if let None = r.unwrap() {
+        make_login_table(conn);
+    }
+}
+
+pub fn check_login_entry(conn: &mut mysql::PooledConn, val: u64) -> Option<String> {
+    let query = "SELECT username FROM login WHERE id=? LIMIT 1";
+    let logintest = conn.exec_map(query, (val,),
+        |(username)| {
+            username
+        },
+        );
+    logintest.unwrap().pop()
+}
+
+pub fn new_user_login(conn: &mut mysql::PooledConn, user: User) -> u64 {
+    let mut random: u64;
+    loop {
+        random = rand::thread_rng().gen::<u64>();
+        let random_fail = check_login_entry(conn, random);
+        let random_fail = if let Some(_asdf) = random_fail { true } else { false };
+        if !random_fail {
+          break;
+        }
+    }
+    conn.exec_drop("INSERT INTO login (id, username) VALUES(?, ?)", (random, user.username));
+    random
+}
+
+
 
 pub fn try_user_login2(userinfo: &Option<User>, pass: String) -> bool {
     match userinfo {

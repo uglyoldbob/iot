@@ -26,7 +26,7 @@ pub struct WebPageContext {
     pub proxy: String,
     pub post: HashMap<String, String>,
     get: HashMap<String, String>,
-    pub ourcookie: Option<String>,
+    pub logincookie: Option<String>,
     pub pool: mysql::PooledConn,
     pub pc: Option<X509>
 }
@@ -106,7 +106,7 @@ async fn handle(
 
     let ourcookie = if cookiemap.contains_key(&context.cookiename)
     {
-	let value  = &cookiemap[&context.cookiename];
+	    let value  = &cookiemap[&context.cookiename];
         Some(value.to_owned())
     }
     else
@@ -118,7 +118,7 @@ async fn handle(
             post: post_data,
             get: get_map,
             proxy: proxy.clone(),
-            ourcookie: ourcookie.clone(),
+            logincookie: ourcookie.clone(),
             pool: mysql,
             pc: pc,
         };
@@ -140,7 +140,7 @@ async fn handle(
 
     //this section expires the cookie if it needs to be deleted
     //and makes the contents empty
-    let sent_cookie = match p.ourcookie {
+    let sent_cookie = match p.logincookie {
         Some(ref x) => {
             let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, x)
                 .http_only(true)
