@@ -17,7 +17,21 @@ fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) ->
 }
 
 fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
-    let mut c : String = "<HTML>".to_string();
+    let mut c : String = "".to_string();
+
+    c.push_str(r#"
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+ <meta hett-equiv="content-type" content="text/html;charset=utf-8"/>
+ <title>Rust IOT Management Console</title>
+"#);
+    c.push_str(&format!("  <link href=\"{}/css/main.css\" rel=\"stylesheet\" type=\"text/css\" media=\"all\"/>", &s.proxy));
+    c.push_str(r#"
+</head>
+
+"#);
 
     let mut logged_in = false;
     let mut username: String = "".to_string();
@@ -28,14 +42,10 @@ fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) ->
     }
     if let Some(cookie) = &s.logincookie {
         //lookup login cookie
-        let display = format!("Looking up username for {}", cookie);
-        c.push_str(&display);
         let value = cookie.parse::<u64>();
         if let Ok(value) = value {
             let user = user::check_login_entry(&mut s.pool, value);
             if let Some(user) = user {
-                let words = format!("Found username {}", user);
-                c.push_str(&words);
                 logged_in = true;
                 username = user;
             }
@@ -77,13 +87,27 @@ Welcome to the login page!
     }
     else
     {
-        c.push_str("You are logged in</HTML>")
-    }
-    if let Some(cookie) = &s.logincookie {
-        c.push_str("You have a cookie");
-    }
-    else {
-        c.push_str("You do not have a cookie");
+        c.push_str("
+<table id=\"main-table\" border=\"0\" cellspacing=\"0\">
+ <tbody>
+  <tr>
+   <td id=\"header\" colspan=\"3\">
+    <!--[IF IE 7]>
+	<style>
+		div#header-div div.right-links{
+			position:absolute;
+		}
+	</style>
+    <![endif]-->
+    <div id=\"header-div\">
+     <div class=\"right-logo\">Management Console</div>
+    </div>
+   </td>
+  </tr>
+ </tbody>
+</table>
+You are logged in
+</HTML>")
     }
 //    s.ourcookie = None;
     Body::from(c)

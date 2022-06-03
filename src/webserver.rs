@@ -134,7 +134,10 @@ async fn handle(
         let file = fs::read_to_string(sys_path.clone());
         match file {
             Ok(c) => Body::from(c),
-            Err(_) => Body::from("Not found".to_string()),
+            Err(_) => {
+                response.status = hyper::StatusCode::NOT_FOUND;
+                Body::from("Not found".to_string())
+            }
         }
     };
 
