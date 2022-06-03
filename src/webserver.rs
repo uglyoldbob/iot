@@ -9,40 +9,32 @@ use std::sync::{Arc, Mutex};
 use std::fs;
 use regex::Regex;
 use cookie::Cookie;
-use ttl_cache::TtlCache;
 use rand::{distributions::Alphanumeric, Rng};
 
-pub trait Buildable {
-    fn new() -> Self;
-    fn duplicate(&self) -> Self;
-}
-
-pub type Callback<T> = fn(&mut WebPageContext<T>, &mut hyper::http::response::Parts) -> Body;
+pub type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Body;
 
 #[derive(Clone)]
-pub struct HttpContext<T> where T: Clone {
-    pub dirmap : HashMap<String, Callback<T>>,
+pub struct HttpContext {
+    pub dirmap : HashMap<String, Callback>,
     pub root: String,
     pub cookiename: String,
-    pub proxy: Option<String>,
-    pub sess: Arc<Mutex<TtlCache<String,T>>>, //to be something else actually useful
+    pub proxy: String,
     pub pool: mysql::Pool,
 }
 
-pub struct WebPageContext<T> {
+pub struct WebPageContext {
     pub proxy: String,
     pub post: HashMap<String, String>,
     get: HashMap<String, String>,
     pub ourcookie: Option<String>,
     pub pool: mysql::PooledConn,
-    pub session: T,
     pub pc: Option<X509>
 }
 
 use openssl::x509::X509;
 
-async fn handle<T: Buildable + std::clone::Clone>(
-    context: HttpContext<T>,
+async fn handle(
+    context: HttpContext,
     addr: SocketAddr,
     req: Request<Body>,
     pc: Option<X509>
@@ -77,7 +69,7 @@ async fn handle<T: Buildable + std::clone::Clone>(
 //    }
 
     let path = rparts.uri.path();
-    let proxy = context.proxy.unwrap_or("".to_string());
+    let proxy = context.proxy;
     let reg1 = format!("(^{})",proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
     let fixed_path = reg1.replace_all(&path, "");
@@ -119,37 +111,15 @@ async fn handle<T: Buildable + std::clone::Clone>(
     }
     else
     {
-        let newcookie: String = rand::thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(64)
-                .map(char::from)
-                .collect();
-        Some(newcookie.to_owned())
+        None
     };
-    let session_cache_mut = context.sess;
-    let session_cache = session_cache_mut.lock().unwrap();
-    //determine if the session data exists
-    let session_data_maybe = session_cache.get(&ourcookie.as_ref().unwrap().to_owned());
-    let session_data = match session_data_maybe {
-        Some(x) => {
-            println!("There is something here in session data");
-            x.duplicate()
-        },
-        None => {
-            println!("There is nothing here at session data");
-            T::new()
-        },
-    };
-
-    drop(session_cache);
 
     let mut p = WebPageContext {
             post: post_data,
             get: get_map,
-            proxy: proxy,
+            proxy: proxy.clone(),
             ourcookie: ourcookie.clone(),
             pool: mysql,
-            session: session_data,
             pc: pc,
         };
 
@@ -168,17 +138,13 @@ async fn handle<T: Buildable + std::clone::Clone>(
         }
     };
 
-    let mut session_lock2 = session_cache_mut.lock().unwrap();
-    let index = &ourcookie.clone().unwrap();
-    session_lock2.insert(index.to_owned(), p.session, std::time::Duration::from_secs(1440));
-    drop(session_lock2);
-
     //this section expires the cookie if it needs to be deleted
     //and makes the contents empty
     let sent_cookie = match p.ourcookie {
         Some(ref x) => {
             let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, x)
                 .http_only(true)
+                .path(proxy)
                 .same_site(cookie::SameSite::Strict)
                 .finish();
             testcookie
@@ -186,6 +152,7 @@ async fn handle<T: Buildable + std::clone::Clone>(
         None => {
             let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, "")
                 .http_only(true)
+                .path(proxy)
                 .expires(time::OffsetDateTime::unix_epoch())
                 .same_site(cookie::SameSite::Strict)
                 .finish();
@@ -199,7 +166,7 @@ async fn handle<T: Buildable + std::clone::Clone>(
     Ok(hyper::http::Response::from_parts(response,body))
 }
 
-pub async fn http_webserver<T:'static + Clone + Buildable + Send>(hc: HttpContext<T>,
+pub async fn http_webserver(hc: HttpContext,
 	http_port: u16) {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
@@ -233,9 +200,9 @@ use tls_listener::TlsListener;
 use futures::StreamExt;
 use futures::future::ready;
 
-pub async fn https_webserver<T:'static + Clone + Buildable + Send>
+pub async fn https_webserver
     (
-    hc:HttpContext<T>, 
+    hc:HttpContext, 
     http_port: u16,
     tls_config: TlsConfig) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0,0,0,0], http_port));

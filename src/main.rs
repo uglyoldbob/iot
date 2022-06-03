@@ -1,9 +1,7 @@
 use hyper::Body;
 use std::collections::HashMap;
 
-use std::sync::{Arc, Mutex};
 use std::fs;
-use ttl_cache::TtlCache;
 
 use futures::FutureExt;
 
@@ -13,36 +11,13 @@ mod webserver;
 use crate::webserver::*;
 use crate::webserver::tls::*;
 
-#[derive(Clone)]
-struct Session {
-    something: u32,
-    id: u32,
-    passhash: String,
-    user: String,
-}
-
-impl Buildable for Session {
-    fn new() -> Self {
-        Session {
-            something: 0,
-            id: 0,
-            passhash: "".to_string(),
-            user: "".to_string(),
-        }
-    }
-    fn duplicate(&self) -> Self {
-        self.clone()
-    }
-}
-
-fn test_func(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::Parts) -> Body {
+fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     s.ourcookie = None;
     Body::from("this is a test".to_string())
 }
 
-fn main_page(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::Parts) -> Body {
+fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> Body {
     let mut c : String = "<HTML>".to_string();
-    s.session.id = s.session.id+1;
     if let Some(pc) = &s.pc {
         c.push_str("you have a certificate<br>");
         for n in pc.subject_name().entries() {
@@ -56,17 +31,16 @@ fn main_page(s: &mut WebPageContext<Session>, _bld: &mut hyper::http::response::
             &useri, pass.to_string());
         if login_pass {
             let useru = useri.unwrap();
-            s.session.user = useru.username;
-            s.session.passhash = useru.hash;
         }
         else {
             //login failed because account does not exist
             c.push_str("Login fail");
         }
     }
-    let logged_in = user::try_user_hash(&mut s.pool, 
+    let logged_in = false;
+    /*user::try_user_hash(&mut s.pool, 
         s.session.user.to_owned(), 
-        s.session.passhash.to_owned());
+        s.session.passhash.to_owned());*/
     if !logged_in {
     c.push_str("
 Welcome to the login page!
@@ -83,10 +57,17 @@ Welcome to the login page!
     {
         c.push_str("You are logged in</HTML>")
     }
+    if let Some(cookie) = &s.ourcookie {
+        c.push_str("You have a cookie");
+    }
+    else {
+        c.push_str("You do not have a cookie");
+    }
+//    s.ourcookie = None;
     Body::from(c)
 }
 
-fn main_redirect(s: &mut WebPageContext<Session>, bld: &mut hyper::http::response::Parts) -> Body {
+fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> Body {
     bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = format!("{}/main.rs", s.proxy.to_string());
     bld.headers.insert("Location",hyper::http::header::HeaderValue::from_str(&url).unwrap());
@@ -95,7 +76,7 @@ fn main_redirect(s: &mut WebPageContext<Session>, bld: &mut hyper::http::respons
 
 #[tokio::main]
 async fn main() {
-    let mut map : HashMap<String, Callback<Session>> = HashMap::new();
+    let mut map : HashMap<String, Callback> = HashMap::new();
     map.insert("/asdf".to_string(), test_func);
     map.insert("".to_string(), main_redirect);
     map.insert("/".to_string(), main_redirect);
@@ -129,22 +110,23 @@ async fn main() {
     let mut hc = HttpContext {
         dirmap: map.clone(),
         root: ".".to_string(),
-        proxy: None,
+        proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),
-        sess: Arc::new(Mutex::new(TtlCache::new(50))),
         pool: mysql_pool,
     };
 
     user::check_user_table(&mut mysql_conn_s);
     user::set_admin_login(&mut mysql_conn_s, &settings);
 
-    hc.cookiename = settings.get("general","cookie").unwrap_or("rustcookie".to_string());
-    hc.proxy = Some(settings.get("general","proxy").unwrap_or("".to_string()));
-    
-    match &hc.proxy {
-        Some(s) => println!("Using {} as the proxy path", s),
-        None => println!("Not using a proxy path"),
+    hc.proxy = settings.get("general","proxy").unwrap_or("".to_string());
+    hc.cookiename = format!("{}/{}", &hc.proxy,settings.get("general","cookie").unwrap_or("rustcookie".to_string()));
+
+    if hc.proxy.clone() != "".to_string() {
+        println!("Using {} as the proxy path", &hc.proxy);
+    } else {
+        println!("Not using a proxy path");
     }
+
 
 //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
