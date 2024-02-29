@@ -2,13 +2,17 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use cookie::Cookie;
 
-pub type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> u32;
+pub type Callback = fn(
+    &mut WebPageContext,
+    &mut hyper::http::response::Parts,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
 
 #[derive(Clone)]
 pub struct HttpContext {
@@ -30,7 +34,65 @@ pub struct WebPageContext {
 
 use openssl::x509::X509;
 
-async fn handle(
+struct WebService<F, R, C> {
+    context: C,
+    addr: SocketAddr,
+    f: F,
+    _req: PhantomData<fn(C, SocketAddr, R)>,
+}
+
+impl<F, R, S, C> WebService<F, R, C>
+where
+    F: Fn(C, SocketAddr, Request<R>) -> S,
+    S: futures::Future,
+{
+    fn new(context: C, addr: SocketAddr, f: F) -> Self {
+        Self {
+            context,
+            addr,
+            f,
+            _req: PhantomData,
+        }
+    }
+}
+
+impl<F, R, C> Clone for WebService<F, R, C>
+where
+    F: Clone,
+    C: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            f: self.f.clone(),
+            context: self.context.clone(),
+            addr: self.addr.clone(),
+            _req: PhantomData,
+        }
+    }
+}
+
+impl<C, F, ReqBody, Ret, ResBody, E> hyper::service::Service<Request<ReqBody>>
+    for WebService<F, ReqBody, C>
+where
+    F: Fn(C, SocketAddr, Request<ReqBody>) -> Ret,
+    C: Clone,
+    Ret: futures::Future<Output = Result<Response<ResBody>, E>>,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    ResBody: hyper::body::Body,
+{
+    type Response = Response<ResBody>;
+    type Error = E;
+    type Future = Ret;
+
+    fn call(&self, req: Request<ReqBody>) -> Self::Future {
+        (self.f)(self.context.clone(), self.addr, req)
+    }
+}
+
+/// TODO Figure out how to pass a reference of an HttpContext instead of a clone of one
+async fn handle<'a>(
+    context: HttpContext,
+    addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
     let (rparts, body) = req.into_parts();
@@ -233,14 +295,17 @@ pub async fn http_webserver(hc: HttpContext, port: u16) -> Result<(), Box<dyn st
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
+    let webservice = WebService::new(hc, addr, handle);
+
     tokio::task::spawn(async move {
         println!("Rust-iot server is running");
         loop {
             let (stream, _addr) = listener.accept().await?;
             let io = TokioIo::new(stream);
+            let svc = webservice.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service_fn(handle))
+                    .serve_connection(io, svc)
                     .await
                 {
                     println!("Error serving connection: {:?}", err);
@@ -268,6 +333,8 @@ pub async fn https_webserver(
     let acc: tokio_native_tls::TlsAcceptor = acc.into();
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
+    let webservice = WebService::new(hc, addr, handle);
+
     tokio::task::spawn(async move {
         println!("Rust-iot https server is running?");
         loop {
@@ -278,9 +345,10 @@ pub async fn https_webserver(
             }
             let stream = stream.unwrap();
             let io = TokioIo::new(stream);
+            let svc = webservice.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service_fn(handle))
+                    .serve_connection(io, svc)
                     .await
                 {
                     println!("Error serving connection: {:?}", err);

@@ -10,12 +10,21 @@ mod webserver;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
-fn test_func(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> u32 {
+fn test_func(
+    s: &mut WebPageContext,
+    _bld: &mut hyper::http::response::Parts,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     s.logincookie = None;
-    42
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GROOT!"));
+    hyper::http::Response::from_parts(response, body)
 }
 
-fn main_page(s: &mut WebPageContext, _bld: &mut hyper::http::response::Parts) -> u32 {
+fn main_page(
+    s: &mut WebPageContext,
+    _bld: &mut hyper::http::response::Parts,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let mut c: String = "".to_string();
 
     c.push_str(r#"
@@ -122,19 +131,26 @@ You are logged in
         )
     }
     //    s.ourcookie = None;
-    //Body::from(c);
-    42
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(c));
+    hyper::http::Response::from_parts(response, body)
 }
 
-fn main_redirect(s: &mut WebPageContext, bld: &mut hyper::http::response::Parts) -> u32 {
+fn main_redirect(
+    s: &mut WebPageContext,
+    bld: &mut hyper::http::response::Parts,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = format!("{}/main.rs", s.proxy.to_string());
     bld.headers.insert(
         "Location",
         hyper::http::header::HeaderValue::from_str(&url).unwrap(),
     );
-    //Body::from("redirect goes here");
-    42
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
+    hyper::http::Response::from_parts(response, body)
 }
 
 #[tokio::main]
