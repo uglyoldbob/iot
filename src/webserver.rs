@@ -1,25 +1,22 @@
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use hyper::{Body, Request, Response, Server};
-use hyper::service::{make_service_fn, service_fn};
-use hyper::server::conn::AddrStream;
-use std::collections::HashMap;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use std::sync::{Arc, Mutex};
-use std::fs;
-use regex::Regex;
 use cookie::Cookie;
-use rand::{distributions::Alphanumeric, Rng};
 
-pub type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> Body;
+pub type Callback = fn(&mut WebPageContext, &mut hyper::http::response::Parts) -> u32;
 
 #[derive(Clone)]
 pub struct HttpContext {
-    pub dirmap : HashMap<String, Callback>,
+    pub dirmap: HashMap<String, Callback>,
     pub root: String,
     pub cookiename: String,
     pub proxy: String,
-    pub pool: mysql::Pool,
+    pub pool: Option<mysql::Pool>,
 }
 
 pub struct WebPageContext {
@@ -27,55 +24,22 @@ pub struct WebPageContext {
     pub post: HashMap<String, String>,
     get: HashMap<String, String>,
     pub logincookie: Option<String>,
-    pub pool: mysql::PooledConn,
-    pub pc: Option<X509>
+    pub pool: Option<mysql::PooledConn>,
+    pub pc: Option<X509>,
 }
 
 use openssl::x509::X509;
 
 async fn handle(
-    context: HttpContext,
-    addr: SocketAddr,
-    req: Request<Body>,
-    pc: Option<X509>
-    ) -> Result<Response<Body>, Infallible> {
-
-    let (rparts,body) = req.into_parts();
+    req: Request<hyper::body::Incoming>,
+) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
+    let (rparts, body) = req.into_parts();
 
     let mut post_data = HashMap::new();
-    let body_data = hyper::body::to_bytes(body).await;
-    let body_data = body_data.unwrap();
-    let body_data = std::str::from_utf8(&body_data);
-    let body_parts = body_data.unwrap().split("&");
-    for bel in body_parts {
-        let mut ele_split = bel.split("=").take(2);
-            let i1 = ele_split.next().unwrap_or_default();
-            let i2 = ele_split.next().unwrap_or_default();
-            post_data.insert(i1.to_owned(), i2.to_owned());
-    }
+    // TODO collect post data
 
-    let get_data = rparts.uri.query().unwrap_or("");
-    let get_split = get_data.split("&");
     let mut get_map = HashMap::new();
-    for get_elem in get_split {
-        let mut ele_split = get_elem.split("=").take(2);
-            let i1 = ele_split.next().unwrap_or_default();
-            let i2 = ele_split.next().unwrap_or_default();
-            get_map.insert(i1.to_owned(), i2.to_owned());
-    }
-
-//    for (k,v) in get_map.iter() {
-//        println!("GET: {} {}", k, v);
-//    }
-
-    let path = rparts.uri.path();
-    let proxy = context.proxy;
-    let reg1 = format!("(^{})",proxy);
-    let reg1 = Regex::new(&reg1[..]).unwrap();
-    let fixed_path = reg1.replace_all(&path, "");
-
-	println!("{} access {}", addr, fixed_path);
-    let sys_path = context.root + &fixed_path;
+    // TODO collect get data
 
     let hdrs = rparts.headers;
 
@@ -91,172 +55,240 @@ async fn handle(
         }
     }
 
-//    for (k, v) in cookiemap.iter() {
-//        println!("COOKIE {:?} {:?}", k, v);
-//    }
+    //    for (k, v) in cookiemap.iter() {
+    //        println!("COOKIE {:?} {:?}", k, v);
+    //    }
 
-//    for (key, value) in hdrs.iter() {
-//        println!(" {:?}: {:?}", key, value);
-//    }
-
-    let mysql = context.pool.get_conn().unwrap();
+    //    for (key, value) in hdrs.iter() {
+    //        println!(" {:?}: {:?}", key, value);
+    //    }
 
     let response = Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let ourcookie = if cookiemap.contains_key(&context.cookiename)
-    {
-	    let value  = &cookiemap[&context.cookiename];
-        Some(value.to_owned())
-    }
-    else
-    {
-        None
-    };
+    let ourcookie = None;
 
     let mut p = WebPageContext {
-            post: post_data,
-            get: get_map,
-            proxy: proxy.clone(),
-            logincookie: ourcookie.clone(),
-            pool: mysql,
-            pc: pc,
-        };
-
-    let body = if context.dirmap.contains_key(&fixed_path.to_string())
-    {
-//        println!("script {} exists", &fixed_path.to_string());
-        let (_key,fun) = context.dirmap.get_key_value(&fixed_path.to_string()).unwrap();
-        fun(&mut p, &mut response)
-    }
-    else
-    {
-        let file = fs::read_to_string(sys_path.clone());
-        match file {
-            Ok(c) => Body::from(c),
-            Err(_) => {
-                response.status = hyper::StatusCode::NOT_FOUND;
-                Body::from("Not found".to_string())
-            }
-        }
+        post: post_data,
+        get: get_map,
+        proxy: "todo".to_string(),
+        logincookie: ourcookie.clone(),
+        pool: None,
+        pc: None,
     };
 
-    //this section expires the cookie if it needs to be deleted
-    //and makes the contents empty
-    let sent_cookie = match p.logincookie {
-        Some(ref x) => {
-            let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, x)
-                .http_only(true)
-                .path(proxy)
-                .same_site(cookie::SameSite::Strict)
-                .finish();
-            testcookie
-        },
-        None => {
-            let testcookie: cookie::Cookie = cookie::Cookie::build(&context.cookiename, "")
-                .http_only(true)
-                .path(proxy)
-                .expires(time::OffsetDateTime::unix_epoch())
-                .same_site(cookie::SameSite::Strict)
-                .finish();
-            testcookie
-        },
-    };
-    
-    response.headers.append("Set-Cookie", hyper::http::header::HeaderValue::from_str(
-            &sent_cookie.to_string()).unwrap());
-    
-    Ok(hyper::http::Response::from_parts(response,body))
+    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am groot!"));
+    Ok(hyper::http::Response::from_parts(response, body))
 }
 
-pub async fn http_webserver(hc: HttpContext,
-	http_port: u16) {
-    // Construct our SocketAddr to listen on...
-    let addr = SocketAddr::from(([0, 0, 0, 0], http_port));
-
-    // And a MakeService to handle each connection...
-    let make_service = make_service_fn(move |conn: &AddrStream| {
-        let context = hc.clone();
-        let addr = conn.remote_addr();
-        async move {
-        Ok::<_, Infallible>(service_fn(move|req| {
-            let context = context.clone();
-            async move { 
-                    handle(context.clone(),addr,req,None).await}} ))
-        }
-    });
-
-    // Then bind and serve...
-   let server = Server::bind(&addr).serve(make_service);
-
-    println!("Rust-iot server is running");
-    // And run forever...
-    if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
+pin_project_lite::pin_project! {
+    #[derive(Debug)]
+    struct TokioIo<T> {
+        #[pin]
+        inner: T,
     }
+}
+
+impl<T> TokioIo<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner }
+    }
+
+    pub fn inner(self) -> T {
+        self.inner
+    }
+}
+
+impl<T> hyper::rt::Read for TokioIo<T>
+where
+    T: tokio::io::AsyncRead,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        mut buf: hyper::rt::ReadBufCursor<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        let n = unsafe {
+            let mut tbuf = tokio::io::ReadBuf::uninit(buf.as_mut());
+            match tokio::io::AsyncRead::poll_read(self.project().inner, cx, &mut tbuf) {
+                Poll::Ready(Ok(())) => tbuf.filled().len(),
+                other => return other,
+            }
+        };
+
+        unsafe {
+            buf.advance(n);
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> hyper::rt::Write for TokioIo<T>
+where
+    T: tokio::io::AsyncWrite,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        tokio::io::AsyncWrite::poll_write(self.project().inner, cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+        tokio::io::AsyncWrite::poll_flush(self.project().inner, cx)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        tokio::io::AsyncWrite::poll_shutdown(self.project().inner, cx)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        tokio::io::AsyncWrite::is_write_vectored(&self.inner)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        tokio::io::AsyncWrite::poll_write_vectored(self.project().inner, cx, bufs)
+    }
+}
+
+impl<T> tokio::io::AsyncRead for TokioIo<T>
+where
+    T: hyper::rt::Read,
+{
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        tbuf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        //let init = tbuf.initialized().len();
+        let filled = tbuf.filled().len();
+        let sub_filled = unsafe {
+            let mut buf = hyper::rt::ReadBuf::uninit(tbuf.unfilled_mut());
+
+            match hyper::rt::Read::poll_read(self.project().inner, cx, buf.unfilled()) {
+                Poll::Ready(Ok(())) => buf.filled().len(),
+                other => return other,
+            }
+        };
+
+        let n_filled = filled + sub_filled;
+        // At least sub_filled bytes had to have been initialized.
+        let n_init = sub_filled;
+        unsafe {
+            tbuf.assume_init(n_init);
+            tbuf.set_filled(n_filled);
+        }
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<T> tokio::io::AsyncWrite for TokioIo<T>
+where
+    T: hyper::rt::Write,
+{
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        hyper::rt::Write::poll_write(self.project().inner, cx, buf)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
+        hyper::rt::Write::poll_flush(self.project().inner, cx)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        hyper::rt::Write::poll_shutdown(self.project().inner, cx)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        hyper::rt::Write::is_write_vectored(&self.inner)
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        hyper::rt::Write::poll_write_vectored(self.project().inner, cx, bufs)
+    }
+}
+
+pub async fn http_webserver(hc: HttpContext, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    // Construct our SocketAddr to listen on...
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    tokio::task::spawn(async move {
+        println!("Rust-iot server is running");
+        loop {
+            let (stream, _addr) = listener.accept().await?;
+            let io = TokioIo::new(stream);
+            tokio::task::spawn(async move {
+                if let Err(err) = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, service_fn(handle))
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            });
+        }
+        Ok::<(), std::io::Error>(())
+    });
+    Ok(())
 }
 
 pub mod tls;
 use crate::webserver::tls::*;
-use hyper::server::conn::AddrIncoming;
-use tls_listener::TlsListener;
-use futures::StreamExt;
-use futures::future::ready;
 
-pub async fn https_webserver
-    (
-    hc:HttpContext, 
-    http_port: u16,
-    tls_config: TlsConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = SocketAddr::from(([0,0,0,0], http_port));
+pub async fn https_webserver(
+    hc: HttpContext,
+    port: u16,
+    tls_config: TlsConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = load_private_key(&tls_config.key_file, &tls_config.key_password).unwrap(); 
+    let cert = load_private_key(&tls_config.key_file, &tls_config.key_password)?;
 
-//    let incoming = TlsObject::new(cert,addr).await;
-      let incoming = TlsListener::new(tls_acceptor(cert), AddrIncoming::bind(&addr)?)      .filter(|conn| {
-        if let Err(err) = conn {
-            eprintln!("Error: {:?}", err);
-            ready(false)
-        } else {
-            ready(true)
+    let acc = tokio_native_tls::native_tls::TlsAcceptor::new(cert).unwrap();
+    let acc: tokio_native_tls::TlsAcceptor = acc.into();
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    tokio::task::spawn(async move {
+        println!("Rust-iot https server is running?");
+        loop {
+            let (stream, _addr) = listener.accept().await?;
+            let stream = acc.accept(stream).await;
+            if let Err(e) = stream {
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
+            }
+            let stream = stream.unwrap();
+            let io = TokioIo::new(stream);
+            tokio::task::spawn(async move {
+                if let Err(err) = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, service_fn(handle))
+                    .await
+                {
+                    println!("Error serving connection: {:?}", err);
+                }
+            });
         }
+        Ok::<(), std::io::Error>(())
     });
 
-    // And a MakeService to handle each connection...
-    let make_service = make_service_fn(move |conn: &tokio_native_tls::TlsStream<AddrStream>| {
-        let context = hc.clone();
-        let con = conn.get_ref();
-        let peercert = con.peer_certificate();
-        let pc = if let Ok(s) = peercert {
-            if let Some(cert) = s {
-                let der = cert.to_der().unwrap();
-                let x509 : openssl::x509::X509 =
-                    openssl::x509::X509::from_der(&der).unwrap();
-                Some(x509)
-            }
-            else
-            {
-                None
-            }
-        }
-        else
-        {
-            None
-        };
-        let addr = con.get_ref().get_ref().remote_addr();
-        async move {
-        Ok::<_, Infallible>(service_fn(move|req| {
-            let context = context.clone();
-            let pc2 = pc.clone();
-            async move { 
-                    handle(context.clone(),addr,req,pc2).await}} ))
-        }
-    });
-
-    let server = Server::builder(hyper::server::accept::from_stream(incoming)).serve(make_service);
-    println!("Listening on https://{}", addr);
-    if let Err(e) = server.await {
-        eprintln!("https server error: {}", e);
-    }
     Ok(())
 }

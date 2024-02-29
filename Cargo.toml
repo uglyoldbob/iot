@@ -2,33 +2,36 @@
 name = "rust-iot"
 version = "0.0.1"
 authors = ["Thomas Epperson"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-configparser = "3.0.0"
-regex = "1.5.4"
-mysql = "21.0.2"
-rust-crypto = "0.2.36"
-rand = "0.8.4"
-time = "0.2.27"
-futures="0.3.19"
-tokio-native-tls = "0.3.0"
-openssl = "0.10.38"
+configparser = "3.0.4"
+futures="0.3.30"
+http-body-util = "0.1.0"
+mysql = "24.0.0"
+openssl = "0.10.64"
+pin-project-lite = "0.2.13"
+rand = "0.8.5"
+regex = "1.10.3"
+scrypt = "0.11.0"
+time = "0.3.34"
+tokio-native-tls = "0.3.1"
 
 [dependencies.cookie]
-version = "0.15.1"
+version = "0.18.0"
 features = ["secure"]
 
+[dependencies.hyper]
+version = "1.2.0"
+features = ["http1", "http2", "server"]
+
 [dependencies.tls-listener]
-version = "0.4.1"
-features = ["native-tls", "hyper-h2"]
+version = "0.9.1"
+features = ["native-tls"]
 #path="../tls-listener"
 
 [dependencies.tokio]
-version = "1.14.0"
+version = "1.36.0"
 features = ["full"]
 
-[dependencies.hyper]
-version = "0.14.16"
-features = ["tcp", "http1", "http2", "server", "stream"]
 
