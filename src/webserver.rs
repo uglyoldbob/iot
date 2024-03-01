@@ -5,6 +5,7 @@ use std::convert::Infallible;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use cookie::Cookie;
@@ -37,12 +38,12 @@ struct WebService<F, R, C> {
     context: Arc<C>,
     addr: SocketAddr,
     f: F,
-    _req: PhantomData<fn(C, SocketAddr, R)>,
+    _req: PhantomData<fn(Arc<C>, SocketAddr, R)>,
 }
 
 impl<F, R, S, C> WebService<F, R, C>
 where
-    F: Fn(C, SocketAddr, Request<R>) -> S,
+    F: Fn(Arc<C>, SocketAddr, Request<R>) -> S,
     S: futures::Future,
 {
     fn new(context: Arc<C>, addr: SocketAddr, f: F) -> Self {
@@ -58,7 +59,6 @@ where
 impl<F, R, C> Clone for WebService<F, R, C>
 where
     F: Clone,
-    C: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -73,8 +73,7 @@ where
 impl<C, F, ReqBody, Ret, ResBody, E> hyper::service::Service<Request<ReqBody>>
     for WebService<F, ReqBody, C>
 where
-    F: Fn(C, SocketAddr, Request<ReqBody>) -> Ret,
-    C: Clone,
+    F: Fn(Arc<C>, SocketAddr, Request<ReqBody>) -> Ret,
     Ret: futures::Future<Output = Result<Response<ResBody>, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
     ResBody: hyper::body::Body,
@@ -288,7 +287,10 @@ where
     }
 }
 
-pub async fn http_webserver(hc: Arcc<HttpContext>, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn http_webserver(
+    hc: Arc<HttpContext>,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
