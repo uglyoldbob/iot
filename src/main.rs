@@ -239,6 +239,8 @@ async fn main() {
         _ => false,
     };
 
+    let hc = Arc::new(hc);
+
     if http_enable {
         let http_port = settings
             .getint("http", "port")

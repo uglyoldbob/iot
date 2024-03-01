@@ -14,7 +14,6 @@ pub type Callback = fn(
     &mut hyper::http::response::Parts,
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
 
-#[derive(Clone)]
 pub struct HttpContext {
     pub dirmap: HashMap<String, Callback>,
     pub root: String,
@@ -35,7 +34,7 @@ pub struct WebPageContext {
 use openssl::x509::X509;
 
 struct WebService<F, R, C> {
-    context: C,
+    context: Arc<C>,
     addr: SocketAddr,
     f: F,
     _req: PhantomData<fn(C, SocketAddr, R)>,
@@ -46,7 +45,7 @@ where
     F: Fn(C, SocketAddr, Request<R>) -> S,
     S: futures::Future,
 {
-    fn new(context: C, addr: SocketAddr, f: F) -> Self {
+    fn new(context: Arc<C>, addr: SocketAddr, f: F) -> Self {
         Self {
             context,
             addr,
@@ -91,7 +90,7 @@ where
 
 /// TODO Figure out how to pass a reference of an HttpContext instead of a clone of one
 async fn handle<'a>(
-    context: HttpContext,
+    context: Arc<HttpContext>,
     addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
@@ -289,7 +288,7 @@ where
     }
 }
 
-pub async fn http_webserver(hc: HttpContext, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn http_webserver(hc: Arcc<HttpContext>, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -321,7 +320,7 @@ pub mod tls;
 use crate::webserver::tls::*;
 
 pub async fn https_webserver(
-    hc: HttpContext,
+    hc: Arc<HttpContext>,
     port: u16,
     tls_config: TlsConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
