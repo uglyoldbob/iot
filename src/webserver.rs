@@ -1,5 +1,6 @@
 use hyper::service::service_fn;
-use hyper::{Request, Response};
+use hyper::{Request, Response, StatusCode};
+use regex::Regex;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::marker::PhantomData;
@@ -126,19 +127,51 @@ async fn handle<'a>(
     let response = Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let ourcookie = None;
+    let ourcookie = if cookiemap.contains_key(&context.cookiename) {
+        let value = &cookiemap[&context.cookiename];
+        Some(value.to_owned())
+    } else {
+        None
+    };
+
+    let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 
     let mut p = WebPageContext {
         post: post_data,
         get: get_map,
-        proxy: "todo".to_string(),
+        proxy: context.proxy.to_owned(),
         logincookie: ourcookie.clone(),
-        pool: None,
+        pool: mysql,
         pc: None,
     };
 
-    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am groot!"));
-    Ok(hyper::http::Response::from_parts(response, body))
+    let path = rparts.uri.path();
+    let proxy = &context.proxy;
+    let reg1 = format!("(^{})", proxy);
+    let reg1 = Regex::new(&reg1[..]).unwrap();
+    let fixed_path = reg1.replace_all(&path, "");
+    let sys_path = context.root.to_owned() + &fixed_path;
+
+    let body = if context.dirmap.contains_key(&fixed_path.to_string()) {
+        let (_key, fun) = context
+            .dirmap
+            .get_key_value(&fixed_path.to_string())
+            .unwrap();
+        fun(&mut p, &mut response)
+    } else {
+        let response = hyper::Response::new("dummy");
+        let (mut response, _) = response.into_parts();
+        let file = std::fs::read_to_string(sys_path.clone());
+        let body = match file {
+            Ok(c) => http_body_util::Full::new(hyper::body::Bytes::from(c)),
+            Err(_e) => {
+                response.status = StatusCode::NOT_FOUND;
+                http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+            }
+        };
+        hyper::http::Response::from_parts(response, body)
+    };
+    Ok(body)
 }
 
 pin_project_lite::pin_project! {
