@@ -171,6 +171,33 @@ async fn handle<'a>(
         };
         hyper::http::Response::from_parts(response, body)
     };
+
+    //this section expires the cookie if it needs to be deleted
+    //and makes the contents empty
+    let sent_cookie = match p.logincookie {
+        Some(ref x) => {
+            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&context.cookiename, x))
+                .http_only(true)
+                .path(proxy)
+                .same_site(cookie::SameSite::Strict);
+            testcookie
+        }
+        None => {
+            let testcookie: cookie::CookieBuilder =
+                cookie::Cookie::build((&context.cookiename, ""))
+                    .http_only(true)
+                    .path(proxy)
+                    .expires(time::OffsetDateTime::UNIX_EPOCH)
+                    .same_site(cookie::SameSite::Strict);
+            testcookie
+        }
+    };
+
+    response.headers.append(
+        "Set-Cookie",
+        hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()).unwrap(),
+    );
+
     Ok(body)
 }
 
