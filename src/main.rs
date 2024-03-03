@@ -2,6 +2,7 @@ use std::fs;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use hyper::StatusCode;
 
 mod user;
 mod webserver;
@@ -16,7 +17,15 @@ fn test_func(
     s.logincookie = None;
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
-    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GROOT!"));
+    let mut body = "".to_string();
+
+    if s.get.len() > 0 {
+        body = body + "GET ARGUMENTS\n";
+        for (key, val) in s.get.iter() {
+            body = body + key + ": " + val + "\n";
+        }
+    }
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(body));
     hyper::http::Response::from_parts(response, body)
 }
 

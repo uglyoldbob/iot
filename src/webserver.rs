@@ -26,7 +26,7 @@ pub struct HttpContext {
 pub struct WebPageContext {
     pub proxy: String,
     pub post: HashMap<String, String>,
-    get: HashMap<String, String>,
+    pub get: HashMap<String, String>,
     pub logincookie: Option<String>,
     pub pool: Option<mysql::PooledConn>,
     pub pc: Option<X509>,
