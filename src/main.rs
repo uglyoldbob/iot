@@ -190,14 +190,16 @@ fn main_redirect(
     s: &mut WebPageContext,
     bld: &mut hyper::http::response::Parts,
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
-    bld.status = hyper::http::StatusCode::from_u16(302).unwrap();
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = format!("{}/main.rs", s.proxy.to_string());
-    bld.headers.insert(
+    response.headers.insert(
         "Location",
         hyper::http::header::HeaderValue::from_str(&url).unwrap(),
     );
-    let response = hyper::Response::new("dummy");
-    let (mut response, _dummybody) = response.into_parts();
+
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
     hyper::http::Response::from_parts(response, body)
 }
