@@ -16,7 +16,7 @@ pub type Callback = fn(
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
 
 pub struct HttpContext {
-    pub dirmap: &'static phf::Map<&'static str, Callback>,
+    pub dirmap: HashMap<String, Callback>,
     pub root: String,
     pub cookiename: String,
     pub proxy: String,
@@ -151,7 +151,10 @@ async fn handle<'a>(
     let sys_path = context.root.to_owned() + &fixed_path;
 
     let body = if context.dirmap.contains_key(&fixed_path.to_string()) {
-        let fun = context.dirmap.get(&fixed_path.to_string()).unwrap();
+        let (_key, fun) = context
+            .dirmap
+            .get_key_value(&fixed_path.to_string())
+            .unwrap();
         fun(&mut p, &mut response)
     } else {
         let response = hyper::Response::new("dummy");

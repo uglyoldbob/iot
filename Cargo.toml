@@ -11,7 +11,6 @@ html = "0.6.3"
 http-body-util = "0.1.0"
 mysql = "24.0.0"
 openssl = "0.10.64"
-phf = { version = "0.11.2", features = ["macros"] }
 pin-project-lite = "0.2.13"
 rand = "0.8.5"
 regex = "1.10.3"

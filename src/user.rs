@@ -58,7 +58,7 @@ pub fn check_login_table(conn: &mut mysql::PooledConn) {
 
 pub fn check_login_entry(conn: &mut mysql::PooledConn, val: u64) -> Option<String> {
     let query = "SELECT username FROM login WHERE id=? LIMIT 1";
-    let logintest = conn.exec_map(query, (val,), |username| username);
+    let logintest = conn.exec_map(query, (val,), |(username)| username);
     logintest.unwrap().pop()
 }
 

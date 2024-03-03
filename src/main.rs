@@ -1,5 +1,6 @@
 //For the html crate
 #![recursion_limit = "512"]
+use std::collections::HashMap;
 
 use std::fs;
 use std::sync::Arc;
@@ -204,16 +205,14 @@ fn main_redirect(
     hyper::http::Response::from_parts(response, body)
 }
 
-static WEBMAP: phf::Map<&'static str, Callback> = phf::phf_map! {
-    "/asdf" => test_func,
-    "/test" => test_func2,
-    "" => main_redirect,
-    "/" => main_redirect,
-    "/main.rs" => main_page,
-};
-
 #[tokio::main]
 async fn main() {
+    let mut map: HashMap<String, Callback> = HashMap::new();
+    map.insert("/asdf".to_string(), test_func);
+    map.insert("".to_string(), main_redirect);
+    map.insert("/".to_string(), main_redirect);
+    map.insert("/main.rs".to_string(), main_page);
+
     let settings_file = fs::read_to_string("./settings.ini");
     let settings_con = match settings_file {
         Ok(con) => con,
@@ -252,7 +251,7 @@ async fn main() {
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
     let mut hc = HttpContext {
-        dirmap: &WEBMAP,
+        dirmap: map.clone(),
         root: ".".to_string(),
         proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),
