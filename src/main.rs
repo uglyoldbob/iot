@@ -16,17 +16,16 @@ fn test_func2(
     s: &mut WebPageContext,
     _bld: &mut hyper::http::response::Parts,
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
-    let html = html::root::Html::builder()
-        .head(|h| h)
-        .body(|b| {
-            b.ordered_list(|ol| {
-                for name in ["I", "am", "groot"] {
-                    ol.list_item(|li| li.text(name));
-                }
-                ol
-            })
+    let mut html = html::root::Html::builder();
+    html.head(|h| h).body(|b| {
+        b.ordered_list(|ol| {
+            for name in ["I", "am", "groot"] {
+                ol.list_item(|li| li.text(name));
+            }
+            ol
         })
-        .build();
+    });
+    let html = html.build();
 
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
@@ -38,18 +37,23 @@ fn test_func(
     s: &mut WebPageContext,
     _bld: &mut hyper::http::response::Parts,
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
-    s.logincookie = None;
-    let response = hyper::Response::new("dummy");
-    let (mut response, _dummybody) = response.into_parts();
-    let mut body = "".to_string();
-
-    if s.get.len() > 0 {
-        body = body + "GET ARGUMENTS\n";
-        for (key, val) in s.get.iter() {
-            body = body + key + ": " + val + "\n";
+    let mut html = html::root::Html::builder();
+    html.head(|h| h).body(|b| {
+        if s.get.len() > 0 {
+            b.ordered_list(|ol| {
+                for (a, b) in s.get.iter() {
+                    ol.list_item(|li| li.text(format!("{}: {}", a, b)));
+                }
+                ol
+            });
         }
-    }
-    let body = http_body_util::Full::new(hyper::body::Bytes::from(body));
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
     hyper::http::Response::from_parts(response, body)
 }
 
