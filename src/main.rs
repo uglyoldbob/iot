@@ -170,6 +170,19 @@ You are logged in
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(c));
+    hyper::http::Response::from_parts(response, body);
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        h.title(|t| t.text("Rust IOT Management Console"));
+        h
+    })
+    .body(|b| b);
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
     hyper::http::Response::from_parts(response, body)
 }
 
