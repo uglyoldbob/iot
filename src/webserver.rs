@@ -1,4 +1,3 @@
-use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use regex::Regex;
 use std::collections::HashMap;
@@ -97,10 +96,17 @@ async fn handle<'a>(
     let (rparts, body) = req.into_parts();
 
     let mut post_data = HashMap::new();
-    // TODO collect post data
+    // TODO collect post data from body
 
     let mut get_map = HashMap::new();
-    // TODO collect get data
+    let get_data = rparts.uri.query().unwrap_or("");
+    let get_split = get_data.split("&");
+    for get_elem in get_split {
+        let mut ele_split = get_elem.split("=").take(2);
+        let i1 = ele_split.next().unwrap_or_default();
+        let i2 = ele_split.next().unwrap_or_default();
+        get_map.insert(i1.to_owned(), i2.to_owned());
+    }
 
     let hdrs = rparts.headers;
 
@@ -115,14 +121,6 @@ async fn handle<'a>(
             cookiemap.insert(c1.to_owned(), c2.to_owned());
         }
     }
-
-    //    for (k, v) in cookiemap.iter() {
-    //        println!("COOKIE {:?} {:?}", k, v);
-    //    }
-
-    //    for (key, value) in hdrs.iter() {
-    //        println!(" {:?}: {:?}", key, value);
-    //    }
 
     let response = Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
