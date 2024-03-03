@@ -1,14 +1,38 @@
+//For the html crate
+#![recursion_limit = "512"]
+
 use std::fs;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use hyper::StatusCode;
 
 mod user;
 mod webserver;
 
 use crate::webserver::tls::*;
 use crate::webserver::*;
+
+fn test_func2(
+    s: &mut WebPageContext,
+    _bld: &mut hyper::http::response::Parts,
+) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+    let html = html::root::Html::builder()
+        .head(|h| h)
+        .body(|b| {
+            b.ordered_list(|ol| {
+                for name in ["I", "am", "groot"] {
+                    ol.list_item(|li| li.text(name));
+                }
+                ol
+            })
+        })
+        .build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    hyper::http::Response::from_parts(response, body)
+}
 
 fn test_func(
     s: &mut WebPageContext,
@@ -163,6 +187,7 @@ fn main_redirect(
 
 static WEBMAP: phf::Map<&'static str, Callback> = phf::phf_map! {
     "/asdf" => test_func,
+    "/test" => test_func2,
     "" => main_redirect,
     "/" => main_redirect,
     "/main.rs" => main_page,
