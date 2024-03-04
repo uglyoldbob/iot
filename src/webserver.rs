@@ -10,10 +10,8 @@ use std::task::{Context, Poll};
 
 use cookie::Cookie;
 
-pub type Callback = fn(
-    &mut WebPageContext,
-    &mut hyper::http::response::Parts,
-) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
+pub type Callback =
+    fn(&mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
 
 pub struct HttpContext {
     pub dirmap: HashMap<String, Callback>,
@@ -155,7 +153,7 @@ async fn handle<'a>(
             .dirmap
             .get_key_value(&fixed_path.to_string())
             .unwrap();
-        fun(&mut p, &mut response)
+        fun(&mut p)
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();

@@ -13,10 +13,7 @@ mod webserver;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
-fn test_func2(
-    s: &mut WebPageContext,
-    _bld: &mut hyper::http::response::Parts,
-) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+fn test_func2(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
         b.ordered_list(|ol| {
@@ -34,10 +31,7 @@ fn test_func2(
     hyper::http::Response::from_parts(response, body)
 }
 
-fn test_func(
-    s: &mut WebPageContext,
-    _bld: &mut hyper::http::response::Parts,
-) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+fn test_func(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
         if s.get.len() > 0 {
@@ -58,18 +52,12 @@ fn test_func(
     hyper::http::Response::from_parts(response, body)
 }
 
-fn main_page(
-    s: &mut WebPageContext,
-    _bld: &mut hyper::http::response::Parts,
-) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+fn main_page(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let mut c: String = "".to_string();
 
     let mut logged_in = false;
     let mut username: String = "".to_string();
-    if let Some(pc) = &s.pc {
-        c.push_str("you have a certificate<br>");
-        for n in pc.subject_name().entries() {}
-    }
+    if let Some(pc) = &s.pc {}
     if let Some(cookie) = &s.logincookie {
         //lookup login cookie
         let value = cookie.parse::<u64>();
@@ -168,7 +156,26 @@ You are logged in
         });
         h
     })
-    .body(|b| b);
+    .body(|b| {
+        if let Some(pc) = &s.pc {
+            b.text("You have a certificate");
+            for _n in pc.subject_name().entries() {}
+        }
+        if !logged_in {
+            b.form(|fb| {
+                fb.text("Username ")
+                    .input(|ib| ib.type_("text").id("username").name("username"))
+                    .line_break(|fb| fb)
+                    .text("Password ")
+                    .input(|ib| ib.type_("password").id("password").name("password"))
+                    .line_break(|fb| fb)
+                    .input(|ib| ib.type_("submit").value("Login").formmethod("post"))
+                    .line_break(|fb| fb)
+            });
+        } else {
+        }
+        b
+    });
     let html = html.build();
 
     let response = hyper::Response::new("dummy");
@@ -179,7 +186,6 @@ You are logged in
 
 fn main_redirect(
     s: &mut WebPageContext,
-    bld: &mut hyper::http::response::Parts,
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
