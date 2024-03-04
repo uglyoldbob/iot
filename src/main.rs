@@ -64,25 +64,6 @@ fn main_page(
 ) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
     let mut c: String = "".to_string();
 
-    c.push_str(r#"
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-
-<head>
- <meta hett-equiv="content-type" content="text/html;charset=utf-8"/>
- <title>Rust IOT Management Console</title>
-"#);
-    c.push_str(&format!(
-        "  <link href=\"{}/css/main.css\" rel=\"stylesheet\" type=\"text/css\" media=\"all\"/>",
-        &s.proxy
-    ));
-    c.push_str(
-        r#"
-</head>
-
-"#,
-    );
-
     let mut logged_in = false;
     let mut username: String = "".to_string();
     if let Some(pc) = &s.pc {
@@ -176,6 +157,15 @@ You are logged in
     let mut html = html::root::Html::builder();
     html.head(|h| {
         h.title(|t| t.text("Rust IOT Management Console"));
+        h.meta(|h| {
+            h.http_equiv("content-type")
+                .content("text/html;charset=utf-8")
+        });
+        h.link(|h| {
+            h.href(format!("{}/css/main.css", s.proxy))
+                .rel("stylesheet")
+                .media("all")
+        });
         h
     })
     .body(|b| b);
