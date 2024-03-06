@@ -1612,6 +1612,7 @@ dependencies = [
  "html",
  "http-body-util",
  "hyper",
+ "lazy_static",
  "mysql",
  "p12",
  "pem 3.0.3",

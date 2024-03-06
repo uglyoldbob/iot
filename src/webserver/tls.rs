@@ -8,6 +8,8 @@ use tokio_rustls::rustls::crypto::CryptoProvider;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
+use yasna::models::ObjectIdentifier;
+use yasna::ASN1Error;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -37,6 +39,36 @@ impl DecodePrivateKey for Pkcs8PrivateKey {
     }
 }
 
+fn as_oid(s: &'static [u64]) -> ObjectIdentifier {
+    ObjectIdentifier::from_slice(s)
+}
+
+lazy_static::lazy_static! {
+    static ref OID_DATA_CONTENT_TYPE: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
+    static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
+    static ref OID_FRIENDLY_NAME: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 20]);
+    static ref OID_LOCAL_KEY_ID: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 21]);
+    static ref OID_CERT_TYPE_X509_CERTIFICATE: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 1]);
+    static ref OID_CERT_TYPE_SDSI_CERTIFICATE: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 2]);
+    static ref OID_PBE_WITH_SHA_AND3_KEY_TRIPLE_DESCBC: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 3]);
+    static ref OID_SHA1: ObjectIdentifier = as_oid(&[1, 3, 14, 3, 2, 26]);
+    static ref OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 6]);
+    static ref OID_KEY_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 1]);
+    static ref OID_PKCS8_SHROUDED_KEY_BAG: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
+    static ref OID_CERT_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
+    static ref OID_CRL_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 4]);
+    static ref OID_SECRET_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 5]);
+    static ref OID_SAFE_CONTENTS_BAG: ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 6]);
+    static ref OID_NIST_SHA256: ObjectIdentifier = as_oid(&[2,16,840,1,101,3,4,2,1]);
+}
+
 #[derive(Debug)]
 struct EncryptedPkcs12 {
     pub encrypted: Vec<u8>,
@@ -49,9 +81,32 @@ impl EncryptedPkcs12 {
             println!("Version is {}", version);
             let thing1 = r.next().read_sequence(|r| {
                 let oid = r.next().read_oid()?;
-                println!("Oid is {}", oid);
-                Ok(oid)
+                println!("OID IS {:?}", oid);
+                if oid == *OID_DATA_CONTENT_TYPE {
+                    println!("Reading pkcs#7 data");
+                    let data = r
+                        .next()
+                        .read_tagged(yasna::Tag::context(0), |r| r.read_bytes())?;
+                    Ok(data)
+                } else {
+                    return Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
+                }
             })?;
+            let thing2 = r.next().read_sequence(|r| {
+                let a = r.next().read_sequence(|r| {
+                    r.next().read_sequence(|r| {
+                        let oid = r.next().read_oid()?;
+                        println!("oid 2 is {:?}", oid);
+                        if oid == *OID_NIST_SHA256 {
+                            println!("Reading sha256 nist data");
+                        }
+                        r.next().read_null()?;
+                        println!("Need to read octet string now");
+                        Ok(oid)
+                    })
+                });
+                a
+            });
             Ok(version)
         });
 
@@ -72,7 +127,7 @@ where
     let ec = yasna::parse_der(&certbytes, |reader| {
         println!("Mode is {:?}", reader.mode());
         let asdf = EncryptedPkcs12::parse(reader);
-        println!("Object identifier is {:?}", asdf);
+        println!("Pkcs12 object {:?}", asdf);
 
         Ok(asdf)
     })
