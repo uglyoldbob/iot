@@ -379,11 +379,7 @@ pub async fn https_webserver(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = tls::load_certificate(
-        &tls_config.key_file,
-        &tls_config.cert_file,
-        &tls_config.key_password,
-    )?;
+    let cert = tls::load_certificate(&tls_config.cert_file, &tls_config.key_password)?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr).await?;

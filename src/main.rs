@@ -306,10 +306,9 @@ async fn main() {
             .unwrap_or(3001) as u16;
         println!("Listening https on port {}", https_port);
 
-        let tls_key = settings.get("https", "key").unwrap();
-        let tls_pass = settings.get("https", "keypass").unwrap();
-        let tls_cert = settings.get("https", "cert").unwrap();
-        let tls = TlsConfig::new(tls_key, tls_pass, tls_cert);
+        let tls_pass = settings.get("https", "certpass").unwrap();
+        let tls_cert = settings.get("https", "certificate").unwrap();
+        let tls = TlsConfig::new(tls_cert, tls_pass);
 
         let hc_https = hc.clone();
 

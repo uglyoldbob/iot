@@ -12,17 +12,15 @@ use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 type Error = Box<dyn std::error::Error + 'static>;
 
 pub struct TlsConfig {
-    pub key_file: PathBuf,
-    pub key_password: String,
     pub cert_file: PathBuf,
+    pub key_password: String,
 }
 
 impl TlsConfig {
-    pub fn new<P: Into<PathBuf>, S: Into<String>>(key_file: P, pass: S, cert_file: P) -> Self {
+    pub fn new<P: Into<PathBuf>, S: Into<String>>(cert_file: P, pass: S) -> Self {
         TlsConfig {
-            key_file: key_file.into(),
-            key_password: pass.into(),
             cert_file: cert_file.into(),
+            key_password: pass.into(),
         }
     }
 }
@@ -39,18 +37,48 @@ impl DecodePrivateKey for Pkcs8PrivateKey {
     }
 }
 
-pub fn load_certificate<P>(keyfile: P, certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
+#[derive(Debug)]
+struct EncryptedPkcs12 {
+    pub encrypted: Vec<u8>,
+}
+
+impl EncryptedPkcs12 {
+    fn parse(reader: yasna::BERReader) -> Self {
+        let asdf = reader.read_sequence(|r| {
+            let version = r.next().read_u8()?;
+            println!("Version is {}", version);
+            let thing1 = r.next().read_sequence(|r| {
+                let oid = r.next().read_oid()?;
+                println!("Oid is {}", oid);
+                Ok(oid)
+            })?;
+            Ok(version)
+        });
+
+        Self {
+            encrypted: Vec::new(),
+        }
+    }
+}
+
+pub fn load_certificate<P>(certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
 where
     P: AsRef<Path>,
 {
-    let mut keybytes = vec![];
-    let mut key = File::open(&keyfile)?;
-    key.read_to_end(&mut keybytes)?;
-    let (asdf, fdsa) = pkcs8::SecretDocument::read_pem_file(keyfile).expect("Failed to open private key file");
-    println!("Private key : {}", asdf);
-    let pkcs8 = fdsa;
-    let private_bytes = pkcs8.as_bytes().to_owned();
-    let pkey = private_bytes.into();
+    let mut certbytes = vec![];
+    let mut certf = File::open(&certfile)?;
+    certf.read_to_end(&mut certbytes)?;
+
+    let ec = yasna::parse_der(&certbytes, |reader| {
+        println!("Mode is {:?}", reader.mode());
+        let asdf = EncryptedPkcs12::parse(reader);
+        println!("Object identifier is {:?}", asdf);
+
+        Ok(asdf)
+    })
+    .expect("Failed to parse certificate");
+    let ddata: &[u8] = [0, 1, 2].as_ref();
+    let pkey = ddata.into();
     let pkey = PrivateKeyDer::Pkcs8(pkey);
 
     let mut certbytes = vec![];
