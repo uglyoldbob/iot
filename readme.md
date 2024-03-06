@@ -9,4 +9,5 @@ openssl req -newkey rsa:2048 -keyout private.key -out server.csr
 (get the csr signed and get a certificate back)
 (save the received certificate as server.pem)
 openssl pkcs12 -export -in server.pem -inkey private.key -name ‘test-server’ -out keyStore.p12
+openssl pkcs8 -topk8 -in private.key -out server-pkcs8.key
 ```

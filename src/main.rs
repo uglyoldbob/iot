@@ -57,7 +57,6 @@ fn main_page(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyp
 
     let mut logged_in = false;
     let mut username: String = "".to_string();
-    if let Some(pc) = &s.pc {}
     if let Some(cookie) = &s.logincookie {
         //lookup login cookie
         let value = cookie.parse::<u64>();
@@ -157,10 +156,6 @@ You are logged in
         h
     })
     .body(|b| {
-        if let Some(pc) = &s.pc {
-            b.text("You have a certificate");
-            for _n in pc.subject_name().entries() {}
-        }
         if !logged_in {
             b.form(|fb| {
                 fb.text("Username ")
@@ -311,9 +306,10 @@ async fn main() {
             .unwrap_or(3001) as u16;
         println!("Listening https on port {}", https_port);
 
-        let tls_cert = settings.get("https", "certificate").unwrap();
-        let tls_pass = settings.get("https", "certpass").unwrap();
-        let tls = TlsConfig::new(tls_cert, tls_pass);
+        let tls_key = settings.get("https", "key").unwrap();
+        let tls_pass = settings.get("https", "keypass").unwrap();
+        let tls_cert = settings.get("https", "cert").unwrap();
+        let tls = TlsConfig::new(tls_key, tls_pass, tls_cert);
 
         let hc_https = hc.clone();
 

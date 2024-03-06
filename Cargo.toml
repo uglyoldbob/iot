@@ -9,14 +9,13 @@ configparser = "3.0.4"
 futures="0.3.30"
 html = "0.6.3"
 http-body-util = "0.1.0"
-mysql = "24.0.0"
-openssl = "0.10.64"
+pem = "3.0.3"
 pin-project-lite = "0.2.13"
 rand = "0.8.5"
 regex = "1.10.3"
 scrypt = "0.11.0"
 time = "0.3.34"
-tokio-native-tls = "0.3.1"
+tokio-rustls = "0.25.0"
 
 [dependencies.cookie]
 version = "0.18.0"
@@ -26,9 +25,18 @@ features = ["secure"]
 version = "1.2.0"
 features = ["http1", "http2", "server"]
 
+[dependencies.mysql]
+version = "24.0.0"
+default-features = false
+features = ["default-rustls"]
+
+[dependencies.pkcs8]
+version = "0.10.2"
+features = ["encryption", "pem", "std"]
+
 [dependencies.tls-listener]
 version = "0.9.1"
-features = ["native-tls"]
+features = ["rustls"]
 #path="../tls-listener"
 
 [dependencies.tokio]

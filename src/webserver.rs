@@ -27,10 +27,7 @@ pub struct WebPageContext {
     pub get: HashMap<String, String>,
     pub logincookie: Option<String>,
     pub pool: Option<mysql::PooledConn>,
-    pub pc: Option<X509>,
 }
-
-use openssl::x509::X509;
 
 struct WebService<F, R, C> {
     context: Arc<C>,
@@ -138,7 +135,6 @@ async fn handle<'a>(
         proxy: context.proxy.to_owned(),
         logincookie: ourcookie.clone(),
         pool: mysql,
-        pc: None,
     };
 
     let path = rparts.uri.path();
@@ -375,19 +371,21 @@ pub async fn http_webserver(
 }
 
 pub mod tls;
-use crate::webserver::tls::*;
 
 pub async fn https_webserver(
     hc: Arc<HttpContext>,
     port: u16,
-    tls_config: TlsConfig,
+    tls_config: tls::TlsConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = load_private_key(&tls_config.key_file, &tls_config.key_password)?;
+    let cert = tls::load_certificate(
+        &tls_config.key_file,
+        &tls_config.cert_file,
+        &tls_config.key_password,
+    )?;
 
-    let acc = tokio_native_tls::native_tls::TlsAcceptor::new(cert).unwrap();
-    let acc: tokio_native_tls::TlsAcceptor = acc.into();
+    let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     let webservice = WebService::new(hc, addr, handle);
@@ -401,24 +399,20 @@ pub async fn https_webserver(
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
             }
             let mut stream = stream.unwrap();
-            let cert = stream.get_mut().peer_certificate();
+            let (a, b) = stream.get_mut();
+            let cert = b.peer_certificates();
             match cert {
-                Ok(c) => {
-                    match c {
-                        Some(c) => {
-                            println!("Got a peer certificate");
-                            for e in c.to_der().unwrap().iter() {
-                                print!("{:X} ", e);
-                            }
-                            println!("");
+                Some(c) => {
+                    for cert in c {
+                        println!("Certificate: ");
+                        for b in cert.iter() {
+                            print!("{:X} ", b);
                         }
-                        None => {
-                            println!("No peer certificate");
-                        }
+                        println!("");
                     }
                 }
-                Err(e) => {
-                    println!("Error getting peer certificate {}", e.to_string());
+                None => {
+                    println!("No peer certificate");
                 }
             }
             let io = TokioIo::new(stream);
