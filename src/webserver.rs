@@ -400,7 +400,27 @@ pub async fn https_webserver(
             if let Err(e) = stream {
                 return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
             }
-            let stream = stream.unwrap();
+            let mut stream = stream.unwrap();
+            let cert = stream.get_mut().peer_certificate();
+            match cert {
+                Ok(c) => {
+                    match c {
+                        Some(c) => {
+                            println!("Got a peer certificate");
+                            for e in c.to_der().unwrap().iter() {
+                                print!("{:X} ", e);
+                            }
+                            println!("");
+                        }
+                        None => {
+                            println!("No peer certificate");
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Error getting peer certificate {}", e.to_string());
+                }
+            }
             let io = TokioIo::new(stream);
             let svc = webservice.clone();
             tokio::task::spawn(async move {
