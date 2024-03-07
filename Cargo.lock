@@ -1269,8 +1269,7 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 [[package]]
 name = "p12"
 version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4873306de53fe82e7e484df31e1e947d61514b6ea2ed6cd7b45d63006fd9224"
+source = "git+https://github.com/uglyoldbob/p12#f81cca165af767bd04ce3708b8a1824d0c674485"
 dependencies = [
  "cbc",
  "cipher",

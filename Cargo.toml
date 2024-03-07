@@ -11,7 +11,6 @@ html = "0.6.3"
 http-body-util = "0.1.0"
 lazy_static = "1.4.0"
 pem = "3.0.3"
-p12 = "0.6.3"
 pin-project-lite = "0.2.13"
 rand = "0.8.5"
 regex = "1.10.3"
@@ -32,6 +31,9 @@ features = ["http1", "http2", "server"]
 version = "24.0.0"
 default-features = false
 features = ["default-rustls"]
+
+[dependencies.p12]
+git = "https://github.com/uglyoldbob/p12"
 
 [dependencies.pkcs8]
 version = "0.10.2"

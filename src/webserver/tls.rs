@@ -27,18 +27,6 @@ impl TlsConfig {
     }
 }
 
-struct Pkcs8PrivateKey {
-    data: Vec<u8>,
-}
-
-impl DecodePrivateKey for Pkcs8PrivateKey {
-    fn from_pkcs8_der(bytes: &[u8]) -> pkcs8::Result<Self> {
-        Ok(Self {
-            data: Vec::from(bytes),
-        })
-    }
-}
-
 fn as_oid(s: &'static [u64]) -> ObjectIdentifier {
     ObjectIdentifier::from_slice(s)
 }
@@ -47,79 +35,6 @@ lazy_static::lazy_static! {
     static ref OID_DATA_CONTENT_TYPE: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
     static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
-    static ref OID_FRIENDLY_NAME: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 20]);
-    static ref OID_LOCAL_KEY_ID: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 9, 21]);
-    static ref OID_CERT_TYPE_X509_CERTIFICATE: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 1]);
-    static ref OID_CERT_TYPE_SDSI_CERTIFICATE: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 9, 22, 2]);
-    static ref OID_PBE_WITH_SHA_AND3_KEY_TRIPLE_DESCBC: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 3]);
-    static ref OID_SHA1: ObjectIdentifier = as_oid(&[1, 3, 14, 3, 2, 26]);
-    static ref OID_PBE_WITH_SHA1_AND40_BIT_RC2_CBC: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 6]);
-    static ref OID_KEY_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 1]);
-    static ref OID_PKCS8_SHROUDED_KEY_BAG: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
-    static ref OID_CERT_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
-    static ref OID_CRL_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 4]);
-    static ref OID_SECRET_BAG: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 5]);
-    static ref OID_SAFE_CONTENTS_BAG: ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 6]);
-    static ref OID_NIST_SHA256: ObjectIdentifier = as_oid(&[2,16,840,1,101,3,4,2,1]);
-}
-
-#[derive(Debug)]
-struct EncryptedPkcs12 {
-    pub encrypted: Vec<u8>,
-}
-
-impl EncryptedPkcs12 {
-    fn parse(reader: yasna::BERReader) -> Self {
-        let asdf = reader.read_sequence(|r| {
-            let version = r.next().read_u8()?;
-            println!("Version is {}", version);
-            let thing1 = r.next().read_sequence(|r| {
-                let oid = r.next().read_oid()?;
-                println!("OID IS {:?}", oid);
-                if oid == *OID_DATA_CONTENT_TYPE {
-                    println!("Reading pkcs#7 data");
-                    let data = r
-                        .next()
-                        .read_tagged(yasna::Tag::context(0), |r| r.read_bytes())?;
-                    Ok(data)
-                } else {
-                    return Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid));
-                }
-            })?;
-            let thing2 = r.next().read_sequence(|r| {
-                let a = r.next().read_sequence(|r| {
-                    let _fdsa = r.next().read_sequence(|r| {
-                        let oid = r.next().read_oid()?;
-                        println!("oid 2 is {:?}", oid);
-                        if oid == *OID_NIST_SHA256 {
-                            println!("Reading sha256 nist data");
-                            r.next().read_null().expect("Failed to read null");
-                            println!("Need to read octet string now");
-                            let data = r.next().read_bytes().expect("Failed to read octet string");
-                            println!("Private key data is {:?}", data);
-                        }
-                        Ok(oid)
-                    });
-                    let data2 = r.next().read_bytes()?;
-                    println!("data2 data is {:?}", data2);
-                    let intlast = r.next().read_u32()?;
-                    Ok(intlast)
-                });
-                a
-            });
-            Ok(version)
-        });
-
-        Self {
-            encrypted: Vec::new(),
-        }
-    }
 }
 
 pub fn load_certificate<P>(certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
@@ -137,19 +52,32 @@ where
     let thing1 = ec.version;
     println!("PFX version is {}", thing1);
     let thing2a = ec.auth_safe.oid();
-    let thing2 = ec.auth_safe.data(pass.as_bytes());
-    if let Some(thing2) = thing2 {
-        println!("PFX Data1 is {:?} {}:", thing2a, thing2.len());
-        for b in thing2.iter() {
-            print!("{:02X} ", b);
+    let thing2 = ec.safe_bags(pass);
+    match thing2 {
+        Err(e) => println!("Error with reading bags: {:?}", e),
+        Ok(thing2) => {
+            println!("PFX bags {}:", thing2.len());
+            for b in thing2.iter() {
+                let data = b.bag.other_bag_data().expect("Expected other bag data");
+                let oid = b.bag.oid();
+                if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
+                    println!("Decoding encrypted pkcs 7 data");
+                    todo!("Do the thing");
+                } else if oid == *OID_DATA_CONTENT_TYPE {
+                    println!("Decoding pkcs 7 data");
+                    todo!("Do the thing");
+                } else {
+                    println!("Unknown data {:?}", oid);
+                    todo!("Figure out what to do");
+                }
+            }
         }
-        println!("");
-        todo!("Parse contents of the data as asn.1 data");
     }
     let thing3 = ec.mac_data;
     if let Some(thing3) = thing3 {
         println!("PFX MAC data is {:?}", thing3);
     }
+    todo!("Parse the pfx data");
 
     let ddata: &[u8] = [0, 1, 2].as_ref();
     let pkey = ddata.into();
