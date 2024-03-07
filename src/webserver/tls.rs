@@ -94,16 +94,22 @@ impl EncryptedPkcs12 {
             })?;
             let thing2 = r.next().read_sequence(|r| {
                 let a = r.next().read_sequence(|r| {
-                    r.next().read_sequence(|r| {
+                    let _fdsa = r.next().read_sequence(|r| {
                         let oid = r.next().read_oid()?;
                         println!("oid 2 is {:?}", oid);
                         if oid == *OID_NIST_SHA256 {
                             println!("Reading sha256 nist data");
+                            r.next().read_null().expect("Failed to read null");
+                            println!("Need to read octet string now");
+                            let data = r.next().read_bytes().expect("Failed to read octet string");
+                            println!("Private key data is {:?}", data);
                         }
-                        r.next().read_null()?;
-                        println!("Need to read octet string now");
                         Ok(oid)
-                    })
+                    });
+                    let data2 = r.next().read_bytes()?;
+                    println!("data2 data is {:?}", data2);
+                    let intlast = r.next().read_u32()?;
+                    Ok(intlast)
                 });
                 a
             });
@@ -124,14 +130,27 @@ where
     let mut certf = File::open(&certfile)?;
     certf.read_to_end(&mut certbytes)?;
 
-    let ec = yasna::parse_der(&certbytes, |reader| {
-        println!("Mode is {:?}", reader.mode());
-        let asdf = EncryptedPkcs12::parse(reader);
-        println!("Pkcs12 object {:?}", asdf);
+    let ec = p12::PFX::parse(&certbytes).expect("Failed to parse certificate");
 
-        Ok(asdf)
-    })
-    .expect("Failed to parse certificate");
+    println!("Attempting to decode contents");
+
+    let thing1 = ec.version;
+    println!("PFX version is {}", thing1);
+    let thing2a = ec.auth_safe.oid();
+    let thing2 = ec.auth_safe.data(pass.as_bytes());
+    if let Some(thing2) = thing2 {
+        println!("PFX Data1 is {:?} {}:", thing2a, thing2.len());
+        for b in thing2.iter() {
+            print!("{:02X} ", b);
+        }
+        println!("");
+        todo!("Parse contents of the data as asn.1 data");
+    }
+    let thing3 = ec.mac_data;
+    if let Some(thing3) = thing3 {
+        println!("PFX MAC data is {:?}", thing3);
+    }
+
     let ddata: &[u8] = [0, 1, 2].as_ref();
     let pkey = ddata.into();
     let pkey = PrivateKeyDer::Pkcs8(pkey);
