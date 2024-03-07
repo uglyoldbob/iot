@@ -40,8 +40,10 @@ lazy_static::lazy_static! {
     static ref OID_DATA_CONTENT_TYPE: p12::yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
     static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: p12::yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
-    static ref OID_PKCS5_PBKDF2: p12::yasna::models::ObjectIdentifier =
+    static ref OID_PKCS5_PBES2: p12::yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 5, 12]);
+    static ref OID_PKCS5_PBKDF2: p12::yasna::models::ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 5, 13]);
     static ref OID_HMAC_SHA256: p12::yasna::models::ObjectIdentifier =
         as_oid(&[1,2,840,113_549,2,9]);
     static ref OID_AES_256_CBC: p12::yasna::models::ObjectIdentifier =
@@ -142,14 +144,60 @@ impl Pbes2Params {
 }
 
 #[derive(Debug)]
-struct Pkcs5Pbes2 {
+struct Pkcs12Pkcs7Data {}
+
+impl Pkcs12Pkcs7Data {
+    fn parse(data: &[u8], pass: &[u8]) -> Result<Self, ASN1Error> {
+        p12::yasna::parse_der(data, |r| {
+            let d = r.read_bytes()?;
+            let a = p12::yasna::parse_der(&d, |r| {
+                r.read_sequence(|r| {
+                    r.next().read_sequence(|r| {
+                        let oid = r.next().read_oid()?;
+                        println!("The oid is {:?}", oid);
+                        let data = r.next().read_tagged_der()?;
+                        println!("The tagged data is {:X?}", data);
+                        let pkey = p12::yasna::parse_der(data.value(), |r| {
+                            p12::SafeBagKind::parse(r, oid)
+                        })?;
+                        println!("The safebag is {:X?}", pkey);
+                        if let p12::SafeBagKind::Pkcs8ShroudedKeyBag(pkey) = pkey {
+                            if let p12::AlgorithmIdentifier::OtherAlg(pkey) =
+                                pkey.encryption_algorithm
+                            {
+                                if pkey.algorithm_type == *OID_PKCS5_PBES2 {
+                                    let pkey_data = pkey.params.unwrap();
+                                    println!("pkey other bag data is {:X?}", pkey_data);
+                                } else {
+                                    panic!("Unexpected oid");
+                                }
+                            }
+                        }
+
+                        let t = r.next().lookahead_tag()?;
+                        println!("The next tagb is {:?}", t);
+                        Ok(42)
+                    })?;
+                    let t = r.next().lookahead_tag()?;
+                    println!("The next taga is {:?}", t);
+                    Ok(42)
+                })?;
+                Ok(42)
+            })?;
+            Ok(Self {})
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Pkcs12Pkcs7EncryptedData {
     pw: p12::yasna::models::ObjectIdentifier,
     scheme: p12::yasna::models::ObjectIdentifier,
     params: Pbes2Params,
     data: Vec<u8>,
 }
 
-impl Pkcs5Pbes2 {
+impl Pkcs12Pkcs7EncryptedData {
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         p12::yasna::parse_der(data, |r| {
             let mut oid_pw = None;
@@ -277,11 +325,15 @@ where
         let oid = b.bag.oid();
         if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
             println!("Decoding encrypted pkcs 7 data");
-            let stuff = Pkcs5Pbes2::parse(&data).expect("Failed to read pbes2 data the first time");
+            let stuff = Pkcs12Pkcs7EncryptedData::parse(&data)
+                .expect("Failed to read pbes2 data the first time");
             let result = stuff.params.decrypt(stuff.data, pass.as_bytes());
             println!("Decryption result is {:?}", result);
         } else if oid == *OID_DATA_CONTENT_TYPE {
             println!("Decoding pkcs 7 data");
+            let stuff = Pkcs12Pkcs7Data::parse(&data, pass.as_bytes())
+                .expect("Failed to read regular data");
+            println!("The decoded data is {:?}", stuff);
             todo!("Do the thing");
         } else {
             println!("Unknown data {:?}", oid);
