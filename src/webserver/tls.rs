@@ -233,9 +233,11 @@ impl Pkcs5Pbes2 {
                     } else {
                         panic!("Unexpected oid");
                     }
-                    let a = r.next().read_der().expect("Could not read bytes here");
-                    data = a.clone();
-                    println!("Data is {}: {:X?}", a.len(), a);
+                    let a = r
+                        .next()
+                        .read_tagged_der()
+                        .expect("Could not read bytes here");
+                    data = a.value().to_vec();
                     Ok(42)
                 })?;
 
@@ -276,13 +278,8 @@ where
         if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
             println!("Decoding encrypted pkcs 7 data");
             let stuff = Pkcs5Pbes2::parse(&data).expect("Failed to read pbes2 data the first time");
-            println!("Stuff decoded is {:?}", stuff);
-            let result = stuff.params.decrypt(
-                vec![42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
-                pass.as_bytes(),
-            );
+            let result = stuff.params.decrypt(stuff.data, pass.as_bytes());
             println!("Decryption result is {:?}", result);
-            println!("Done reading stuff the first time");
         } else if oid == *OID_DATA_CONTENT_TYPE {
             println!("Decoding pkcs 7 data");
             todo!("Do the thing");
