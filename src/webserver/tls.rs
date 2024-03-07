@@ -52,6 +52,8 @@ lazy_static::lazy_static! {
         as_oid(&[1,2,840,113_549,1,9,20]);
     static ref OID_PKCS9_LOCAL_KEY_ID: p12::yasna::models::ObjectIdentifier =
         as_oid(&[1,2,840,113_549,1,9,21]);
+    static ref OID_SHA256: p12::yasna::models::ObjectIdentifier =
+        as_oid(&[2,16,840,1,101,3,4,2,1]);
     static ref OID2_DATA_CONTENT_TYPE: const_oid::ObjectIdentifier = as_oid2("1.2.840.113549.1.7.1");
 }
 
@@ -212,7 +214,7 @@ impl Pkcs5Pbes2 {
                     }
                     Ok(42)
                 })
-                .expect("Failed to read first sequence");
+                .expect("Failed to read sequence");
             let lparams = Pbes2Params::Pbes2Pbkdf2(lparams);
             params = lparams;
             Ok(42)
@@ -373,7 +375,6 @@ where
             let stuff = Pkcs12Pkcs7Data::parse(&data, pass.as_bytes())
                 .expect("Failed to read regular data");
             println!("The decoded data is {:?}", stuff);
-            todo!("Do the thing");
         } else {
             println!("Unknown data {:?}", oid);
             todo!("Figure out what to do");
@@ -382,6 +383,13 @@ where
     let thing3 = ec.mac_data;
     if let Some(thing3) = thing3 {
         println!("PFX MAC data is {:?}", thing3);
+        if let p12::AlgorithmIdentifier::OtherAlg(alg) = thing3.mac.digest_algorithm {
+            println!("Encryption oid is {:?}", alg.algorithm_type);
+            if alg.algorithm_type == *OID_SHA256 {
+                println!("Decrypting with sha-256?");
+                todo!("Decode the private key");
+            }
+        }
     }
     todo!("Parse the pfx data");
 
