@@ -284,6 +284,8 @@ async fn main() {
 
     let hc = Arc::new(hc);
 
+    let mut tasks = tokio::task::JoinSet::new();
+
     if http_enable {
         let http_port = settings
             .getint("http", "port")
@@ -292,7 +294,7 @@ async fn main() {
         println!("Listening http on port {}", http_port);
 
         let hc_http = hc.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             if let Err(e) = http_webserver(hc_http, http_port).await {
                 println!("https web server errored {}", e);
             }
@@ -312,7 +314,7 @@ async fn main() {
 
         let hc_https = hc.clone();
 
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             if let Err(e) = https_webserver(hc_https, https_port, tls).await {
                 println!("https web server errored {}", e);
             }
@@ -321,10 +323,15 @@ async fn main() {
 
     loop {
         futures::select! {
+            _ = tasks.join_next().fuse() => {
+                println!("A task exited, closing server");
+                break;
+            }
             _ = tokio::signal::ctrl_c().fuse() => {
                 break;
             }
         }
     }
-    println!("Ending the server");
+    println!("Ending the server in 5 seconds");
+    tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
 }

@@ -5,13 +5,17 @@ authors = ["Thomas Epperson"]
 edition = "2021"
 
 [dependencies]
+cms = "0.2.3"
 configparser = "3.0.4"
+const-oid = "0.9.6"
+der = "0.7.8"
 futures="0.3.30"
 html = "0.6.3"
 http-body-util = "0.1.0"
 lazy_static = "1.4.0"
 pem = "3.0.3"
 pin-project-lite = "0.2.13"
+pkcs5 = "0.7.1"
 rand = "0.8.5"
 regex = "1.10.3"
 scrypt = "0.11.0"

@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use pkcs8::DecodePrivateKey;
@@ -8,7 +9,6 @@ use tokio_rustls::rustls::crypto::CryptoProvider;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
-use yasna::models::ObjectIdentifier;
 use yasna::ASN1Error;
 
 type Error = Box<dyn std::error::Error + 'static>;
@@ -27,14 +27,56 @@ impl TlsConfig {
     }
 }
 
-fn as_oid(s: &'static [u64]) -> ObjectIdentifier {
-    ObjectIdentifier::from_slice(s)
+fn as_oid(s: &'static [u64]) -> yasna::models::ObjectIdentifier {
+    yasna::models::ObjectIdentifier::from_slice(s)
+}
+
+fn as_oid2(s: &'static str) -> const_oid::ObjectIdentifier {
+    const_oid::ObjectIdentifier::from_str(s).unwrap()
 }
 
 lazy_static::lazy_static! {
-    static ref OID_DATA_CONTENT_TYPE: ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
-    static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: ObjectIdentifier =
+    static ref OID_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
+    static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
+    static ref OID_PKCS5_PBKDF2: yasna::models::ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 5, 12]);
+    static ref OID2_DATA_CONTENT_TYPE: const_oid::ObjectIdentifier = as_oid2("1.2.840.113549.1.7.1");
+}
+
+struct Pkcs5Pbes2 {}
+
+impl Pkcs5Pbes2 {
+    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
+        yasna::parse_der(data, |r| {
+            r.read_sequence(|r| {
+                let oid = r.next().read_oid()?;
+                println!("OID in pbes2 is {:?}", oid);
+                let thing = if oid == *OID_PKCS5_PBKDF2 {
+                    r.next().read_sequence(|r| {
+                        let d1 = r.next().read_bytes()?;
+                        println!("PBKDF2 data1 is {:X?}", d1);
+                        let times = r.next().read_u32()?;
+                        println!("PBKDF2 times is {}", times);
+                        r.next().read_sequence(|r| {
+                            let oid = r.next().read_oid()?;
+                            println!("PBKDF2 digest is {:?}", oid);
+                            r.next().read_null();
+                            Ok(42)
+                        })?;
+                        Ok(42)
+                    })?;
+                    Ok(42)
+                } else {
+                    Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
+                };
+                thing.expect("Failed to read thing");
+                Ok(42)
+            })?;
+
+            Ok(Self {})
+        })
+    }
 }
 
 pub fn load_certificate<P>(certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
@@ -52,25 +94,47 @@ where
     let thing1 = ec.version;
     println!("PFX version is {}", thing1);
     let thing2a = ec.auth_safe.oid();
-    let thing2 = ec.safe_bags(pass);
-    match thing2 {
-        Err(e) => println!("Error with reading bags: {:?}", e),
-        Ok(thing2) => {
-            println!("PFX bags {}:", thing2.len());
-            for b in thing2.iter() {
-                let data = b.bag.other_bag_data().expect("Expected other bag data");
-                let oid = b.bag.oid();
-                if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
-                    println!("Decoding encrypted pkcs 7 data");
-                    todo!("Do the thing");
-                } else if oid == *OID_DATA_CONTENT_TYPE {
-                    println!("Decoding pkcs 7 data");
+    let thing2 = ec.safe_bags(pass).expect("Problem reading bags");
+    println!("PFX bags {}:", thing2.len());
+    for b in thing2.iter() {
+        let data = b.bag.other_bag_data().expect("Expected other bag data");
+        let oid = b.bag.oid();
+        if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
+            println!("Decoding encrypted pkcs 7 data");
+            use der::Decode;
+            let mut reader = der::SliceReader::new(&data).unwrap();
+            let ed: cms::encrypted_data::EncryptedData =
+                cms::encrypted_data::EncryptedData::decode(&mut reader)
+                    .expect("Failed to decode encrypted data");
+            if ed.enc_content_info.content_type == *OID2_DATA_CONTENT_TYPE {
+                println!("Need to decode some pkcs7 data");
+                if ed.enc_content_info.content_enc_alg.oid == pkcs5::pbes2::PBES2_OID {
+                    let parameters = ed.enc_content_info.content_enc_alg.parameters;
+                    println!("Need to decrypt with pkcs5 pbes2");
+                    if let Some(parameters) = parameters {
+                        println!("mystery: {:x?}", parameters);
+                        let parameters = Pkcs5Pbes2::parse(parameters.value())
+                            .expect("Failed to parse pbes2 parameters");
+                    }
+
                     todo!("Do the thing");
                 } else {
-                    println!("Unknown data {:?}", oid);
-                    todo!("Figure out what to do");
+                    println!(
+                        "Unexpected encryption algorithm: {:?}",
+                        ed.enc_content_info.content_enc_alg.oid
+                    );
+                    todo!("Figure out what to do here");
                 }
+            } else {
+                println!("Data {:?} is unexpected", ed.enc_content_info.content_type);
+                todo!("Figure out what to do here");
             }
+        } else if oid == *OID_DATA_CONTENT_TYPE {
+            println!("Decoding pkcs 7 data");
+            todo!("Do the thing");
+        } else {
+            println!("Unknown data {:?}", oid);
+            todo!("Figure out what to do");
         }
     }
     let thing3 = ec.mac_data;
