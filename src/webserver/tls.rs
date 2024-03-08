@@ -4,13 +4,16 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use yasna::ASN1Error;
+use p12::yasna;
+
+use der::{Encode, Reader};
 use pkcs5::pbes2::Pbkdf2Params;
 use pkcs8::DecodePrivateKey;
 use tokio_rustls::rustls::crypto::CryptoProvider;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
+use yasna::ASN1Error;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -76,6 +79,14 @@ impl HmacMethod {
             HmacMethod::Sha512 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha512,
         }
     }
+
+    fn from_oid(oid: yasna::models::ObjectIdentifier) -> Option<Self> {
+        if oid == *OID_HMAC_SHA256 {
+            Some(HmacMethod::Sha256)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -84,7 +95,6 @@ struct Pbes2Pbkdf2Params {
     count: u32,
     length: Option<u16>,
     method: HmacMethod,
-    scheme: EncryptionScheme,
 }
 
 #[derive(Debug)]
@@ -112,7 +122,6 @@ impl Pbes2Pbkdf2Params {
             count: 0,
             length: None,
             method: HmacMethod::Sha512,
-            scheme: EncryptionScheme::Unknown,
         }
     }
 
@@ -133,13 +142,13 @@ enum Pbes2Params {
 }
 
 impl Pbes2Params {
-    fn decrypt(&self, data: &Vec<u8>, password: &[u8]) -> Vec<u8> {
+    fn decrypt(&self, scheme: &EncryptionScheme, data: &Vec<u8>, password: &[u8]) -> Vec<u8> {
         match self {
             Pbes2Params::Pbes2Pbkdf2(p) => {
                 let pbkdf2 = p.to_pbkdf2_params();
                 let parameters = pkcs5::pbes2::Parameters {
                     kdf: pkcs5::pbes2::Kdf::Pbkdf2(pbkdf2),
-                    encryption: p.scheme.get_pbes2_scheme().unwrap(),
+                    encryption: scheme.get_pbes2_scheme().unwrap(),
                 };
                 parameters
                     .decrypt(password, data)
@@ -156,192 +165,72 @@ impl Pbes2Params {
 #[derive(Debug)]
 struct Pkcs5Pbes2 {
     params: Pbes2Params,
+    scheme: EncryptionScheme,
 }
 
 impl Pkcs5Pbes2 {
-    fn parse(data: &[u8], pass: &[u8]) -> Result<Self, ASN1Error> {
-        Ok(Self {
-            params: Pbes2Params::Unknown,
-        })
+    fn decrypt(&self, data: &Vec<u8>, password: &[u8]) -> Vec<u8> {
+        self.params.decrypt(&self.scheme, data, password)
     }
 
-    fn parse_from_reader_seq(r: &mut yasna::BERReaderSeq<'_, '_>) -> Result<Self, ASN1Error> {
+    fn parse_parameters(data: &[u8]) -> Result<Self, ASN1Error> {
         let mut params: Pbes2Params = Pbes2Params::Unknown;
-        r.next().read_sequence(|r| {
-            let mut lparams = Pbes2Pbkdf2Params::new();
-            r.next()
-                .read_sequence(|r| {
-                    let oid = r.next().read_oid().expect("Failed to read oid1");
-                    let thing = if oid == *OID_PKCS5_PBKDF2 {
-                        r.next()
-                            .read_sequence(|r| {
-                                let d1 = r.next().read_bytes().expect("Failed to read pbkdf2 salt");
-                                lparams.salt = d1.clone();
-                                let times =
-                                    r.next().read_u32().expect("Failed to read pbkdf2 times");
-                                lparams.count = times;
-                                r.next().read_sequence(|r| {
-                                    let oid =
-                                        r.next().read_oid().expect("Failed to read digest oid");
-                                    let hmac = if oid == *OID_HMAC_SHA256 {
-                                        HmacMethod::Sha256
-                                    } else {
-                                        panic!("Unknown digest algorithm {:?}", oid);
-                                    };
-                                    r.next().read_null().expect("Failed to read null in digest");
-                                    lparams.method = hmac;
-
-                                    Ok(oid)
-                                })
-                            })
-                            .expect("Failed to read stuff");
-                        Ok(42)
-                    } else {
-                        Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
-                    };
-                    thing.expect("Failed to read thing");
-                    Ok(42)
-                })
-                .expect("Failed to read first sequence");
-            r.next()
-                .read_sequence(|r| {
-                    let oid = r.next().read_oid()?;
-                    if oid == *OID_AES_256_CBC {
-                        let data = r.next().read_bytes()?;
-                        let mut data2: [u8; 16] = [0; 16];
-                        data2.copy_from_slice(&data[0..16]);
-                        lparams.scheme = EncryptionScheme::Aes256(data2);
-                    }
-                    Ok(42)
-                })
-                .expect("Failed to read sequence");
-            let lparams = Pbes2Params::Pbes2Pbkdf2(lparams);
-            params = lparams;
-            Ok(42)
-        })?;
-        Ok(Self { params })
-    }
-}
-
-#[derive(Debug)]
-struct Pkcs12Pkcs7Data {}
-
-impl Pkcs12Pkcs7Data {
-    fn parse(data: &[u8], pass: &[u8]) -> Result<Self, ASN1Error> {
-        yasna::parse_der(data, |r| {
-            let d = r.read_bytes()?;
-            let a = yasna::parse_der(&d, |r| {
-                r.read_sequence(|r| {
-                    r.next().read_sequence(|r| {
-                        let oid = r.next().read_oid()?;
-                        println!("The oid is {:?}", oid);
-                        let data = r.next().read_tagged_der()?;
-                        println!("The tagged data is {:X?}", data);
-                        let pkey = yasna::parse_der(data.value(), |r| {
-                            p12::SafeBagKind::parse(r, oid)
-                        })?;
-                        println!("The safebag is {:X?}", pkey);
-                        if let p12::SafeBagKind::Pkcs8ShroudedKeyBag(pkey) = pkey {
-                            if let p12::AlgorithmIdentifier::OtherAlg(pkey) =
-                                pkey.encryption_algorithm
-                            {
-                                if pkey.algorithm_type == *OID_PKCS5_PBES2 {
-                                    let pkey_data = pkey.params.unwrap();
-                                    println!("Decoding pbes2 data");
-                                    let stuff = Pkcs5Pbes2::parse(&pkey_data, pass)?;
-                                    println!("BAG STUFF IS {:X?}", stuff);
-                                } else {
-                                    panic!("Unexpected oid");
-                                }
-                            }
-                        }
-                        r.next().read_set_of(|r| {
-                            println!("About to read sequence in set");
-                            r.read_sequence(|r| {
-                                let oid = r.next().read_oid()?;
-                                println!("Set oid is {:?}", oid);
-                                if oid == *OID_PKCS9_LOCAL_KEY_ID {
-                                    r.next().read_set_of(|r| {
-                                        let d = r.read_bytes()?;
-                                        println!("Data from set local key id is {:X?}", d);
-                                        Ok(())
-                                    })?;
-                                } else if oid == *OID_PKCS9_FRIENDLY_NAME {
-                                    r.next().read_set_of(|r| {
-                                        let d = r.read_bmp_string()?;
-                                        println!("Data from friendly name is {}", d);
-                                        Ok(())
-                                    })?;
-                                }
-                                Ok(42)
-                            })?;
-                            Ok(())
-                        })?;
-                        Ok(42)
-                    })?;
-                    Ok(42)
-                })?;
-                Ok(42)
-            })?;
-            Ok(Self {})
-        })
-    }
-}
-
-#[derive(Debug)]
-struct Pkcs12Pkcs7EncryptedData {
-    pw: yasna::models::ObjectIdentifier,
-    params: Pbes2Params,
-    data: Vec<u8>,
-}
-
-impl Pkcs12Pkcs7EncryptedData {
-    fn decrypt(&self, pass: &[u8]) -> Option<Vec<u8>> {
-        Some(self.params.decrypt(&self.data, pass))
-    }
-
-    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
-        yasna::parse_der(data, |r| {
-            let mut oid_pw = None;
-            let mut params = None;
-            let mut data = Vec::new();
-            r.read_sequence(|r| {
-                let v = r.next().read_u8()?;
+        let mut scheme = EncryptionScheme::Unknown;
+        let d = yasna::parse_der(data, |r| {
+            r.read_multi(|r| {
                 r.next().read_sequence(|r| {
                     let oid = r.next().read_oid()?;
-                    if oid == *OID_DATA_CONTENT_TYPE {
+                    if oid == *OID_PKCS5_PBKDF2 {
+                        let mut lparams = Pbes2Pbkdf2Params::new();
                         r.next().read_sequence(|r| {
-                            let oid = r.next().read_oid()?;
-                            oid_pw = Some(oid.clone());
-                            if oid == *OID_PKCS5_PBES2 {
-                                let stuff = Pkcs5Pbes2::parse_from_reader_seq(r)?;
-                                println!("Decoded stuff is {:X?}", stuff);
-                                params = Some(stuff.params);
-                            }
+                            let data = r.next().read_bytes()?;
+                            lparams.salt = data.clone();
+                            let count = r.next().read_u32()?;
+                            lparams.count = count;
+                            println!("Count {} data {:X?}", count, data);
+                            r.next().read_sequence(|r| {
+                                let oid = r.next().read_oid()?;
+                                println!("The hmac is {:?}", oid);
+                                lparams.method = HmacMethod::from_oid(oid).unwrap();
+                                r.next().read_null()?;
+                                Ok(42)
+                            })?;
                             Ok(42)
                         })?;
+                        params = Pbes2Params::Pbes2Pbkdf2(lparams);
+                        Ok(42)
                     } else {
-                        panic!("Unexpected oid");
+                        panic!("Unknown algorithm: {:?}", oid);
                     }
-                    let a = r
-                        .next()
-                        .read_tagged_der()
-                        .expect("Could not read bytes here");
-                    data = a.value().to_vec();
+                })?;
+                r.next().read_sequence(|r| {
+                    let oid = r.next().read_oid()?;
+                    let data = r.next().read_bytes()?;
+                    if oid == *OID_AES_256_CBC {
+                        let mut d: [u8; 16] = [0; 16];
+                        d.copy_from_slice(&data);
+                        scheme = EncryptionScheme::Aes256(d);
+                    }
                     Ok(42)
                 })?;
-
-                Ok(42)
-            })
-            .expect("Failed to read tagged data");
-
-            Ok(Self {
-                pw: oid_pw.unwrap(),
-                params: params.unwrap(),
-                data,
-            })
-        })
+                let t = r.next().lookahead_tag();
+                Ok(())
+            })?;
+            Ok(42)
+        });
+        Ok(Self { params, scheme })
     }
+}
+
+fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error> {
+    let data = ec.auth_safe.data(pass).unwrap();
+    let safe_bags = yasna::parse_ber(&data, |r| r.collect_sequence_of(p12::SafeBag::parse))?;
+
+    let mut result = vec![];
+    for safe_bag in safe_bags.iter() {
+        result.push(safe_bag.to_owned())
+    }
+    Ok(result)
 }
 
 pub fn load_certificate<P>(certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
@@ -359,26 +248,29 @@ where
     let thing1 = ec.version;
     println!("PFX version is {}", thing1);
     let thing2a = ec.auth_safe.oid();
-    let thing2 = ec.safe_bags(pass).expect("Problem reading bags");
+    let thing2 = safe_bags(&ec, pass.as_bytes()).expect("Problem reading bags");
     println!("PFX bags {}:", thing2.len());
     for b in thing2.iter() {
+        use der::Decode;
         let data = b.bag.other_bag_data().expect("Expected other bag data");
-        let oid = b.bag.oid();
-        if oid == *OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE {
-            println!("Decoding encrypted pkcs 7 data");
-            let stuff = Pkcs12Pkcs7EncryptedData::parse(&data)
-                .expect("Failed to read pbes2 data the first time");
-            let result = stuff.decrypt(pass.as_bytes());
-            println!("Decryption result is {:X?}", result);
-        } else if oid == *OID_DATA_CONTENT_TYPE {
-            println!("Decoding pkcs 7 data");
-            let stuff = Pkcs12Pkcs7Data::parse(&data, pass.as_bytes())
-                .expect("Failed to read regular data");
-            println!("The decoded data is {:?}", stuff);
-        } else {
-            println!("Unknown data {:?}", oid);
-            todo!("Figure out what to do");
+        if let Ok(bag) = cms::encrypted_data::EncryptedData::from_der(&data) {
+            let algorithm = bag.enc_content_info.content_enc_alg;
+            let bag_data = bag.enc_content_info.encrypted_content.unwrap();
+            println!("Algorithm is {:?}", algorithm.oid);
+            if algorithm.oid == pkcs5::pbes2::PBES2_OID {
+                let a =
+                    Pkcs5Pbes2::parse_parameters(algorithm.parameters.unwrap().value()).unwrap();
+                let bdv = bag_data.into_bytes();
+                let decrypted = a.decrypt(&bdv, pass.as_bytes());
+                let decrypted_oid = bag.enc_content_info.content_type;
+                println!("Decrypted der data is {:?} {:X?}", decrypted_oid, decrypted);
+                for a in &decrypted {
+                    print!("{:02X}", a);
+                }
+                println!("");
+            }
         }
+        todo!("Parse with cms");
     }
     let thing3 = ec.mac_data;
     if let Some(thing3) = thing3 {
