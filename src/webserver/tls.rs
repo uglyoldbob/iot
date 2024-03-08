@@ -38,7 +38,7 @@ fn as_oid2(s: &'static str) -> const_oid::ObjectIdentifier {
 
 lazy_static::lazy_static! {
     static ref OID_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
-    static ref OID_ENCRYPTED_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier =
+    static ref OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
     static ref OID_PKCS5_PBES2: yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 5, 13]);
@@ -364,7 +364,7 @@ where
     for b in thing2.iter() {
         let data = b.bag.other_bag_data().expect("Expected other bag data");
         let oid = b.bag.oid();
-        if oid == *OID_ENCRYPTED_DATA_CONTENT_TYPE {
+        if oid == *OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE {
             println!("Decoding encrypted pkcs 7 data");
             let stuff = Pkcs12Pkcs7EncryptedData::parse(&data)
                 .expect("Failed to read pbes2 data the first time");
