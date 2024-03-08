@@ -175,52 +175,52 @@ impl Pkcs5Pbes2 {
         self.params.decrypt(&self.scheme, data, password)
     }
 
-    fn parse_parameters(data: &[u8]) -> Result<Self, ASN1Error> {
+    fn parse(r: yasna::BERReader) -> Result<Self, ASN1Error> {
         let mut params: Pbes2Params = Pbes2Params::Unknown;
         let mut scheme = EncryptionScheme::Unknown;
-        let d = yasna::parse_der(data, |r| {
-            r.read_multi(|r| {
-                r.next().read_sequence(|r| {
-                    let oid = r.next().read_oid()?;
-                    if oid == *OID_PKCS5_PBKDF2 {
-                        let mut lparams = Pbes2Pbkdf2Params::new();
+        r.read_multi(|r| {
+            r.next().read_sequence(|r| {
+                let oid = r.next().read_oid()?;
+                if oid == *OID_PKCS5_PBKDF2 {
+                    let mut lparams = Pbes2Pbkdf2Params::new();
+                    r.next().read_sequence(|r| {
+                        let data = r.next().read_bytes()?;
+                        lparams.salt = data.clone();
+                        let count = r.next().read_u32()?;
+                        lparams.count = count;
+                        println!("Count {} data {:X?}", count, data);
                         r.next().read_sequence(|r| {
-                            let data = r.next().read_bytes()?;
-                            lparams.salt = data.clone();
-                            let count = r.next().read_u32()?;
-                            lparams.count = count;
-                            println!("Count {} data {:X?}", count, data);
-                            r.next().read_sequence(|r| {
-                                let oid = r.next().read_oid()?;
-                                println!("The hmac is {:?}", oid);
-                                lparams.method = HmacMethod::from_oid(oid).unwrap();
-                                r.next().read_null()?;
-                                Ok(42)
-                            })?;
+                            let oid = r.next().read_oid()?;
+                            println!("The hmac is {:?}", oid);
+                            lparams.method = HmacMethod::from_oid(oid).unwrap();
+                            r.next().read_null()?;
                             Ok(42)
                         })?;
-                        params = Pbes2Params::Pbes2Pbkdf2(lparams);
                         Ok(42)
-                    } else {
-                        panic!("Unknown algorithm: {:?}", oid);
-                    }
-                })?;
-                r.next().read_sequence(|r| {
-                    let oid = r.next().read_oid()?;
-                    let data = r.next().read_bytes()?;
-                    if oid == *OID_AES_256_CBC {
-                        let mut d: [u8; 16] = [0; 16];
-                        d.copy_from_slice(&data);
-                        scheme = EncryptionScheme::Aes256(d);
-                    }
+                    })?;
+                    params = Pbes2Params::Pbes2Pbkdf2(lparams);
                     Ok(42)
-                })?;
-                let t = r.next().lookahead_tag();
-                Ok(())
+                } else {
+                    panic!("Unknown algorithm: {:?}", oid);
+                }
             })?;
-            Ok(42)
-        });
+            r.next().read_sequence(|r| {
+                let oid = r.next().read_oid()?;
+                let data = r.next().read_bytes()?;
+                if oid == *OID_AES_256_CBC {
+                    let mut d: [u8; 16] = [0; 16];
+                    d.copy_from_slice(&data);
+                    scheme = EncryptionScheme::Aes256(d);
+                }
+                Ok(42)
+            })?;
+            Ok(())
+        })?;
         Ok(Self { params, scheme })
+    }
+
+    fn parse_parameters(data: &[u8]) -> Result<Self, ASN1Error> {
+        yasna::parse_der(data, |r| Self::parse(r))
     }
 }
 
@@ -293,7 +293,21 @@ struct X509Request {
 impl X509Request {
     fn decrypt(&self, pass: &[u8]) -> Option<Vec<u8>> {
         if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
-            println!("Algorithm type is {:?}", o.algorithm_type);
+            if o.algorithm_type == *OID_PKCS5_PBES2 {
+                let data = o.params.as_ref().unwrap();
+                let p =
+                    yasna::parse_der(data, |r| r.read_sequence(|r| Pkcs5Pbes2::parse(r.next())))
+                        .expect("Failed to decode pbes2");
+                let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
+                println!("pkey is {}", pkey_der.len());
+                for b in pkey_der {
+                    print!("{:02X}", b);
+                }
+                println!("");
+                todo!("Parse the pkey_der as der data")
+            } else {
+                panic!("Unexpected algorithm type for private key");
+            }
         }
         None
     }
