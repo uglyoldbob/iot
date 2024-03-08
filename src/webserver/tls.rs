@@ -43,6 +43,8 @@ lazy_static::lazy_static! {
     static ref OID_PKCS7_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
     static ref OID_SHROUDED_KEY_BAG: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
     static ref OID_CERT_BAG: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
+    static ref OID_PKCS1_RSA_ENCRYPTION: yasna::models::ObjectIdentifier =
+        as_oid(&[1, 2, 840, 113_549, 1, 1, 1]);
     static ref OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
     static ref OID_PKCS5_PBES2: yasna::models::ObjectIdentifier =
@@ -286,12 +288,98 @@ impl PkiMessage {
 }
 
 #[derive(Debug)]
+struct X509RsaData {
+    v: u32,
+    bi1: num_bigint::BigUint,
+    exponent: u32,
+    bi2: num_bigint::BigUint,
+    bi3: num_bigint::BigUint,
+    bi4: num_bigint::BigUint,
+    bi5: num_bigint::BigUint,
+    bi6: num_bigint::BigUint,
+    bi7: num_bigint::BigUint,
+}
+
+impl X509RsaData {
+    fn new() -> Self {
+        Self {
+            v: 0,
+            bi1: num_bigint::BigUint::new(vec![0]),
+            exponent: 0,
+            bi2: num_bigint::BigUint::new(vec![0]),
+            bi3: num_bigint::BigUint::new(vec![0]),
+            bi4: num_bigint::BigUint::new(vec![0]),
+            bi5: num_bigint::BigUint::new(vec![0]),
+            bi6: num_bigint::BigUint::new(vec![0]),
+            bi7: num_bigint::BigUint::new(vec![0]),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum X509PrivateKeyType {
+    RSA(X509RsaData),
+}
+
+#[derive(Debug)]
+struct X509PrivateKey {
+    t: Option<X509PrivateKeyType>,
+}
+
+impl X509PrivateKey {
+    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
+        yasna::parse_der(data, |r| {
+            let mut key_type = None;
+            r.read_sequence(|r| {
+                let v = r.next().read_u32()?;
+                r.next().read_sequence(|r| {
+                    let oid = r.next().read_oid()?;
+                    println!("Parsing pkey {:?}", oid);
+                    if oid == *OID_PKCS1_RSA_ENCRYPTION {
+                        key_type = Some(X509PrivateKeyType::RSA(X509RsaData::new()));
+                        r.next().read_null()?;
+                    } else {
+                        panic!("Unsupported private key format {:?}", oid);
+                    }
+                    Ok(())
+                })?;
+                match key_type.as_mut().expect("Unable to read key type") {
+                    X509PrivateKeyType::RSA(d) => {
+                        let t = r.next().lookahead_tag();
+                        println!("Next tag is {:?}", t);
+                        let pkey = r.next().read_bytes()?;
+                        println!("Pkey is {:X?}", pkey);
+                        yasna::parse_der(&pkey, |r| {
+                            r.read_sequence(|r| {
+                                d.v = r.next().read_u32()?;
+                                d.bi1 = r.next().read_biguint()?;
+                                d.exponent = r.next().read_u32()?;
+                                d.bi2 = r.next().read_biguint()?;
+                                d.bi3 = r.next().read_biguint()?;
+                                d.bi4 = r.next().read_biguint()?;
+                                d.bi5 = r.next().read_biguint()?;
+                                d.bi6 = r.next().read_biguint()?;
+                                d.bi7 = r.next().read_biguint()?;
+                                Ok(())
+                            })?;
+                            Ok(())
+                        })?;
+                    }
+                }
+                Ok(())
+            })?;
+            Ok(Self { t: key_type })
+        })
+    }
+}
+
+#[derive(Debug)]
 struct X509Request {
     key: p12::EncryptedPrivateKeyInfo,
 }
 
 impl X509Request {
-    fn decrypt(&self, pass: &[u8]) -> Option<Vec<u8>> {
+    fn decrypt(&self, pass: &[u8]) -> Option<X509PrivateKey> {
         if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
             if o.algorithm_type == *OID_PKCS5_PBES2 {
                 let data = o.params.as_ref().unwrap();
@@ -300,11 +388,13 @@ impl X509Request {
                         .expect("Failed to decode pbes2");
                 let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
                 println!("pkey is {}", pkey_der.len());
-                for b in pkey_der {
+                for b in &pkey_der {
                     print!("{:02X}", b);
                 }
                 println!("");
-                todo!("Parse the pkey_der as der data")
+                let pkey =
+                    X509PrivateKey::parse(&pkey_der).expect("Failed to parse the private key");
+                return Some(pkey);
             } else {
                 panic!("Unexpected algorithm type for private key");
             }
@@ -439,6 +529,7 @@ where
         }
     }
     println!("Certificate is {:?}", certificate);
+    println!("Private key is {:?}", pkey);
     todo!("Convert to what is needed");
     let thing3 = ec.mac_data;
     if let Some(thing3) = thing3 {

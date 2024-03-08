@@ -1353,7 +1353,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "p12"
 version = "0.6.3"
-source = "git+https://github.com/uglyoldbob/p12.git#99ae4e7d28293331fe22bddfc66a9e3a023ade62"
+source = "git+https://github.com/uglyoldbob/p12.git#78b874766e825b6789fa5c007b016555240b6f98"
 dependencies = [
  "cbc",
  "cipher",
@@ -1755,6 +1755,7 @@ dependencies = [
  "hyper",
  "lazy_static",
  "mysql",
+ "num-bigint",
  "p12",
  "pem 3.0.3",
  "pin-project-lite",
@@ -2694,6 +2695,9 @@ dependencies = [
 name = "yasna"
 version = "0.5.2"
 source = "git+https://github.com/uglyoldbob/yasna.rs#478e46ee642df8abc39d8938d64a2ce57103df4e"
+dependencies = [
+ "num-bigint",
+]
 
 [[package]]
 name = "zerocopy"
