@@ -190,10 +190,8 @@ impl Pkcs5Pbes2 {
                         lparams.salt = data.clone();
                         let count = r.next().read_u32()?;
                         lparams.count = count;
-                        println!("Count {} data {:X?}", count, data);
                         r.next().read_sequence(|r| {
                             let oid = r.next().read_oid()?;
-                            println!("The hmac is {:?}", oid);
                             lparams.method = HmacMethod::from_oid(oid).unwrap();
                             r.next().read_null()?;
                             Ok(42)
@@ -229,9 +227,14 @@ impl Pkcs5Pbes2 {
 #[derive(Debug)]
 struct PkiMessage {
     cert: x509_cert::Certificate,
+    der: Vec<u8>,
 }
 
 impl PkiMessage {
+    fn get_der(&self) -> &Vec<u8> {
+        &self.der
+    }
+
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         let d = yasna::parse_der(data, |r| {
             r.read_sequence(|r| {
@@ -283,7 +286,10 @@ impl PkiMessage {
                 Ok(d)
             })
         })?;
-        Ok(Self { cert: d })
+        Ok(Self {
+            cert: d,
+            der: data.to_vec(),
+        })
     }
 }
 
@@ -324,9 +330,14 @@ enum X509PrivateKeyType {
 #[derive(Debug)]
 struct X509PrivateKey {
     t: Option<X509PrivateKeyType>,
+    der: Vec<u8>,
 }
 
 impl X509PrivateKey {
+    fn get_der(&self) -> &Vec<u8> {
+        &self.der
+    }
+
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         yasna::parse_der(data, |r| {
             let mut key_type = None;
@@ -334,7 +345,6 @@ impl X509PrivateKey {
                 let v = r.next().read_u32()?;
                 r.next().read_sequence(|r| {
                     let oid = r.next().read_oid()?;
-                    println!("Parsing pkey {:?}", oid);
                     if oid == *OID_PKCS1_RSA_ENCRYPTION {
                         key_type = Some(X509PrivateKeyType::RSA(X509RsaData::new()));
                         r.next().read_null()?;
@@ -345,10 +355,7 @@ impl X509PrivateKey {
                 })?;
                 match key_type.as_mut().expect("Unable to read key type") {
                     X509PrivateKeyType::RSA(d) => {
-                        let t = r.next().lookahead_tag();
-                        println!("Next tag is {:?}", t);
                         let pkey = r.next().read_bytes()?;
-                        println!("Pkey is {:X?}", pkey);
                         yasna::parse_der(&pkey, |r| {
                             r.read_sequence(|r| {
                                 d.v = r.next().read_u32()?;
@@ -368,7 +375,10 @@ impl X509PrivateKey {
                 }
                 Ok(())
             })?;
-            Ok(Self { t: key_type })
+            Ok(Self {
+                t: key_type,
+                der: data.to_vec(),
+            })
         })
     }
 }
@@ -387,11 +397,6 @@ impl X509Request {
                     yasna::parse_der(data, |r| r.read_sequence(|r| Pkcs5Pbes2::parse(r.next())))
                         .expect("Failed to decode pbes2");
                 let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
-                println!("pkey is {}", pkey_der.len());
-                for b in &pkey_der {
-                    print!("{:02X}", b);
-                }
-                println!("");
                 let pkey =
                     X509PrivateKey::parse(&pkey_der).expect("Failed to parse the private key");
                 return Some(pkey);
@@ -419,7 +424,6 @@ impl X509Request {
                     let s = r.next().read_set_of(|r| {
                         let s = r.read_sequence(|r| {
                             let oid = r.next().read_oid().expect("Failed to read oid");
-                            println!("Oid5 is {:?}", oid);
                             if oid == *OID_PKCS9_LOCAL_KEY_ID {
                                 r.next()
                                     .read_set(|r| {
@@ -445,7 +449,6 @@ impl X509Request {
                             }
                             Ok(())
                         });
-                        println!("Sequence return is {:?}", s);
                         s
                     });
                     s?;
@@ -477,13 +480,9 @@ where
 
     let ec = p12::PFX::parse(&certbytes).expect("Failed to parse certificate");
 
-    println!("Attempting to decode contents");
-
     let thing1 = ec.version;
-    println!("PFX version is {}", thing1);
     let thing2a = ec.auth_safe.oid();
     let thing2 = safe_bags(&ec, pass.as_bytes()).expect("Problem reading bags");
-    println!("PFX bags {}:", thing2.len());
 
     let mut certificate = None;
     let mut pkey = None;
@@ -522,36 +521,22 @@ where
             let p = req
                 .decrypt(pass.as_bytes())
                 .expect("Failed to decrypt private key");
-            println!("The request is {:?}", p);
             pkey = Some(p);
         } else {
             todo!("Handle bag {:X?}", ob.bag_id);
         }
     }
-    println!("Certificate is {:?}", certificate);
-    println!("Private key is {:?}", pkey);
-    todo!("Convert to what is needed");
-    let thing3 = ec.mac_data;
-    if let Some(thing3) = thing3 {
-        println!("PFX MAC data is {:?}", thing3);
-        if let p12::AlgorithmIdentifier::OtherAlg(alg) = thing3.mac.digest_algorithm {
-            println!("Encryption oid is {:?}", alg.algorithm_type);
-            if alg.algorithm_type == *OID_SHA256 {
-                println!("Decrypting with sha-256?");
-                todo!("Decode the private key");
-            }
-        }
-    }
-    todo!("Parse the pfx data");
 
-    let ddata: &[u8] = [0, 1, 2].as_ref();
-    let pkey = ddata.into();
+    let certificate = certificate.unwrap();
+    let pkey = pkey.unwrap();
+
+    let cert_der = certificate.get_der();
+    let pkey_der = pkey.get_der();
+
+    let pkey = PrivatePkcs8KeyDer::from(pkey_der.to_owned());
     let pkey = PrivateKeyDer::Pkcs8(pkey);
 
-    let mut certbytes = vec![];
-    let mut cert = File::open(certfile)?;
-    cert.read_to_end(&mut certbytes)?;
-    let c1 = CertificateDer::from(certbytes);
+    let c1 = CertificateDer::from(cert_der.to_owned());
 
     let certs = vec![c1];
 
