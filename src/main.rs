@@ -284,7 +284,8 @@ async fn main() {
 
     let hc = Arc::new(hc);
 
-    let mut tasks = tokio::task::JoinSet::new();
+    let mut tasks: tokio::task::JoinSet<Result<(), webserver::ServiceError>> =
+        tokio::task::JoinSet::new();
 
     if http_enable {
         let http_port = settings
@@ -294,11 +295,9 @@ async fn main() {
         println!("Listening http on port {}", http_port);
 
         let hc_http = hc.clone();
-        tasks.spawn(async move {
-            if let Err(e) = http_webserver(hc_http, http_port).await {
-                println!("https web server errored {}", e);
-            }
-        });
+        if let Err(e) = http_webserver(hc_http, http_port, &mut tasks).await {
+            println!("https web server errored {}", e);
+        }
     }
 
     if https_enable {
@@ -314,17 +313,15 @@ async fn main() {
 
         let hc_https = hc.clone();
 
-        tasks.spawn(async move {
-            if let Err(e) = https_webserver(hc_https, https_port, tls).await {
-                println!("https web server errored {}", e);
-            }
-        });
+        if let Err(e) = https_webserver(hc_https, https_port, tls, &mut tasks).await {
+            println!("https web server errored {}", e);
+        }
     }
 
     loop {
         futures::select! {
-            _ = tasks.join_next().fuse() => {
-                println!("A task exited, closing server");
+            r = tasks.join_next().fuse() => {
+                println!("A task exited {:?}, closing server", r);
                 break;
             }
             _ = tokio::signal::ctrl_c().fuse() => {

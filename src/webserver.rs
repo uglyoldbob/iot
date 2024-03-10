@@ -1,3 +1,4 @@
+use hyper::service::Service;
 use hyper::{Request, Response, StatusCode};
 use regex::Regex;
 use std::collections::HashMap;
@@ -342,6 +343,7 @@ where
 pub async fn http_webserver(
     hc: Arc<HttpContext>,
     port: u16,
+    tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -350,10 +352,13 @@ pub async fn http_webserver(
 
     let webservice = WebService::new(hc, addr, handle);
 
-    tokio::task::spawn(async move {
+    tasks.spawn(async move {
         println!("Rust-iot server is running");
         loop {
-            let (stream, _addr) = listener.accept().await?;
+            let (stream, _addr) = listener
+                .accept()
+                .await
+                .map_err(|e| ServiceError::Other(e.to_string()))?;
             let io = TokioIo::new(stream);
             let svc = webservice.clone();
             tokio::task::spawn(async move {
@@ -365,17 +370,23 @@ pub async fn http_webserver(
                 }
             });
         }
-        Ok::<(), std::io::Error>(())
+        Ok(())
     });
     Ok(())
 }
 
 pub mod tls;
 
+#[derive(Debug)]
+pub enum ServiceError {
+    Other(String),
+}
+
 pub async fn https_webserver(
     hc: Arc<HttpContext>,
     port: u16,
     tls_config: tls::TlsConfig,
+    tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -386,13 +397,17 @@ pub async fn https_webserver(
 
     let webservice = WebService::new(hc, addr, handle);
 
-    tokio::task::spawn(async move {
+    tasks.spawn(async move {
         println!("Rust-iot https server is running?");
         loop {
-            let (stream, _addr) = listener.accept().await?;
+            let (stream, _addr) = listener
+                .accept()
+                .await
+                .map_err(|e| ServiceError::Other(e.to_string()))?;
             let stream = acc.accept(stream).await;
             if let Err(e) = stream {
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
+                println!("Error accepting tls stream: {:?}", e);
+                return Err(ServiceError::Other(e.to_string()));
             }
             let mut stream = stream.unwrap();
             let (a, b) = stream.get_mut();
@@ -422,7 +437,7 @@ pub async fn https_webserver(
                 }
             });
         }
-        Ok::<(), std::io::Error>(())
+        Ok(())
     });
 
     Ok(())
