@@ -236,6 +236,7 @@ impl PkiMessage {
     }
 
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
+        let mut der_contents = None;
         let d = yasna::parse_der(data, |r| {
             r.read_sequence(|r| {
                 let d = r
@@ -248,6 +249,7 @@ impl PkiMessage {
                                 .read_tagged(yasna::Tag::context(0), |r| {
                                     let bag = p12::CertBag::parse(r)?;
                                     if let p12::CertBag::X509(x509) = bag {
+                                        der_contents = Some(x509.to_vec());
                                         let mut reader = der::SliceReader::new(&x509).unwrap();
                                         let cert = x509_cert::certificate::Certificate::decode(
                                             &mut reader,
@@ -288,7 +290,7 @@ impl PkiMessage {
         })?;
         Ok(Self {
             cert: d,
-            der: data.to_vec(),
+            der: der_contents.expect("No x509 certificate found"),
         })
     }
 }
@@ -531,6 +533,7 @@ where
     let pkey = pkey.unwrap();
 
     let cert_der = certificate.get_der();
+
     let pkey_der = pkey.get_der();
 
     let pkey = PrivatePkcs8KeyDer::from(pkey_der.to_owned());
