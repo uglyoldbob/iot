@@ -6,6 +6,7 @@ use std::fs;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use user::User;
 
 mod user;
 mod webserver;
@@ -156,6 +157,12 @@ You are logged in
         h
     })
     .body(|b| {
+        if let Some(certs) = s.user_certs.all_certs() {
+            if certs.len() > 0 {
+                b.text("You have a certificate");
+            }
+        }
+
         if !logged_in {
             b.form(|fb| {
                 fb.text("Username ")
@@ -209,7 +216,7 @@ async fn main() {
         Ok(con) => con,
         Err(_) => "".to_string(),
     };
-    let mut settings = configparser::ini::Ini::new();
+    let mut settings = configparser::ini::Ini::new_cs();
     let settings_result = settings.read(settings_con);
     if let Err(e) = settings_result {
         println!("Failed to read settings {}", e);
@@ -287,6 +294,8 @@ async fn main() {
     let mut tasks: tokio::task::JoinSet<Result<(), webserver::ServiceError>> =
         tokio::task::JoinSet::new();
 
+    let client_certs = webserver::tls::load_user_cert_data(&settings);
+
     if http_enable {
         let http_port = settings
             .getint("http", "port")
@@ -313,7 +322,7 @@ async fn main() {
 
         let hc_https = hc.clone();
 
-        if let Err(e) = https_webserver(hc_https, https_port, tls, &mut tasks).await {
+        if let Err(e) = https_webserver(hc_https, https_port, tls, &mut tasks, client_certs).await {
             println!("https web server errored {}", e);
         }
     }

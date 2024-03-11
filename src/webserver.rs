@@ -7,8 +7,12 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tokio_rustls::client;
+use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 
 use cookie::Cookie;
+
+use crate::user;
 
 pub type Callback =
     fn(&mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
@@ -21,30 +25,53 @@ pub struct HttpContext {
     pub pool: Option<mysql::Pool>,
 }
 
-pub struct WebPageContext {
+pub struct ExtraContext {
+    pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
+}
+
+pub enum UserCerts<'a> {
+    HttpsCerts(&'a Vec<x509_cert::Certificate>),
+    ProxyCerts(&'a Vec<x509_cert::Certificate>),
+    None,
+}
+
+impl<'a> UserCerts<'a> {
+    pub fn all_certs(&self) -> Option<&'a Vec<x509_cert::Certificate>> {
+        match self {
+            UserCerts::HttpsCerts(hc) => Some(hc),
+            UserCerts::ProxyCerts(pc) => Some(pc),
+            UserCerts::None => None,
+        }
+    }
+}
+
+pub struct WebPageContext<'a> {
     pub proxy: String,
     pub post: HashMap<String, String>,
     pub get: HashMap<String, String>,
     pub logincookie: Option<String>,
     pub pool: Option<mysql::PooledConn>,
+    pub user_certs: UserCerts<'a>,
 }
 
 struct WebService<F, R, C> {
     context: Arc<C>,
     addr: SocketAddr,
+    user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
     f: F,
     _req: PhantomData<fn(Arc<C>, SocketAddr, R)>,
 }
 
 impl<F, R, S, C> WebService<F, R, C>
 where
-    F: Fn(Arc<C>, SocketAddr, Request<R>) -> S,
+    F: Fn(Arc<C>, ExtraContext, SocketAddr, Request<R>) -> S,
     S: futures::Future,
 {
     fn new(context: Arc<C>, addr: SocketAddr, f: F) -> Self {
         Self {
             context,
             addr,
+            user_certs: Arc::new(None),
             f,
             _req: PhantomData,
         }
@@ -59,6 +86,7 @@ where
         Self {
             f: self.f.clone(),
             context: self.context.clone(),
+            user_certs: self.user_certs.clone(),
             addr: self.addr.clone(),
             _req: PhantomData,
         }
@@ -68,7 +96,7 @@ where
 impl<C, F, ReqBody, Ret, ResBody, E> hyper::service::Service<Request<ReqBody>>
     for WebService<F, ReqBody, C>
 where
-    F: Fn(Arc<C>, SocketAddr, Request<ReqBody>) -> Ret,
+    F: Fn(Arc<C>, ExtraContext, SocketAddr, Request<ReqBody>) -> Ret,
     Ret: futures::Future<Output = Result<Response<ResBody>, E>>,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
     ResBody: hyper::body::Body,
@@ -78,13 +106,17 @@ where
     type Future = Ret;
 
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
-        (self.f)(self.context.clone(), self.addr, req)
+        let ec = ExtraContext {
+            user_certs: self.user_certs.clone(),
+        };
+        (self.f)(self.context.clone(), ec, self.addr, req)
     }
 }
 
 /// TODO Figure out how to pass a reference of an HttpContext instead of a clone of one
 async fn handle<'a>(
     context: Arc<HttpContext>,
+    ec: ExtraContext,
     _addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
@@ -127,6 +159,12 @@ async fn handle<'a>(
         None
     };
 
+    let user_certs = if let Some(uc) = ec.user_certs.as_ref() {
+        UserCerts::HttpsCerts(uc)
+    } else {
+        UserCerts::None
+    };
+
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 
     let mut p = WebPageContext {
@@ -135,6 +173,7 @@ async fn handle<'a>(
         proxy: context.proxy.to_owned(),
         logincookie: ourcookie.clone(),
         pool: mysql,
+        user_certs,
     };
 
     let path = rparts.uri.path();
@@ -385,10 +424,15 @@ pub async fn https_webserver(
     port: u16,
     tls_config: tls::TlsConfig,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
+    client_certs: Option<Arc<dyn ClientCertVerifier>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = tls::load_certificate(&tls_config.cert_file, &tls_config.key_password)?;
+    let cert = tls::load_certificate(
+        &tls_config.cert_file,
+        &tls_config.key_password,
+        client_certs,
+    )?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -409,23 +453,20 @@ pub async fn https_webserver(
             }
             let mut stream = stream.unwrap();
             let (_a, b) = stream.get_mut();
+            let mut svc = webservice.clone();
             let cert = b.peer_certificates();
-            match cert {
-                Some(c) => {
-                    for cert in c {
-                        println!("Certificate: ");
-                        for b in cert.iter() {
-                            print!("{:X} ", b);
-                        }
-                        println!("");
-                    }
-                }
-                None => {
-                    println!("No peer certificate");
-                }
-            }
+            let certs = cert.map(|cder| {
+                let certs: Vec<x509_cert::certificate::Certificate> = cder
+                    .iter()
+                    .map(|c| {
+                        use der::Decode;
+                        x509_cert::Certificate::from_der(c).unwrap()
+                    })
+                    .collect();
+                certs
+            });
+            svc.user_certs = Arc::new(certs);
             let io = TokioIo::new(stream);
-            let svc = webservice.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = hyper::server::conn::http1::Builder::new()
                     .serve_connection(io, svc)

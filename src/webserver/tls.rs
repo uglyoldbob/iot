@@ -7,10 +7,14 @@ use std::sync::Arc;
 use p12::yasna;
 
 use der::Decode;
+use tokio_rustls::client;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use yasna::ASN1Error;
+
+use crate::user;
 
 type Error = Box<dyn std::error::Error + 'static>;
 
@@ -274,12 +278,12 @@ impl PkiMessage {
                                 let oid = r.next().read_oid()?;
                                 if oid == *OID_PKCS9_LOCAL_KEY_ID {
                                     r.next().read_set_of(|r| {
-                                        let d = r.read_bytes()?;
+                                        let _d = r.read_bytes()?;
                                         Ok(())
                                     })?;
                                 } else if oid == *OID_PKCS9_FRIENDLY_NAME {
                                     r.next().read_set_of(|r| {
-                                        let name = r.read_bmp_string()?;
+                                        let _name = r.read_bmp_string()?;
                                         Ok(())
                                     })?;
                                 }
@@ -345,7 +349,7 @@ impl X509Request {
         None
     }
 
-    fn parse(data: &[u8], pass: &[u8]) -> Result<Self, ASN1Error> {
+    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         yasna::parse_der(data, |r| {
             r.read_sequence(|r| {
                 r.next().read_sequence(|r| {
@@ -365,7 +369,7 @@ impl X509Request {
                             if oid == *OID_PKCS9_LOCAL_KEY_ID {
                                 r.next()
                                     .read_set(|r| {
-                                        let d = r
+                                        let _d = r
                                             .next(&[yasna::tags::TAG_OCTETSTRING])?
                                             .read_bytes()
                                             .expect("Failed to read local key id");
@@ -375,7 +379,7 @@ impl X509Request {
                             } else if oid == *OID_PKCS9_FRIENDLY_NAME {
                                 r.next()
                                     .read_set(|r| {
-                                        let d = r
+                                        let _d = r
                                             .next(&[yasna::tags::TAG_BMPSTRING])?
                                             .read_bmp_string()
                                             .expect("Failed to read friendly name");
@@ -408,7 +412,49 @@ fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error>
     Ok(result)
 }
 
-pub fn load_certificate<P>(certfile: P, pass: &str) -> Result<Arc<ServerConfig>, Error>
+pub fn load_user_cert_data(
+    settings: &configparser::ini::Ini,
+) -> Option<Arc<dyn ClientCertVerifier>> {
+    const SECTION_NAME: &str = "client-certs";
+    if settings.sections().contains(&SECTION_NAME.to_string()) {
+        println!("Loading client certificate data");
+        let mut rcs = RootCertStore::empty();
+
+        let m = settings.get_map_ref();
+        let section = m.get(SECTION_NAME).unwrap();
+        for (s, _val) in section {
+            println!("Client cert {}", s);
+            let mut certbytes = vec![];
+            let mut certf =
+                File::open(s).expect(&format!("Failed to open client certificate {}", s));
+            certf
+                .read_to_end(&mut certbytes)
+                .expect(&format!("Failed to read client certificate {}", s));
+            for b in &certbytes {
+                print!("{:02X}", b);
+            }
+            println!("");
+            let cder = CertificateDer::from(certbytes);
+            rcs.add(cder)
+                .expect(&format!("Failed to addd client certificate {}", s));
+        }
+
+        //todo fill out the rcs struct
+        let roots = Arc::new(rcs);
+
+        let client_verifier = WebPkiClientVerifier::builder(roots.into()).build().unwrap();
+        Some(client_verifier)
+    } else {
+        println!("Not loading any client certificate information");
+        None
+    }
+}
+
+pub fn load_certificate<P>(
+    certfile: P,
+    pass: &str,
+    user_certs: Option<Arc<dyn ClientCertVerifier>>,
+) -> Result<Arc<ServerConfig>, Error>
 where
     P: AsRef<Path>,
 {
@@ -452,8 +498,7 @@ where
         } else if ob.bag_id == *OID_PKCS7_DATA_CONTENT_TYPE {
             let bag_data = yasna::parse_der(&ob.bag_value, |r| r.read_bytes())
                 .expect("Failed to read bag data");
-            let req =
-                X509Request::parse(&bag_data, pass.as_bytes()).expect("Failed to read request");
+            let req = X509Request::parse(&bag_data).expect("Failed to read request");
             let p = req
                 .decrypt(pass.as_bytes())
                 .expect("Failed to decrypt private key");
@@ -465,9 +510,6 @@ where
 
     let certificate = certificate.expect("No certificate loaded for https");
     let pkey = pkey.expect("No private key loaded for https");
-
-    let cert = &certificate.cert;
-    println!("Certificate used is: {:?}", cert);
 
     let cert_der = certificate.get_der();
 
@@ -483,13 +525,8 @@ where
     let sc: tokio_rustls::rustls::ConfigBuilder<ServerConfig, tokio_rustls::rustls::WantsVerifier> =
         ServerConfig::builder();
 
-    let sc = if false {
-        let rcs = RootCertStore::empty();
-        //todo fill out the rcs struct
-        let roots = Arc::new(rcs);
-
-        let client_verifier = WebPkiClientVerifier::builder(roots.into()).build().unwrap();
-        sc.with_client_cert_verifier(client_verifier)
+    let sc = if let Some(certs) = user_certs {
+        sc.with_client_cert_verifier(certs)
     } else {
         sc.with_no_client_auth()
     };
