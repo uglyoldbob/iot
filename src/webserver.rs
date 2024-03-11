@@ -1,3 +1,5 @@
+use futures::future::BoxFuture;
+use futures::Future;
 use hyper::{Request, Response, StatusCode};
 use regex::Regex;
 use std::collections::HashMap;
@@ -7,18 +9,59 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_rustls::client;
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 
 use cookie::Cookie;
 
-use crate::user;
+pub struct WebResponse {
+    pub response: hyper::Response<http_body_util::Full<hyper::body::Bytes>>,
+    pub cookie: Option<String>,
+}
+
+pub struct WebRouter {
+    r: HashMap<String, HashMapCallback>,
+}
+
+impl WebRouter {
+    pub fn new() -> Self {
+        WebRouter { r: HashMap::new() }
+    }
+
+    pub fn register<F, R>(&mut self, path: &str, f: F)
+    where
+        F: Fn(WebPageContext) -> R + Send + Sync + 'static,
+        R: Future<Output = WebResponse> + Send + Sync + 'static,
+    {
+        let h = move |a: WebPageContext| Box::pin(f(a));
+        self.r.insert(path.to_string(), Box::new(h));
+    }
+}
 
 pub type Callback =
-    fn(&mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>>;
+    fn(&mut WebPageContext) -> (dyn Future<Output = WebResponse> + Send + Sync + 'static);
+
+type HashMapCallback = Box<dyn WebHandlerTrait>;
+
+trait WebHandlerTrait: Send + Sync + 'static {
+    fn call(&self, req: WebPageContext)
+        -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>>;
+}
+
+impl<F: Send + Sync + 'static, R> WebHandlerTrait for F
+where
+    F: Fn(WebPageContext) -> R + Send + Sync,
+    R: Future<Output = WebResponse> + Send + Sync + 'static,
+{
+    fn call(
+        &self,
+        req: WebPageContext,
+    ) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>> {
+        Box::pin(self(req))
+    }
+}
 
 pub struct HttpContext {
-    pub dirmap: HashMap<String, Callback>,
+    pub dirmap: WebRouter,
     pub root: String,
     pub cookiename: String,
     pub proxy: String,
@@ -29,29 +72,29 @@ pub struct ExtraContext {
     pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
 }
 
-pub enum UserCerts<'a> {
-    HttpsCerts(&'a Vec<x509_cert::Certificate>),
-    ProxyCerts(&'a Vec<x509_cert::Certificate>),
+pub enum UserCerts {
+    HttpsCerts(Vec<x509_cert::Certificate>),
+    ProxyCerts(Vec<x509_cert::Certificate>),
     None,
 }
 
-impl<'a> UserCerts<'a> {
-    pub fn all_certs(&self) -> Option<&'a Vec<x509_cert::Certificate>> {
+impl UserCerts {
+    pub fn all_certs(&self) -> Option<&Vec<x509_cert::Certificate>> {
         match self {
-            UserCerts::HttpsCerts(hc) => Some(hc),
-            UserCerts::ProxyCerts(pc) => Some(pc),
+            UserCerts::HttpsCerts(hc) => Some(&hc),
+            UserCerts::ProxyCerts(pc) => Some(&pc),
             UserCerts::None => None,
         }
     }
 }
 
-pub struct WebPageContext<'a> {
+pub struct WebPageContext {
     pub proxy: String,
     pub post: HashMap<String, String>,
     pub get: HashMap<String, String>,
     pub logincookie: Option<String>,
     pub pool: Option<mysql::PooledConn>,
-    pub user_certs: UserCerts<'a>,
+    pub user_certs: UserCerts,
 }
 
 struct WebService<F, R, C> {
@@ -160,7 +203,7 @@ async fn handle<'a>(
     };
 
     let user_certs = if let Some(uc) = ec.user_certs.as_ref() {
-        UserCerts::HttpsCerts(uc)
+        UserCerts::HttpsCerts(uc.to_owned())
     } else {
         UserCerts::None
     };
@@ -183,12 +226,13 @@ async fn handle<'a>(
     let fixed_path = reg1.replace_all(&path, "");
     let sys_path = context.root.to_owned() + &fixed_path;
 
-    let body = if context.dirmap.contains_key(&fixed_path.to_string()) {
+    let body = if context.dirmap.r.contains_key(&fixed_path.to_string()) {
         let (_key, fun) = context
             .dirmap
+            .r
             .get_key_value(&fixed_path.to_string())
             .unwrap();
-        fun(&mut p)
+        fun.call(p).await
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
@@ -200,12 +244,15 @@ async fn handle<'a>(
                 http_body_util::Full::new(hyper::body::Bytes::from("missing"))
             }
         };
-        hyper::http::Response::from_parts(response, body)
+        WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: p.logincookie,
+        }
     };
 
     //this section expires the cookie if it needs to be deleted
     //and makes the contents empty
-    let sent_cookie = match p.logincookie {
+    let sent_cookie = match body.cookie {
         Some(ref x) => {
             let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&context.cookiename, x))
                 .http_only(true)
@@ -229,7 +276,7 @@ async fn handle<'a>(
         hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()).unwrap(),
     );
 
-    Ok(body)
+    Ok(body.response)
 }
 
 pin_project_lite::pin_project! {
@@ -442,18 +489,28 @@ pub async fn https_webserver(
     tasks.spawn(async move {
         println!("Rust-iot https server is running?");
         loop {
-            let (stream, _addr) = listener
+            let la = listener
                 .accept()
                 .await
-                .map_err(|e| ServiceError::Other(e.to_string()))?;
+                .map_err(|e| ServiceError::Other(e.to_string()));
+            let (stream, addr) = match la {
+                Err(e) => {
+                    println!("Error accepting connection {:?}", e);
+                    continue;
+                }
+                Ok(s) => s,
+            };
             let stream = acc.accept(stream).await;
-            if let Err(e) = stream {
-                println!("Error accepting tls stream: {:?}", e);
-                return Err(ServiceError::Other(e.to_string()));
-            }
-            let mut stream = stream.unwrap();
+            let mut stream = match stream {
+                Err(e) => {
+                    println!("Error accepting tls stream: {:?}", e);
+                    continue;
+                }
+                Ok(s) => s,
+            };
             let (_a, b) = stream.get_mut();
             let mut svc = webservice.clone();
+            svc.addr = addr;
             let cert = b.peer_certificates();
             let certs = cert.map(|cder| {
                 let certs: Vec<x509_cert::certificate::Certificate> = cder

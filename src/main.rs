@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use std::fs;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use user::User;
 
 mod user;
 mod webserver;
@@ -14,7 +14,7 @@ mod webserver;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
-fn test_func2(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+async fn test_func2(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
         b.ordered_list(|ol| {
@@ -29,10 +29,13 @@ fn test_func2(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hy
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    hyper::http::Response::from_parts(response, body)
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
 }
 
-fn test_func(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+async fn test_func(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
         if s.get.len() > 0 {
@@ -50,15 +53,19 @@ fn test_func(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyp
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    hyper::http::Response::from_parts(response, body)
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
 }
 
-fn main_page(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
     let mut c: String = "".to_string();
+    let mut logincookie = s.logincookie;
 
     let mut logged_in = false;
     let mut username: String = "".to_string();
-    if let Some(cookie) = &s.logincookie {
+    if let Some(cookie) = &logincookie {
         //lookup login cookie
         let value = cookie.parse::<u64>();
         if let Ok(value) = value {
@@ -89,7 +96,7 @@ fn main_page(s: &mut WebPageContext) -> hyper::Response<http_body_util::Full<hyp
             let print = format!("Login pass {:?}", value);
             c.push_str(&print);
             let cookieval = format!("{:?}", value);
-            s.logincookie = Some(cookieval);
+            logincookie = Some(cookieval);
         } else {
             //login failed because account does not exist
             c.push_str("Login fail");
@@ -160,6 +167,13 @@ You are logged in
         if let Some(certs) = s.user_certs.all_certs() {
             if certs.len() > 0 {
                 b.text("You have a certificate");
+                b.line_break(|fb| fb);
+                for c in certs {
+                    b.text(format!("{}", c.tbs_certificate.subject.to_string()));
+                    b.line_break(|fb| fb);
+                    b.text(format!("{}", c.tbs_certificate.issuer.to_string()));
+                    b.line_break(|fb| fb);
+                }
             }
         }
 
@@ -183,12 +197,13 @@ You are logged in
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    hyper::http::Response::from_parts(response, body)
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: logincookie,
+    }
 }
 
-fn main_redirect(
-    s: &mut WebPageContext,
-) -> hyper::Response<http_body_util::Full<hyper::body::Bytes>> {
+async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -200,16 +215,42 @@ fn main_redirect(
     );
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
-    hyper::http::Response::from_parts(response, body)
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+async fn test_func3<'a>(s: WebPageContext) -> webserver::WebResponse {
+    let mut html = html::root::Html::builder();
+    html.head(|h| h).body(|b| {
+        b.ordered_list(|ol| {
+            for name in ["I", "am", "groot"] {
+                ol.list_item(|li| li.text(name));
+            }
+            ol
+        })
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    let mut map: HashMap<String, Callback> = HashMap::new();
-    map.insert("/asdf".to_string(), test_func);
-    map.insert("".to_string(), main_redirect);
-    map.insert("/".to_string(), main_redirect);
-    map.insert("/main.rs".to_string(), main_page);
+    let mut router = webserver::WebRouter::new();
+    router.register("/asdf", test_func);
+    router.register("/groot", test_func2);
+    router.register("/groot2", test_func3);
+    router.register("", main_redirect);
+    router.register("/", main_redirect);
+    router.register("/main.rs", main_page);
 
     let settings_file = fs::read_to_string("./settings.ini");
     let settings_con = match settings_file {
@@ -249,7 +290,7 @@ async fn main() {
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
     let mut hc = HttpContext {
-        dirmap: map.clone(),
+        dirmap: router,
         root: ".".to_string(),
         proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),

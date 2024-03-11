@@ -423,17 +423,13 @@ pub fn load_user_cert_data(
         let m = settings.get_map_ref();
         let section = m.get(SECTION_NAME).unwrap();
         for (s, _val) in section {
-            println!("Client cert {}", s);
+            println!("\tClient cert {}", s);
             let mut certbytes = vec![];
             let mut certf =
                 File::open(s).expect(&format!("Failed to open client certificate {}", s));
             certf
                 .read_to_end(&mut certbytes)
                 .expect(&format!("Failed to read client certificate {}", s));
-            for b in &certbytes {
-                print!("{:02X}", b);
-            }
-            println!("");
             let cder = CertificateDer::from(certbytes);
             rcs.add(cder)
                 .expect(&format!("Failed to addd client certificate {}", s));
