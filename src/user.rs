@@ -62,7 +62,7 @@ pub fn check_login_entry(conn: &mut mysql::PooledConn, val: u64) -> Option<Strin
     logintest.unwrap().pop()
 }
 
-pub fn new_user_login(conn: &mut mysql::PooledConn, user: User) -> u64 {
+pub fn new_user_login(conn: &mut mysql::PooledConn, user: User) -> Result<u64, mysql::Error> {
     let mut random: u64;
     loop {
         random = rand::thread_rng().gen::<u64>();
@@ -79,8 +79,8 @@ pub fn new_user_login(conn: &mut mysql::PooledConn, user: User) -> u64 {
     conn.exec_drop(
         "INSERT INTO login (id, username) VALUES(?, ?)",
         (random, user.username),
-    );
-    random
+    )?;
+    Ok(random)
 }
 
 pub fn try_user_login2(userinfo: &Option<User>, pass: String) -> bool {

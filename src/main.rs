@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use hyper::header::HeaderValue;
 
 mod user;
 mod webserver;
@@ -211,7 +212,7 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let url = format!("{}/main.rs", s.proxy.to_string());
     response.headers.insert(
         "Location",
-        hyper::http::header::HeaderValue::from_str(&url).unwrap(),
+        HeaderValue::from_str(&url).unwrap(),
     );
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
@@ -221,7 +222,7 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
-async fn test_func3<'a>(s: WebPageContext) -> webserver::WebResponse {
+async fn test_func3(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
         b.ordered_list(|ol| {
@@ -242,6 +243,68 @@ async fn test_func3<'a>(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
+    let mut html = html::root::Html::builder();
+    html.head(|h| h.title(|t| t.text("UglyOldBob Certificate Authority")))
+        .body(|b| {
+            b.anchor(|ab| {
+                ab.text("Download CA certificate");
+                ab.href("/ca/get_ca.rs?type=der");
+                ab.target("_blank");
+                ab
+            });
+            b.ordered_list(|ol| {
+                for name in ["I", "am", "groot"] {
+                    ol.list_item(|li| li.text(name));
+                }
+                ol
+            })
+        });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.headers.append(
+        "Content-Type",
+        HeaderValue::from_static("application/x509-user-cert"),
+    );
+
+    let mut cert = None;
+
+    println!("GET IS {:?}", s.get);
+    if s.get.contains_key("type") {
+        let ty = s.get.get("type").unwrap();
+        println!("type is {}", ty);
+        match ty.as_str() {
+            "der" => {
+                cert = Some(&[1, 2, 3, 4]);
+            }
+            _ => {}
+        }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::from_static(cert))
+    } else {
+        http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+    };
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let mut router = webserver::WebRouter::new();
@@ -251,6 +314,8 @@ async fn main() {
     router.register("", main_redirect);
     router.register("/", main_redirect);
     router.register("/main.rs", main_page);
+    router.register("/ca", ca_main_page);
+    router.register("/ca/get_ca.rs", ca_get_cert);
 
     let settings_file = fs::read_to_string("./settings.ini");
     let settings_con = match settings_file {
@@ -371,7 +436,8 @@ async fn main() {
     loop {
         futures::select! {
             r = tasks.join_next().fuse() => {
-                println!("A task exited {:?}, closing server", r);
+                println!("A task exited {:?}, closing server in 5 seconds", r);
+                tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
                 break;
             }
             _ = tokio::signal::ctrl_c().fuse() => {
@@ -379,6 +445,5 @@ async fn main() {
             }
         }
     }
-    println!("Ending the server in 5 seconds");
-    tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+    println!("Closing server now");
 }

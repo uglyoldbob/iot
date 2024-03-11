@@ -226,6 +226,8 @@ async fn handle<'a>(
     let fixed_path = reg1.replace_all(&path, "");
     let sys_path = context.root.to_owned() + &fixed_path;
 
+    println!("Lookup {}", fixed_path);
+
     let body = if context.dirmap.r.contains_key(&fixed_path.to_string()) {
         let (_key, fun) = context
             .dirmap
@@ -275,7 +277,6 @@ async fn handle<'a>(
         "Set-Cookie",
         hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()).unwrap(),
     );
-
     Ok(body.response)
 }
 
