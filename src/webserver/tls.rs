@@ -4,12 +4,9 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use p12::yasna::{self, ASN1ErrorKind};
+use p12::yasna;
 
-use der::{Decode, Encode, Reader};
-use pkcs5::pbes2::Pbkdf2Params;
-use pkcs8::DecodePrivateKey;
-use tokio_rustls::rustls::crypto::CryptoProvider;
+use der::Decode;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
@@ -65,6 +62,7 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum HmacMethod {
     Sha1,
     Sha224,
@@ -146,7 +144,12 @@ enum Pbes2Params {
 }
 
 impl Pbes2Params {
-    fn decrypt(&self, scheme: &EncryptionScheme, data: &Vec<u8>, password: &[u8]) -> Vec<u8> {
+    fn decrypt(
+        &self,
+        scheme: &EncryptionScheme,
+        data: &Vec<u8>,
+        password: &[u8],
+    ) -> zeroize::Zeroizing<Vec<u8>> {
         match self {
             Pbes2Params::Pbes2Pbkdf2(p) => {
                 let pbkdf2 = p.to_pbkdf2_params();
@@ -154,10 +157,12 @@ impl Pbes2Params {
                     kdf: pkcs5::pbes2::Kdf::Pbkdf2(pbkdf2),
                     encryption: scheme.get_pbes2_scheme().unwrap(),
                 };
-                parameters
-                    .decrypt(password, data)
-                    .expect("Failed to decrypt data")
-                    .to_vec()
+                zeroize::Zeroizing::new(
+                    parameters
+                        .decrypt(password, data)
+                        .expect("Failed to decrypt data")
+                        .to_vec(),
+                )
             }
             Pbes2Params::Unknown => {
                 panic!("Cannot decrypt unknown algorithm");
@@ -173,7 +178,7 @@ struct Pkcs5Pbes2 {
 }
 
 impl Pkcs5Pbes2 {
-    fn decrypt(&self, data: &Vec<u8>, password: &[u8]) -> Vec<u8> {
+    fn decrypt(&self, data: &Vec<u8>, password: &[u8]) -> zeroize::Zeroizing<Vec<u8>> {
         self.params.decrypt(&self.scheme, data, password)
     }
 
@@ -296,43 +301,14 @@ impl PkiMessage {
 }
 
 #[derive(Debug)]
-struct X509RsaData {
-    v: u32,
-    bi1: num_bigint::BigUint,
-    exponent: u32,
-    bi2: num_bigint::BigUint,
-    bi3: num_bigint::BigUint,
-    bi4: num_bigint::BigUint,
-    bi5: num_bigint::BigUint,
-    bi6: num_bigint::BigUint,
-    bi7: num_bigint::BigUint,
-}
-
-impl X509RsaData {
-    fn new() -> Self {
-        Self {
-            v: 0,
-            bi1: num_bigint::BigUint::new(vec![0]),
-            exponent: 0,
-            bi2: num_bigint::BigUint::new(vec![0]),
-            bi3: num_bigint::BigUint::new(vec![0]),
-            bi4: num_bigint::BigUint::new(vec![0]),
-            bi5: num_bigint::BigUint::new(vec![0]),
-            bi6: num_bigint::BigUint::new(vec![0]),
-            bi7: num_bigint::BigUint::new(vec![0]),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum X509PrivateKeyType {
-    RSA(X509RsaData),
-}
-
-#[derive(Debug)]
 struct X509PrivateKey {
-    t: Option<X509PrivateKeyType>,
     der: Vec<u8>,
+}
+
+impl zeroize::Zeroize for X509PrivateKey {
+    fn zeroize(&mut self) {
+        self.der.zeroize();
+    }
 }
 
 impl X509PrivateKey {
@@ -341,47 +317,7 @@ impl X509PrivateKey {
     }
 
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
-        yasna::parse_der(data, |r| {
-            let mut key_type = None;
-            r.read_sequence(|r| {
-                let v = r.next().read_u32()?;
-                r.next().read_sequence(|r| {
-                    let oid = r.next().read_oid()?;
-                    if oid == *OID_PKCS1_RSA_ENCRYPTION {
-                        key_type = Some(X509PrivateKeyType::RSA(X509RsaData::new()));
-                        r.next().read_null()?;
-                    } else {
-                        panic!("Unsupported private key format {:?}", oid);
-                    }
-                    Ok(())
-                })?;
-                match key_type.as_mut().expect("Unable to read key type") {
-                    X509PrivateKeyType::RSA(d) => {
-                        let pkey = r.next().read_bytes()?;
-                        yasna::parse_der(&pkey, |r| {
-                            r.read_sequence(|r| {
-                                d.v = r.next().read_u32()?;
-                                d.bi1 = r.next().read_biguint()?;
-                                d.exponent = r.next().read_u32()?;
-                                d.bi2 = r.next().read_biguint()?;
-                                d.bi3 = r.next().read_biguint()?;
-                                d.bi4 = r.next().read_biguint()?;
-                                d.bi5 = r.next().read_biguint()?;
-                                d.bi6 = r.next().read_biguint()?;
-                                d.bi7 = r.next().read_biguint()?;
-                                Ok(())
-                            })?;
-                            Ok(())
-                        })?;
-                    }
-                }
-                Ok(())
-            })?;
-            Ok(Self {
-                t: key_type,
-                der: data.to_vec(),
-            })
-        })
+        Ok(Self { der: data.to_vec() })
     }
 }
 
@@ -391,7 +327,7 @@ struct X509Request {
 }
 
 impl X509Request {
-    fn decrypt(&self, pass: &[u8]) -> Option<X509PrivateKey> {
+    fn decrypt(&self, pass: &[u8]) -> Option<zeroize::Zeroizing<X509PrivateKey>> {
         if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
             if o.algorithm_type == *OID_PKCS5_PBES2 {
                 let data = o.params.as_ref().unwrap();
@@ -401,7 +337,7 @@ impl X509Request {
                 let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
                 let pkey =
                     X509PrivateKey::parse(&pkey_der).expect("Failed to parse the private key");
-                return Some(pkey);
+                return Some(zeroize::Zeroizing::new(pkey));
             } else {
                 panic!("Unexpected algorithm type for private key");
             }
@@ -482,8 +418,6 @@ where
 
     let ec = p12::PFX::parse(&certbytes).expect("Failed to parse certificate");
 
-    let thing1 = ec.version;
-    let thing2a = ec.auth_safe.oid();
     let thing2 = safe_bags(&ec, pass.as_bytes()).expect("Problem reading bags");
 
     let mut certificate = None;
@@ -529,8 +463,11 @@ where
         }
     }
 
-    let certificate = certificate.unwrap();
-    let pkey = pkey.unwrap();
+    let certificate = certificate.expect("No certificate loaded for https");
+    let pkey = pkey.expect("No private key loaded for https");
+
+    let cert = &certificate.cert;
+    println!("Certificate used is: {:?}", cert);
 
     let cert_der = certificate.get_der();
 
@@ -543,13 +480,11 @@ where
 
     let certs = vec![c1];
 
-    let mut sc: tokio_rustls::rustls::ConfigBuilder<
-        ServerConfig,
-        tokio_rustls::rustls::WantsVerifier,
-    > = ServerConfig::builder();
+    let sc: tokio_rustls::rustls::ConfigBuilder<ServerConfig, tokio_rustls::rustls::WantsVerifier> =
+        ServerConfig::builder();
 
     let sc = if false {
-        let mut rcs = RootCertStore::empty();
+        let rcs = RootCertStore::empty();
         //todo fill out the rcs struct
         let roots = Arc::new(rcs);
 

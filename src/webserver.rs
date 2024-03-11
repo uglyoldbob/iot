@@ -1,4 +1,3 @@
-use hyper::service::Service;
 use hyper::{Request, Response, StatusCode};
 use regex::Regex;
 use std::collections::HashMap;
@@ -86,12 +85,12 @@ where
 /// TODO Figure out how to pass a reference of an HttpContext instead of a clone of one
 async fn handle<'a>(
     context: Arc<HttpContext>,
-    addr: SocketAddr,
+    _addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
-    let (rparts, body) = req.into_parts();
+    let (rparts, _body) = req.into_parts();
 
-    let mut post_data = HashMap::new();
+    let post_data = HashMap::new();
     // TODO collect post data from body
 
     let mut get_map = HashMap::new();
@@ -370,7 +369,6 @@ pub async fn http_webserver(
                 }
             });
         }
-        Ok(())
     });
     Ok(())
 }
@@ -410,7 +408,7 @@ pub async fn https_webserver(
                 return Err(ServiceError::Other(e.to_string()));
             }
             let mut stream = stream.unwrap();
-            let (a, b) = stream.get_mut();
+            let (_a, b) = stream.get_mut();
             let cert = b.peer_certificates();
             match cert {
                 Some(c) => {
@@ -437,7 +435,6 @@ pub async fn https_webserver(
                 }
             });
         }
-        Ok(())
     });
 
     Ok(())

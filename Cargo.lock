@@ -1755,7 +1755,6 @@ dependencies = [
  "hyper",
  "lazy_static",
  "mysql",
- "num-bigint",
  "p12",
  "pem 3.0.3",
  "pin-project-lite",
@@ -1769,6 +1768,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
