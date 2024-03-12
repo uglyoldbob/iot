@@ -17,6 +17,8 @@ use hyper::header::HeaderValue;
 mod user;
 mod webserver;
 
+pub mod oid;
+
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
@@ -383,6 +385,12 @@ async fn main() {
         tokio::task::JoinSet::new();
 
     let client_certs = webserver::tls::load_user_cert_data(&settings);
+
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            ca::CaCertificateStorage::load_and_init(&settings).await;
+        });
+    });
 
     if http_enable {
         let http_port = settings

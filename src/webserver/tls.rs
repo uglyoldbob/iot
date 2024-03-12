@@ -3,7 +3,6 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use p12::yasna;
@@ -39,40 +38,7 @@ impl TlsConfig {
     }
 }
 
-/// Create an OID
-fn as_oid(s: &'static [u64]) -> yasna::models::ObjectIdentifier {
-    yasna::models::ObjectIdentifier::from_slice(s)
-}
-
-/// Create a const OID
-fn as_oid2(s: &'static str) -> const_oid::ObjectIdentifier {
-    const_oid::ObjectIdentifier::from_str(s).unwrap()
-}
-
-lazy_static::lazy_static! {
-    static ref OID_PKCS7_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
-    static ref OID_SHROUDED_KEY_BAG: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);
-    static ref OID_CERT_BAG: yasna::models::ObjectIdentifier = as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
-    static ref OID_PKCS1_RSA_ENCRYPTION: yasna::models::ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 1, 1]);
-    static ref OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE: yasna::models::ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
-    static ref OID_PKCS5_PBES2: yasna::models::ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 5, 13]);
-    static ref OID_PKCS5_PBKDF2: yasna::models::ObjectIdentifier =
-        as_oid(&[1, 2, 840, 113_549, 1, 5, 12]);
-    static ref OID_HMAC_SHA256: yasna::models::ObjectIdentifier =
-        as_oid(&[1,2,840,113_549,2,9]);
-    static ref OID_AES_256_CBC: yasna::models::ObjectIdentifier =
-        as_oid(&[2,16,840,1,101,3,4,1,42]);
-    static ref OID_PKCS9_FRIENDLY_NAME: yasna::models::ObjectIdentifier =
-        as_oid(&[1,2,840,113_549,1,9,20]);
-    static ref OID_PKCS9_LOCAL_KEY_ID: yasna::models::ObjectIdentifier =
-        as_oid(&[1,2,840,113_549,1,9,21]);
-    static ref OID_SHA256: yasna::models::ObjectIdentifier =
-        as_oid(&[2,16,840,1,101,3,4,2,1]);
-    static ref OID2_DATA_CONTENT_TYPE: const_oid::ObjectIdentifier = as_oid2("1.2.840.113549.1.7.1");
-}
+use crate::oid::*;
 
 /// The HMAC method
 #[derive(Debug)]

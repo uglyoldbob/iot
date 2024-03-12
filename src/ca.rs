@@ -6,12 +6,36 @@ use hyper::header::HeaderValue;
 
 use crate::{webserver, WebPageContext, WebRouter};
 
+use crate::oid::*;
+
 /// Specifies how to access ca certificates on a ca
-enum CaCertificateStorage {
+pub enum CaCertificateStorage {
     /// The certificates are stored nowhere. Used for testing.
     Nowhere,
     /// The certificates are stored on a filesystem, in der format, private key and certificate in separate files
     FilesystemDer(PathBuf),
+}
+
+/// Errors that can occur when attempting to load a certificate
+enum CertificateLoadingError {
+    /// The certificate does not exist
+    DoesNotExist,
+    /// Cannot open the certificate
+    CantOpen,
+    /// Other io error
+    OtherIo(std::io::Error),
+    /// The certificate loaded is invalid
+    InvalidCert,
+}
+
+impl From<std::io::Error> for CertificateLoadingError {
+    fn from(value: std::io::Error) -> Self {
+        match value.kind() {
+            std::io::ErrorKind::NotFound => CertificateLoadingError::DoesNotExist,
+            std::io::ErrorKind::PermissionDenied => CertificateLoadingError::CantOpen,
+            _ => CertificateLoadingError::OtherIo(value),
+        }
+    }
 }
 
 impl CaCertificateStorage {
@@ -25,21 +49,91 @@ impl CaCertificateStorage {
         Self::Nowhere
     }
 
-    /// Load the root ca cert and private key from the specified storage media, converting to der as required.
-    async fn load_root_ca_cert(&self) -> Option<der::Document> {
+    /// Save the root certificate to the storage method
+    async fn save_root_cert(&self, der: &[u8]) {
         match self {
-            CaCertificateStorage::Nowhere => None,
+            Self::Nowhere => {}
+            Self::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let mut cp = p.clone();
+                cp.push("root_cert.der");
+                let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                cf.write_all(der).await;
+            }
+        }
+    }
+
+    /// Save the root private key to the storage method
+    async fn save_root_key(&self, der: &[u8]) {
+        match self {
+            Self::Nowhere => {}
+            Self::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let mut cp = p.clone();
+                cp.push("root_key.der");
+                let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                cf.write_all(der).await;
+            }
+        }
+    }
+
+    /// Initialize the ca root certificates if necessary and configured to do so by the configuration
+    pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
+        let ca = Self::from_config(settings);
+        match ca.load_root_ca_cert().await {
+            Ok(_cert) => {}
+            Err(e) => {
+                if let CertificateLoadingError::DoesNotExist = e {
+                    if let Some(table) = &settings.ca {
+                        if matches!(
+                            table
+                                .get("generate")
+                                .map(|f| f.to_owned())
+                                .unwrap_or_else(|| toml::Value::String("no".to_string()))
+                                .as_str()
+                                .unwrap(),
+                            "yes"
+                        ) {
+                            if let Some(san) = table.get("san").unwrap().as_array() {
+                                println!("Generating a root certificate for ca operations");
+                                let san: Vec<String> = san
+                                    .iter()
+                                    .map(|e| e.as_str().unwrap().to_string())
+                                    .collect();
+                                let mut certparams = rcgen::CertificateParams::new(san);
+                                certparams.alg = rcgen::SignatureAlgorithm::from_oid(
+                                    OID_ECDSA_P256_SHA256_SIGNING.components(),
+                                )
+                                .unwrap();
+                                let cert = rcgen::Certificate::from_params(certparams).unwrap();
+                                let cert_der = cert.serialize_der().unwrap();
+                                ca.save_root_cert(&cert_der).await;
+                                let key_der = cert.get_key_pair().serialize_der();
+                                ca.save_root_key(&key_der).await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        ca
+    }
+
+    /// Load the root ca cert and private key from the specified storage media, converting to der as required.
+    async fn load_root_ca_cert(&self) -> Result<der::Document, CertificateLoadingError> {
+        match self {
+            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::FilesystemDer(p) => {
                 use der::Decode;
                 use tokio::io::AsyncReadExt;
                 let mut certp = p.clone();
                 certp.push("root_cert.der");
-                let f = tokio::fs::File::open(certp).await;
-                let mut f = f.ok()?;
+                let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut cert).await.ok()?;
-                let cert = der::Document::from_der(&cert).ok()?;
-                Some(cert)
+                f.read_to_end(&mut cert).await?;
+                let cert = der::Document::from_der(&cert)
+                    .map_err(|_e| CertificateLoadingError::InvalidCert)?;
+                Ok(cert)
             }
         }
     }
@@ -51,11 +145,19 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     html.head(|h| h.title(|t| t.text("UglyOldBob Certificate Authority")))
         .body(|b| {
             b.anchor(|ab| {
-                ab.text("Download CA certificate");
+                ab.text("Download CA certificate as der");
                 ab.href("/ca/get_ca.rs?type=der");
                 ab.target("_blank");
                 ab
             });
+            b.line_break(|lb| lb);
+            b.anchor(|ab| {
+                ab.text("Download CA certificate as pem");
+                ab.href("/ca/get_ca.rs?type=pem");
+                ab.target("_blank");
+                ab
+            });
+            b.line_break(|lb| lb);
             b.ordered_list(|ol| {
                 for name in ["I", "am", "groot"] {
                     ol.list_item(|li| li.text(name));
@@ -83,7 +185,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 
     let mut cert: Option<Vec<u8>> = None;
 
-    if let Some(cert_der) = ca.load_root_ca_cert().await {
+    if let Ok(cert_der) = ca.load_root_ca_cert().await {
         let ty = if s.get.contains_key("type") {
             s.get.get("type").unwrap().to_owned()
         } else {
