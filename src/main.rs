@@ -1,9 +1,12 @@
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
+//! This program is for managing iot devices.
+
 //For the html crate
 #![recursion_limit = "512"]
-use std::collections::HashMap;
 
 use std::fs;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -15,6 +18,7 @@ mod webserver;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
+/// A test function that produces demo content
 async fn test_func2(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
@@ -36,10 +40,11 @@ async fn test_func2(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Another test function that produces demo content
 async fn test_func(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
-        if s.get.len() > 0 {
+        if !s.get.is_empty() {
             b.ordered_list(|ol| {
                 for (a, b) in s.get.iter() {
                     ol.list_item(|li| li.text(format!("{}: {}", a, b)));
@@ -60,6 +65,7 @@ async fn test_func(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// The page for /main.rs
 async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
     let mut c: String = "".to_string();
     let mut logincookie = s.logincookie;
@@ -90,10 +96,7 @@ async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
         let login_pass = user::try_user_login2(&useri, pass.to_string());
         if login_pass {
             let useru = useri.unwrap();
-            let value = s
-                .pool
-                .as_mut()
-                .and_then(|f| Some(user::new_user_login(f, useru)));
+            let value = s.pool.as_mut().map(|f| user::new_user_login(f, useru));
             let print = format!("Login pass {:?}", value);
             c.push_str(&print);
             let cookieval = format!("{:?}", value);
@@ -166,13 +169,13 @@ You are logged in
     })
     .body(|b| {
         if let Some(certs) = s.user_certs.all_certs() {
-            if certs.len() > 0 {
+            if !certs.is_empty() {
                 b.text("You have a certificate");
                 b.line_break(|fb| fb);
                 for c in certs {
-                    b.text(format!("{}", c.tbs_certificate.subject.to_string()));
+                    b.text(c.tbs_certificate.subject.to_string());
                     b.line_break(|fb| fb);
-                    b.text(format!("{}", c.tbs_certificate.issuer.to_string()));
+                    b.text(c.tbs_certificate.issuer.to_string());
                     b.line_break(|fb| fb);
                 }
             }
@@ -204,16 +207,16 @@ You are logged in
     }
 }
 
+///The page that redirects to /main.rs
 async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = format!("{}/main.rs", s.proxy.to_string());
-    response.headers.insert(
-        "Location",
-        HeaderValue::from_str(&url).unwrap(),
-    );
+    let url = format!("{}/main.rs", s.proxy);
+    response
+        .headers
+        .insert("Location", HeaderValue::from_str(&url).unwrap());
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
     webserver::WebResponse {
@@ -222,6 +225,7 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// A test function that shows some demo content
 async fn test_func3(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h).body(|b| {
@@ -242,7 +246,7 @@ async fn test_func3(s: WebPageContext) -> webserver::WebResponse {
         cookie: s.logincookie,
     }
 }
-
+///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| h.title(|t| t.text("UglyOldBob Certificate Authority")))
@@ -271,16 +275,12 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Runs the page for fetching the ca certificate for the certificate authority being run
 async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    response.headers.append(
-        "Content-Type",
-        HeaderValue::from_static("application/x509-user-cert"),
-    );
-
-    let mut cert = None;
+    let mut cert: Option<&[u8]> = None;
 
     println!("GET IS {:?}", s.get);
     if s.get.contains_key("type") {
@@ -288,7 +288,18 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
         println!("type is {}", ty);
         match ty.as_str() {
             "der" => {
+                response.headers.append(
+                    "Content-Type",
+                    HeaderValue::from_static("application/x509-ca-cert"),
+                );
                 cert = Some(&[1, 2, 3, 4]);
+            }
+            "pem" => {
+                response.headers.append(
+                    "Content-Type",
+                    HeaderValue::from_static("application/x-pem-file"),
+                );
+                cert = Some("asdffdsa".as_bytes());
             }
             _ => {}
         }
@@ -377,7 +388,7 @@ async fn main() {
             .unwrap_or("rustcookie".to_string())
     );
 
-    if hc.proxy.clone() != "".to_string() {
+    if hc.proxy != *"" {
         println!("Using {} as the proxy path", &hc.proxy);
     } else {
         println!("Not using a proxy path");
@@ -385,15 +396,8 @@ async fn main() {
 
     //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
-    let http_enable = match settings.get("http", "enabled").unwrap().as_str() {
-        "yes" => true,
-        _ => false,
-    };
-
-    let https_enable = match settings.get("https", "enabled").unwrap().as_str() {
-        "yes" => true,
-        _ => false,
-    };
+    let http_enable = matches!(settings.get("http", "enabled").unwrap().as_str(), "yes");
+    let https_enable = matches!(settings.get("https", "enabled").unwrap().as_str(), "yes");
 
     let hc = Arc::new(hc);
 
@@ -433,16 +437,12 @@ async fn main() {
         }
     }
 
-    loop {
-        futures::select! {
-            r = tasks.join_next().fuse() => {
-                println!("A task exited {:?}, closing server in 5 seconds", r);
-                tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
-                break;
-            }
-            _ = tokio::signal::ctrl_c().fuse() => {
-                break;
-            }
+    futures::select! {
+        r = tasks.join_next().fuse() => {
+            println!("A task exited {:?}, closing server in 5 seconds", r);
+            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+        }
+        _ = tokio::signal::ctrl_c().fuse() => {
         }
     }
     println!("Closing server now");

@@ -1,3 +1,5 @@
+//! A module for loading and parsing tls certificates
+
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -7,23 +9,28 @@ use std::sync::Arc;
 use p12::yasna;
 
 use der::Decode;
-use tokio_rustls::client;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use yasna::ASN1Error;
 
-use crate::user;
-
+/// A generic error type
 type Error = Box<dyn std::error::Error + 'static>;
 
+/// Represents a pkcs12 certificate container on the filesystem
 pub struct TlsConfig {
+    /// The location of the file
     pub cert_file: PathBuf,
+    /// The password of the file
     pub key_password: String,
 }
 
 impl TlsConfig {
+    /// Create a new tls config, specifying the pkcs12 specs
+    /// # Arguments
+    /// * cert_file - The location of the pkcs12 document
+    /// * pass - The password for the pkcs12 document
     pub fn new<P: Into<PathBuf>, S: Into<String>>(cert_file: P, pass: S) -> Self {
         TlsConfig {
             cert_file: cert_file.into(),
@@ -32,10 +39,12 @@ impl TlsConfig {
     }
 }
 
+/// Create an OID
 fn as_oid(s: &'static [u64]) -> yasna::models::ObjectIdentifier {
     yasna::models::ObjectIdentifier::from_slice(s)
 }
 
+/// Create a const OID
 fn as_oid2(s: &'static str) -> const_oid::ObjectIdentifier {
     const_oid::ObjectIdentifier::from_str(s).unwrap()
 }
@@ -65,17 +74,24 @@ lazy_static::lazy_static! {
     static ref OID2_DATA_CONTENT_TYPE: const_oid::ObjectIdentifier = as_oid2("1.2.840.113549.1.7.1");
 }
 
+/// The HMAC method
 #[derive(Debug)]
 #[allow(dead_code)]
 enum HmacMethod {
+    /// Sha1 method
     Sha1,
+    /// Sha224 method
     Sha224,
+    /// Sha256 method
     Sha256,
+    /// Sha384 method
     Sha384,
+    /// Sha512 method
     Sha512,
 }
 
 impl HmacMethod {
+    /// Convert to a pkcs5 struct
     fn to_prf(&self) -> pkcs5::pbes2::Pbkdf2Prf {
         match self {
             HmacMethod::Sha1 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha1,
@@ -86,6 +102,7 @@ impl HmacMethod {
         }
     }
 
+    /// Convert from oid to Self, if possible
     fn from_oid(oid: yasna::models::ObjectIdentifier) -> Option<Self> {
         if oid == *OID_HMAC_SHA256 {
             Some(HmacMethod::Sha256)
@@ -95,22 +112,31 @@ impl HmacMethod {
     }
 }
 
+/// Represents parameters for the pbkdf2 algorithm
 #[derive(Debug)]
 struct Pbes2Pbkdf2Params {
+    /// The salt of the pbkdf2 algorithm
     salt: Vec<u8>,
+    /// Number of iterations
     count: u32,
+    /// Length?
     length: Option<u16>,
+    /// The hmac method for the pbkdf2
     method: HmacMethod,
 }
 
+/// The encryption scheme to use for data
 #[derive(Debug)]
 enum EncryptionScheme {
+    /// Aes 256 with an iv
     Aes256([u8; 16]),
+    /// Unknown encryption scheme
     Unknown,
 }
 
 impl EncryptionScheme {
-    fn get_pbes2_scheme<'a>(&'a self) -> Option<pkcs5::pbes2::EncryptionScheme<'a>> {
+    /// Convert to a pkcs5 struct
+    fn get_pbes2_scheme(&self) -> Option<pkcs5::pbes2::EncryptionScheme<'_>> {
         match self {
             EncryptionScheme::Aes256(s) => {
                 let p = pkcs5::pbes2::EncryptionScheme::Aes256Cbc { iv: s };
@@ -122,6 +148,7 @@ impl EncryptionScheme {
 }
 
 impl Pbes2Pbkdf2Params {
+    /// Create a blank Self
     fn new() -> Self {
         Self {
             salt: Vec::new(),
@@ -131,7 +158,8 @@ impl Pbes2Pbkdf2Params {
         }
     }
 
-    fn to_pbkdf2_params<'a>(&'a self) -> pkcs5::pbes2::Pbkdf2Params<'a> {
+    /// Convert to a pkcs5 struct
+    fn to_pbkdf2_params(&self) -> pkcs5::pbes2::Pbkdf2Params<'_> {
         pkcs5::pbes2::Pbkdf2Params {
             salt: &self.salt,
             iteration_count: self.count,
@@ -141,17 +169,25 @@ impl Pbes2Pbkdf2Params {
     }
 }
 
+/// The parameters for pbes2 encryption
 #[derive(Debug)]
 enum Pbes2Params {
+    /// The pbkdf2 algorithm is used
     Pbes2Pbkdf2(Pbes2Pbkdf2Params),
+    /// An unknown algorithm
     Unknown,
 }
 
 impl Pbes2Params {
+    /// Decrypt the contents of the data
+    /// # Arguments
+    /// * scheme - The encryption scheme used
+    /// * data - The data to deccrypt
+    /// * password - The password the data is protected with
     fn decrypt(
         &self,
         scheme: &EncryptionScheme,
-        data: &Vec<u8>,
+        data: &[u8],
         password: &[u8],
     ) -> zeroize::Zeroizing<Vec<u8>> {
         match self {
@@ -175,17 +211,27 @@ impl Pbes2Params {
     }
 }
 
+/// Represents data encrypted with pbes2
 #[derive(Debug)]
 struct Pkcs5Pbes2 {
+    /// The pbes2 parameters
     params: Pbes2Params,
+    /// The encryption scheme used
     scheme: EncryptionScheme,
 }
 
 impl Pkcs5Pbes2 {
-    fn decrypt(&self, data: &Vec<u8>, password: &[u8]) -> zeroize::Zeroizing<Vec<u8>> {
+    /// Decrypt the contents of the data
+    /// # Arguments
+    /// * data - The data to deccrypt
+    /// * password - The password the data is protected with
+    fn decrypt(&self, data: &[u8], password: &[u8]) -> zeroize::Zeroizing<Vec<u8>> {
         self.params.decrypt(&self.scheme, data, password)
     }
 
+    /// Parse a Self with the given reader
+    /// # Arguments
+    /// * r - The BERReader to use for parsing into Self
     fn parse(r: yasna::BERReader) -> Result<Self, ASN1Error> {
         let mut params: Pbes2Params = Pbes2Params::Unknown;
         let mut scheme = EncryptionScheme::Unknown;
@@ -228,22 +274,32 @@ impl Pkcs5Pbes2 {
         Ok(Self { params, scheme })
     }
 
+    /// Parse some der data to produce a Self
+    /// # Arguments
+    /// * data - The der data to parse
     fn parse_parameters(data: &[u8]) -> Result<Self, ASN1Error> {
         yasna::parse_der(data, |r| Self::parse(r))
     }
 }
 
+/// Represents a pki message containg an x509 certificate
 #[derive(Debug)]
 struct PkiMessage {
+    /// The decoded contents of the x509 certificate
     cert: x509_cert::Certificate,
+    /// The der representation of the x509 certificate
     der: Vec<u8>,
 }
 
 impl PkiMessage {
+    /// Return the der contents of an x509 certificate
     fn get_der(&self) -> &Vec<u8> {
         &self.der
     }
 
+    /// Parse some der data into a Self
+    /// # Arguments
+    /// * data - The der data to parse
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         let mut der_contents = None;
         let d = yasna::parse_der(data, |r| {
@@ -304,8 +360,10 @@ impl PkiMessage {
     }
 }
 
+/// Represents an x509 private key
 #[derive(Debug)]
 struct X509PrivateKey {
+    /// The der contents of the private key
     der: Vec<u8>,
 }
 
@@ -316,21 +374,28 @@ impl zeroize::Zeroize for X509PrivateKey {
 }
 
 impl X509PrivateKey {
+    /// Return the der contents of the private key
     fn get_der(&self) -> &Vec<u8> {
         &self.der
     }
 
-    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
-        Ok(Self { der: data.to_vec() })
+    /// Create a new private key struct, containg the der contents of a private key
+    fn new(data: &[u8]) -> Self {
+        Self { der: data.to_vec() }
     }
 }
 
+/// Represents an x509 request structure containing an encrypted private key.
 #[derive(Debug)]
 struct X509Request {
+    /// The encrypted private key
     key: p12::EncryptedPrivateKeyInfo,
 }
 
 impl X509Request {
+    /// Decrypt the contents of the encrypted private key with the specified password
+    /// # Arguments
+    /// * pass - The password protecting the private key.
     fn decrypt(&self, pass: &[u8]) -> Option<zeroize::Zeroizing<X509PrivateKey>> {
         if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
             if o.algorithm_type == *OID_PKCS5_PBES2 {
@@ -339,8 +404,7 @@ impl X509Request {
                     yasna::parse_der(data, |r| r.read_sequence(|r| Pkcs5Pbes2::parse(r.next())))
                         .expect("Failed to decode pbes2");
                 let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
-                let pkey =
-                    X509PrivateKey::parse(&pkey_der).expect("Failed to parse the private key");
+                let pkey = X509PrivateKey::new(&pkey_der);
                 return Some(zeroize::Zeroizing::new(pkey));
             } else {
                 panic!("Unexpected algorithm type for private key");
@@ -349,6 +413,9 @@ impl X509Request {
         None
     }
 
+    /// Parse the given der data to produce a Self
+    /// # Arguments
+    /// * data - The der data to process
     fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
         yasna::parse_der(data, |r| {
             r.read_sequence(|r| {
@@ -401,6 +468,10 @@ impl X509Request {
     }
 }
 
+/// Collect and return the list of safe bags from a pkcs12 PFX container
+/// # Arguments
+/// * ec - The PFX container object
+/// * pass - The password for the container
 fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error> {
     let data = ec.auth_safe.data(pass).unwrap();
     let safe_bags = yasna::parse_ber(&data, |r| r.collect_sequence_of(p12::SafeBag::parse))?;
@@ -412,9 +483,13 @@ fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error>
     Ok(result)
 }
 
+/// Check the program config and create a client verifier struct as specified.
+/// # Arguments
+/// * settings - The program configuration object.
 pub fn load_user_cert_data(
     settings: &configparser::ini::Ini,
 ) -> Option<Arc<dyn ClientCertVerifier>> {
+    /// The section name to load client certificate filenames from
     const SECTION_NAME: &str = "client-certs";
     if settings.sections().contains(&SECTION_NAME.to_string()) {
         println!("Loading client certificate data");
@@ -422,23 +497,23 @@ pub fn load_user_cert_data(
 
         let m = settings.get_map_ref();
         let section = m.get(SECTION_NAME).unwrap();
-        for (s, _val) in section {
+        for s in section.keys() {
             println!("\tClient cert {}", s);
             let mut certbytes = vec![];
-            let mut certf =
-                File::open(s).expect(&format!("Failed to open client certificate {}", s));
+            let mut certf = File::open(s)
+                .unwrap_or_else(|e| panic!("Failed to open client certificate {}: {}", s, e));
             certf
                 .read_to_end(&mut certbytes)
-                .expect(&format!("Failed to read client certificate {}", s));
+                .unwrap_or_else(|e| panic!("Failed to read client certificate {}: {}", s, e));
             let cder = CertificateDer::from(certbytes);
             rcs.add(cder)
-                .expect(&format!("Failed to addd client certificate {}", s));
+                .unwrap_or_else(|e| panic!("Failed to add client certificate {}: {}", s, e));
         }
 
         //todo fill out the rcs struct
         let roots = Arc::new(rcs);
 
-        let client_verifier = WebPkiClientVerifier::builder(roots.into()).build().unwrap();
+        let client_verifier = WebPkiClientVerifier::builder(roots).build().unwrap();
         Some(client_verifier)
     } else {
         println!("Not loading any client certificate information");
@@ -446,6 +521,11 @@ pub fn load_user_cert_data(
     }
 }
 
+/// Loads an https certificate from a pkcs12 container, into a format usable by rustls.
+/// # Arguments
+/// * certfile - The Path for the pkcs12 container
+/// * pass - The password for the container
+/// * user_certs - The struct used to verify client id with tls.
 pub fn load_certificate<P>(
     certfile: P,
     pass: &str,

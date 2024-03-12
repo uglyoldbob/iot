@@ -1,4 +1,5 @@
-use futures::future::BoxFuture;
+//! This module is used to run a webserver.
+
 use futures::Future;
 use hyper::{Request, Response, StatusCode};
 use regex::Regex;
@@ -13,20 +14,29 @@ use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 
 use cookie::Cookie;
 
+/// Represents the response of an async function web handler. Contains web page data and cookie information.
 pub struct WebResponse {
+    /// The response to deliver to the web client.
     pub response: hyper::Response<http_body_util::Full<hyper::body::Bytes>>,
+    /// The loginn cookie after processing has been done
     pub cookie: Option<String>,
 }
 
+/// Routes web requests to an async function
 pub struct WebRouter {
+    /// The map used by the router
     r: HashMap<String, HashMapCallback>,
 }
 
 impl WebRouter {
+    /// Create a blank web router.
     pub fn new() -> Self {
         WebRouter { r: HashMap::new() }
     }
-
+    /// Register an async function to handle the given path
+    /// # Arguments
+    /// * path - The exact path to handle
+    /// * f - The async function that handles the specified path
     pub fn register<F, R>(&mut self, path: &str, f: F)
     where
         F: Fn(WebPageContext) -> R + Send + Sync + 'static,
@@ -37,12 +47,12 @@ impl WebRouter {
     }
 }
 
-pub type Callback =
-    fn(&mut WebPageContext) -> (dyn Future<Output = WebResponse> + Send + Sync + 'static);
-
+/// The type to store in a hasmap when asyn fn are needed in a hashmap
 type HashMapCallback = Box<dyn WebHandlerTrait>;
 
+/// Used to stored async functions in a hashmap.
 trait WebHandlerTrait: Send + Sync + 'static {
+    /// Call the contained async function
     fn call(&self, req: WebPageContext)
         -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>>;
 }
@@ -60,48 +70,74 @@ where
     }
 }
 
+/// The context necessary to respond to a web request.
 pub struct HttpContext {
+    /// The map that is used to route requests to the proper async function.
     pub dirmap: WebRouter,
+    /// The root path for static files
     pub root: String,
+    /// The name of the login cookie
     pub cookiename: String,
+    /// The proxy subdirectory
     pub proxy: String,
+    /// The optional mysql connection
     pub pool: Option<mysql::Pool>,
 }
 
+/// Represents extra context for a web service
 pub struct ExtraContext {
+    /// The optional list of user certificates
     pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
 }
 
+/// Represents the ways user certs can make it to us
 pub enum UserCerts {
+    /// The user certs came directly from tls
     HttpsCerts(Vec<x509_cert::Certificate>),
+    /// The user certs came from http headers
     ProxyCerts(Vec<x509_cert::Certificate>),
+    /// There are no user certs
     None,
 }
 
 impl UserCerts {
+    /// Return a list of all certs, regardless of how the made it here
     pub fn all_certs(&self) -> Option<&Vec<x509_cert::Certificate>> {
         match self {
-            UserCerts::HttpsCerts(hc) => Some(&hc),
-            UserCerts::ProxyCerts(pc) => Some(&pc),
+            UserCerts::HttpsCerts(hc) => Some(hc),
+            UserCerts::ProxyCerts(pc) => Some(pc),
             UserCerts::None => None,
         }
     }
 }
 
+/// Represents the context necessary to render a webpage
 pub struct WebPageContext {
+    /// The proxy sub-directory
     pub proxy: String,
+    /// The map of all post arguments
     pub post: HashMap<String, String>,
+    /// The map of all get arguments
     pub get: HashMap<String, String>,
+    /// The login cookie
     pub logincookie: Option<String>,
+    /// The optional mysql server connection
     pub pool: Option<mysql::PooledConn>,
+    /// The list of user certificates presented by the user
     pub user_certs: UserCerts,
 }
 
+/// Represents the information required to handle web requests
 struct WebService<F, R, C> {
+    /// The context of the web service
     context: Arc<C>,
+    /// The address that is being listened on
     addr: SocketAddr,
+    /// The user certificates for the request
     user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
+    /// The async function called to service web requests
     f: F,
+    /// Required to make it work
     _req: PhantomData<fn(Arc<C>, SocketAddr, R)>,
 }
 
@@ -110,6 +146,11 @@ where
     F: Fn(Arc<C>, ExtraContext, SocketAddr, Request<R>) -> S,
     S: futures::Future,
 {
+    /// Create a new Self
+    /// # Arguments
+    /// * context - The context for the web service
+    /// * addr - The address the service is listening on
+    /// * f - The async function used to handle web requests
     fn new(context: Arc<C>, addr: SocketAddr, f: F) -> Self {
         Self {
             context,
@@ -130,7 +171,7 @@ where
             f: self.f.clone(),
             context: self.context.clone(),
             user_certs: self.user_certs.clone(),
-            addr: self.addr.clone(),
+            addr: self.addr,
             _req: PhantomData,
         }
     }
@@ -156,7 +197,7 @@ where
     }
 }
 
-/// TODO Figure out how to pass a reference of an HttpContext instead of a clone of one
+/// Handle a web request
 async fn handle<'a>(
     context: Arc<HttpContext>,
     ec: ExtraContext,
@@ -170,9 +211,9 @@ async fn handle<'a>(
 
     let mut get_map = HashMap::new();
     let get_data = rparts.uri.query().unwrap_or("");
-    let get_split = get_data.split("&");
+    let get_split = get_data.split('&');
     for get_elem in get_split {
-        let mut ele_split = get_elem.split("=").take(2);
+        let mut ele_split = get_elem.split('=').take(2);
         let i1 = ele_split.next().unwrap_or_default();
         let i2 = ele_split.next().unwrap_or_default();
         get_map.insert(i1.to_owned(), i2.to_owned());
@@ -183,7 +224,7 @@ async fn handle<'a>(
     let cks_ga = hdrs.get_all("cookie");
     let mut cookiemap = HashMap::new();
     for c in cks_ga.into_iter() {
-        let cookies = c.to_str().unwrap().split(";");
+        let cookies = c.to_str().unwrap().split(';');
         for ck in cookies {
             let cookie = Cookie::parse(ck).unwrap();
             let (c1, c2) = cookie.name_value();
@@ -223,7 +264,7 @@ async fn handle<'a>(
     let proxy = &context.proxy;
     let reg1 = format!("(^{})", proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
-    let fixed_path = reg1.replace_all(&path, "");
+    let fixed_path = reg1.replace_all(path, "");
     let sys_path = context.root.to_owned() + &fixed_path;
 
     println!("Lookup {}", fixed_path);
@@ -289,10 +330,12 @@ pin_project_lite::pin_project! {
 }
 
 impl<T> TokioIo<T> {
+    /// Create a new Self
     pub fn new(inner: T) -> Self {
         Self { inner }
     }
 
+    /// Return the inner object
     pub fn inner(self) -> T {
         self.inner
     }
@@ -426,15 +469,22 @@ where
     }
 }
 
+/// Start an http webserver.
+/// # Arguments
+/// * hc - The httpcontext that the webserver will run under
+/// * port - The port to listen on
+/// * tasks: A joinset used to determine if any critical threads have terminated early.
 pub async fn http_webserver(
     hc: Arc<HttpContext>,
     port: u16,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ServiceError> {
     // Construct our SocketAddr to listen on...
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| ServiceError::Other(e.to_string()))?;
 
     let webservice = WebService::new(hc, addr, handle);
 
@@ -462,28 +512,48 @@ pub async fn http_webserver(
 
 pub mod tls;
 
+/// The types of errors that can occur when starting a service within the application
 #[derive(Debug)]
 pub enum ServiceError {
+    /// A general catch-all error type.
     Other(String),
 }
 
+impl std::fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServiceError::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+/// Start an https webserver.
+/// # Arguments
+/// * hc - The httpcontext that the webserver will run under
+/// * port - The port to listen on
+/// * tls_config - A struct describing how to load the pkcs12 document.
+/// * tasks: A joinset used to determine if any critical threads have terminated early.
+/// * client_certs - Used to request and verify tls client certificates
 pub async fn https_webserver(
     hc: Arc<HttpContext>,
     port: u16,
     tls_config: tls::TlsConfig,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
     client_certs: Option<Arc<dyn ClientCertVerifier>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     let cert = tls::load_certificate(
         &tls_config.cert_file,
         &tls_config.key_password,
         client_certs,
-    )?;
+    )
+    .map_err(|e| ServiceError::Other(e.to_string()))?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| ServiceError::Other(e.to_string()))?;
 
     let webservice = WebService::new(hc, addr, handle);
 
