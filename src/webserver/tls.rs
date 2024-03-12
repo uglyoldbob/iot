@@ -487,17 +487,13 @@ fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error>
 /// # Arguments
 /// * settings - The program configuration object.
 pub fn load_user_cert_data(
-    settings: &configparser::ini::Ini,
+    settings: &crate::MainConfiguration,
 ) -> Option<Arc<dyn ClientCertVerifier>> {
-    /// The section name to load client certificate filenames from
-    const SECTION_NAME: &str = "client-certs";
-    if settings.sections().contains(&SECTION_NAME.to_string()) {
+    if let Some(section) = &settings.client_certs {
         println!("Loading client certificate data");
         let mut rcs = RootCertStore::empty();
 
-        let m = settings.get_map_ref();
-        let section = m.get(SECTION_NAME).unwrap();
-        for s in section.keys() {
+        for s in section {
             println!("\tClient cert {}", s);
             let mut certbytes = vec![];
             let mut certf = File::open(s)

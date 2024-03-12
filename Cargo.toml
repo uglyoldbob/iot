@@ -6,7 +6,6 @@ edition = "2021"
 
 [dependencies]
 cms = "0.2.3"
-configparser = "3.0.4"
 const-oid = "0.9.6"
 der = "0.7.8"
 futures="0.3.30"
@@ -21,6 +20,7 @@ regex = "1.10.3"
 scrypt = "0.11.0"
 time = "0.3.34"
 tokio-rustls = "0.25.0"
+toml = "0.8.11"
 x509-cert = "0.2.5"
 zeroize = "1.7.0"
 
@@ -43,6 +43,10 @@ git = "https://github.com/uglyoldbob/p12.git"
 [dependencies.pkcs8]
 version = "0.10.2"
 features = ["encryption", "pem", "std"]
+
+[dependencies.serde]
+version = "1.0.197"
+features = ["derive"]
 
 [dependencies.tls-listener]
 version = "0.9.1"

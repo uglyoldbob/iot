@@ -16,7 +16,7 @@ enum CaCertificateStorage {
 
 impl CaCertificateStorage {
     /// Create a Self from the application configuration
-    fn from_config(config: &configparser::ini::Ini) -> Option<Self> {
+    fn from_config(config: &crate::MainConfiguration) -> Option<Self> {
         None
     }
 

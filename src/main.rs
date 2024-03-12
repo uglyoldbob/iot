@@ -20,6 +20,23 @@ mod webserver;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
+/// The main configuration of the application
+#[derive(serde::Deserialize)]
+pub struct MainConfiguration {
+    /// General settings
+    pub general: toml::Table,
+    /// Admin user settings
+    pub admin: toml::Table,
+    /// Settings for the http server
+    pub http: toml::Table,
+    /// Settings for the https server
+    pub https: toml::Table,
+    /// Settings for the database
+    pub database: toml::Table,
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<String>>,
+}
+
 /// A test function that produces demo content
 async fn test_func2(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
@@ -265,27 +282,35 @@ async fn main() {
         Ok(con) => con,
         Err(_) => "".to_string(),
     };
-    let mut settings = configparser::ini::Ini::new_cs();
-    let settings_result = settings.read(settings_con);
-    if let Err(e) = settings_result {
-        println!("Failed to read settings {}", e);
-    }
+    let settings: MainConfiguration =
+        toml::from_str(&settings_con).expect("Failed to parse configuration");
 
     let mysql_pw = settings
-        .get("database", "password")
-        .unwrap_or("iinvalid".to_string());
+        .database
+        .get("password")
+        .map(|a| a.to_owned())
+        .unwrap_or(toml::Value::String("invalid".to_string()));
     let mysql_user = settings
-        .get("database", "username")
-        .unwrap_or("invalid".to_string());
+        .database
+        .get("username")
+        .map(|a| a.to_owned())
+        .unwrap_or(toml::Value::String("invalid".to_string()));
     let mysql_dbname = settings
-        .get("database", "name")
-        .unwrap_or("none".to_string());
+        .database
+        .get("name")
+        .map(|a| a.to_owned())
+        .unwrap_or(toml::Value::String("invalid".to_string()));
     let mysql_url = settings
-        .get("database", "url")
-        .unwrap_or("invalid".to_string());
+        .database
+        .get("url")
+        .map(|a| a.to_owned())
+        .unwrap_or(toml::Value::String("invalid".to_string()));
     let mysql_conn_s = format!(
         "mysql://{}:{}@{}/{}",
-        mysql_user, mysql_pw, mysql_url, mysql_dbname
+        mysql_user.as_str().unwrap(),
+        mysql_pw.as_str().unwrap(),
+        mysql_url.as_str().unwrap(),
+        mysql_dbname.as_str().unwrap()
     );
     let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
     let mysql_temp = mysql::Pool::new(mysql_opt);
@@ -311,13 +336,23 @@ async fn main() {
         user::set_admin_login(mysql_conn_s, &settings);
     }
 
-    hc.proxy = settings.get("general", "proxy").unwrap_or("".to_string());
+    hc.proxy = settings
+        .general
+        .get("proxy")
+        .unwrap_or(&toml::Value::String("".to_string()))
+        .as_str()
+        .unwrap()
+        .to_string();
     hc.cookiename = format!(
         "{}/{}",
         &hc.proxy,
         settings
-            .get("general", "cookie")
-            .unwrap_or("rustcookie".to_string())
+            .general
+            .get("cookie")
+            .unwrap_or(&toml::Value::String("rustcookie".to_string()))
+            .as_str()
+            .unwrap()
+            .to_string()
     );
 
     if hc.proxy != *"" {
@@ -328,8 +363,14 @@ async fn main() {
 
     //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
-    let http_enable = matches!(settings.get("http", "enabled").unwrap().as_str(), "yes");
-    let https_enable = matches!(settings.get("https", "enabled").unwrap().as_str(), "yes");
+    let http_enable = matches!(
+        settings.http.get("enabled").unwrap().as_str().unwrap(),
+        "yes"
+    );
+    let https_enable = matches!(
+        settings.https.get("enabled").unwrap().as_str().unwrap(),
+        "yes"
+    );
 
     let hc = Arc::new(hc);
 
@@ -340,9 +381,11 @@ async fn main() {
 
     if http_enable {
         let http_port = settings
-            .getint("http", "port")
-            .unwrap_or(None)
-            .unwrap_or(3001) as u16;
+            .http
+            .get("port")
+            .unwrap_or(&toml::Value::Integer(3000))
+            .as_integer()
+            .unwrap_or(3000) as u16;
         println!("Listening http on port {}", http_port);
 
         let hc_http = hc.clone();
@@ -353,13 +396,15 @@ async fn main() {
 
     if https_enable {
         let https_port = settings
-            .getint("https", "port")
-            .unwrap_or(None)
+            .https
+            .get("port")
+            .unwrap_or(&toml::Value::Integer(3001))
+            .as_integer()
             .unwrap_or(3001) as u16;
         println!("Listening https on port {}", https_port);
 
-        let tls_pass = settings.get("https", "certpass").unwrap();
-        let tls_cert = settings.get("https", "certificate").unwrap();
+        let tls_pass = settings.https.get("certpass").unwrap().as_str().unwrap();
+        let tls_cert = settings.https.get("certificate").unwrap().as_str().unwrap();
         let tls = TlsConfig::new(tls_cert, tls_pass);
 
         let hc_https = hc.clone();
