@@ -82,6 +82,8 @@ pub struct HttpContext {
     pub proxy: String,
     /// The optional mysql connection
     pub pool: Option<mysql::Pool>,
+    /// The application settings
+    pub settings: Arc<crate::MainConfiguration>,
 }
 
 /// Represents extra context for a web service
@@ -125,6 +127,8 @@ pub struct WebPageContext {
     pub pool: Option<mysql::PooledConn>,
     /// The list of user certificates presented by the user
     pub user_certs: UserCerts,
+    /// The application settings
+    pub settings: Arc<crate::MainConfiguration>,
 }
 
 /// Represents the information required to handle web requests
@@ -251,13 +255,14 @@ async fn handle<'a>(
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 
-    let mut p = WebPageContext {
+    let p = WebPageContext {
         post: post_data,
         get: get_map,
         proxy: context.proxy.to_owned(),
         logincookie: ourcookie.clone(),
         pool: mysql,
         user_certs,
+        settings: context.settings.clone(),
     };
 
     let path = rparts.uri.path();

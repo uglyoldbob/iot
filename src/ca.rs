@@ -16,31 +16,30 @@ enum CaCertificateStorage {
 
 impl CaCertificateStorage {
     /// Create a Self from the application configuration
-    fn from_config(config: &crate::MainConfiguration) -> Option<Self> {
-        None
+    fn from_config(settings: &crate::MainConfiguration) -> Self {
+        if let Some(section) = &settings.ca {
+            if section.contains_key("path") {
+                return Self::FilesystemDer(section.get("path").unwrap().as_str().unwrap().into());
+            }
+        }
+        Self::Nowhere
     }
 
-    /// Load the root ca cert and private key from the specified storage media
-    async fn load_root_ca(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+    /// Load the root ca cert and private key from the specified storage media, converting to der as required.
+    async fn load_root_ca_cert(&self) -> Option<der::Document> {
         match self {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
+                use der::Decode;
                 use tokio::io::AsyncReadExt;
                 let mut certp = p.clone();
                 certp.push("root_cert.der");
-                let mut pkeyp = p.clone();
-                pkeyp.push("root_key.der");
                 let f = tokio::fs::File::open(certp).await;
                 let mut f = f.ok()?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await.ok()?;
-
-                let f = tokio::fs::File::open(pkeyp).await;
-                let mut f = f.ok()?;
-                let mut pkey = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut pkey).await.ok()?;
-
-                Some((cert, pkey))
+                let cert = der::Document::from_der(&cert).ok()?;
+                Some(cert)
             }
         }
     }
@@ -77,36 +76,51 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
 async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
+    let ca = CaCertificateStorage::from_config(&s.settings);
+
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let mut cert: Option<&[u8]> = None;
+    let mut cert: Option<Vec<u8>> = None;
 
-    println!("GET IS {:?}", s.get);
-    if s.get.contains_key("type") {
-        let ty = s.get.get("type").unwrap();
-        println!("type is {}", ty);
+    if let Some(cert_der) = ca.load_root_ca_cert().await {
+        let ty = if s.get.contains_key("type") {
+            s.get.get("type").unwrap().to_owned()
+        } else {
+            "der".to_string()
+        };
+
         match ty.as_str() {
             "der" => {
                 response.headers.append(
                     "Content-Type",
                     HeaderValue::from_static("application/x509-ca-cert"),
                 );
-                cert = Some(&[1, 2, 3, 4]);
+                response.headers.append(
+                    "Content-Disposition",
+                    HeaderValue::from_static("attachment; filename=ca.cer"),
+                );
+                cert = Some(cert_der.to_vec());
             }
             "pem" => {
                 response.headers.append(
                     "Content-Type",
                     HeaderValue::from_static("application/x-pem-file"),
                 );
-                cert = Some("asdffdsa".as_bytes());
+                response.headers.append(
+                    "Content-Disposition",
+                    HeaderValue::from_static("attachment; filename=ca.pem"),
+                );
+                if let Ok(pem) = cert_der.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF) {
+                    cert = Some(pem.as_bytes().to_vec());
+                }
             }
             _ => {}
         }
     }
 
     let body = if let Some(cert) = cert {
-        http_body_util::Full::new(hyper::body::Bytes::from_static(cert))
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
     } else {
         http_body_util::Full::new(hyper::body::Bytes::from("missing"))
     };

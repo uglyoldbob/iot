@@ -35,6 +35,8 @@ pub struct MainConfiguration {
     pub database: toml::Table,
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
+    /// The table for ca settings
+    pub ca: Option<toml::Table>,
 }
 
 /// A test function that produces demo content
@@ -285,6 +287,8 @@ async fn main() {
     let settings: MainConfiguration =
         toml::from_str(&settings_con).expect("Failed to parse configuration");
 
+    let settings = Arc::new(settings);
+
     let mysql_pw = settings
         .database
         .get("password")
@@ -328,6 +332,7 @@ async fn main() {
         proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
+        settings: settings.clone(),
     };
 
     if let Some(mysql_conn_s) = &mut mysql_conn_s {

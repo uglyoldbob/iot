@@ -509,7 +509,10 @@ pub fn load_user_cert_data(
         //todo fill out the rcs struct
         let roots = Arc::new(rcs);
 
-        let client_verifier = WebPkiClientVerifier::builder(roots).build().unwrap();
+        let client_verifier = WebPkiClientVerifier::builder(roots)
+            .allow_unauthenticated()
+            .build()
+            .unwrap();
         Some(client_verifier)
     } else {
         println!("Not loading any client certificate information");
