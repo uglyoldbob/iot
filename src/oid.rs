@@ -53,4 +53,10 @@ lazy_static::lazy_static! {
         as_oid(&[2,16,840,1,101,3,4,2,1]);
     /// The oid for pkcs7 data
     pub static ref OID2_DATA_CONTENT_TYPE: const_oid::ObjectIdentifier = as_oid2("1.2.840.113549.1.7.1");
+    /// The oid used in certificate authorities to indicate the ocsp responder
+    pub static ref OID_PKIX_AUTHORITY_INFO_ACCESS: yasna::models::ObjectIdentifier =
+        as_oid(&[1,3,6,1,5,5,7,1,1]);
+    /// The oid used in the authority info access for ocsp url
+    pub static ref OID_OCSP: yasna::models::ObjectIdentifier =
+    as_oid(&[1,3,6,1,5,5,7,48,1]);
 }

@@ -41,6 +41,26 @@ pub struct MainConfiguration {
     pub ca: Option<toml::Table>,
 }
 
+impl MainConfiguration {
+    /// Return the port number for the http server
+    pub fn get_http_port(&self) -> u16 {
+        self.http
+            .get("port")
+            .unwrap_or(&toml::Value::Integer(3000))
+            .as_integer()
+            .unwrap_or(3000) as u16
+    }
+
+    /// Return the port number for the https server
+    pub fn get_https_port(&self) -> u16 {
+        self.https
+            .get("port")
+            .unwrap_or(&toml::Value::Integer(3001))
+            .as_integer()
+            .unwrap_or(3001) as u16
+    }
+}
+
 /// A test function that produces demo content
 async fn test_func2(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
@@ -393,12 +413,7 @@ async fn main() {
     });
 
     if http_enable {
-        let http_port = settings
-            .http
-            .get("port")
-            .unwrap_or(&toml::Value::Integer(3000))
-            .as_integer()
-            .unwrap_or(3000) as u16;
+        let http_port = settings.get_http_port();
         println!("Listening http on port {}", http_port);
 
         let hc_http = hc.clone();
@@ -408,12 +423,7 @@ async fn main() {
     }
 
     if https_enable {
-        let https_port = settings
-            .https
-            .get("port")
-            .unwrap_or(&toml::Value::Integer(3001))
-            .as_integer()
-            .unwrap_or(3001) as u16;
+        let https_port = settings.get_https_port();
         println!("Listening https on port {}", https_port);
 
         let tls_pass = settings.https.get("certpass").unwrap().as_str().unwrap();

@@ -1,5 +1,6 @@
 //! Handles certificate authority functionality
 
+use std::default;
 use std::path::PathBuf;
 
 use cms::cert;
@@ -8,6 +9,33 @@ use hyper::header::HeaderValue;
 use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
+
+struct PkixAuthorityInfoAccess {
+    der: Vec<u8>,
+}
+
+impl PkixAuthorityInfoAccess {
+    fn new(url: String) -> Self {
+        let asn = p12::yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_sequence(|w| {
+                    w.next().write_oid(&OID_OCSP);
+                    let d = p12::yasna::models::TaggedDerValue::from_tag_and_bytes(
+                        p12::yasna::Tag::context(6),
+                        url.as_bytes().to_vec(),
+                    );
+                    w.next().write_tagged_der(&d);
+                });
+            });
+        });
+        println!("DER for pkix is following:");
+        for b in &asn {
+            print!("{:02X} ", b);
+        }
+        println!("");
+        Self { der: asn }
+    }
+}
 
 /// Specifies how to access ca certificates on a ca
 pub enum CaCertificateStorage {
@@ -78,6 +106,58 @@ impl CaCertificateStorage {
         }
     }
 
+    /// Returns the ocsp url, based on the application settings, preferring https over http
+    pub fn get_ocsp_url(settings: &crate::MainConfiguration) -> String {
+        let mut url = String::new();
+        let mut port_override = None;
+        if matches!(
+            settings.https.get("enabled").unwrap().as_str().unwrap(),
+            "yes"
+        ) {
+            let default_port = 443;
+            let p = settings.get_https_port();
+            if p != default_port {
+                port_override = Some(p);
+            }
+            url.push_str("https://");
+        } else if matches!(
+            settings.https.get("enabled").unwrap().as_str().unwrap(),
+            "yes"
+        ) {
+            let default_port = 80;
+            let p = settings.get_http_port();
+            if p != default_port {
+                port_override = Some(p);
+            }
+            url.push_str("http://");
+        } else {
+            panic!("Cannot build ocsp responder url");
+        }
+
+        let n = settings
+            .ca
+            .as_ref()
+            .unwrap()
+            .get("ocsp")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        url.push_str(n);
+        if let Some(p) = port_override {
+            url.push_str(&format!(":{}", p));
+        }
+
+        let proxy = settings
+            .general
+            .get("proxy")
+            .map(|e| e.to_owned())
+            .unwrap_or(toml::Value::String("".to_string()));
+        url.push_str(proxy.as_str().unwrap());
+        url.push_str("/ca/ocsp");
+
+        url
+    }
+
     /// Initialize the ca root certificates if necessary and configured to do so by the configuration
     pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
         let ca = Self::from_config(settings);
@@ -122,6 +202,15 @@ impl CaCertificateStorage {
                                 let basic_constraints =
                                     rcgen::BasicConstraints::Constrained(chain_length);
                                 certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
+
+                                let pkix =
+                                    PkixAuthorityInfoAccess::new(Self::get_ocsp_url(settings));
+                                let ocsp_data = pkix.der;
+                                let ocsp = rcgen::CustomExtension::from_oid_content(
+                                    OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
+                                    ocsp_data,
+                                );
+                                certparams.custom_extensions.push(ocsp);
                                 let cert = rcgen::Certificate::from_params(certparams).unwrap();
                                 let cert_der = cert.serialize_der().unwrap();
                                 ca.save_root_cert(&cert_der).await;
