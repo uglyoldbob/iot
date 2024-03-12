@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use cms::cert;
 use hyper::header::HeaderValue;
 
 use crate::{webserver, WebPageContext, WebRouter};
@@ -105,6 +106,22 @@ impl CaCertificateStorage {
                                     OID_ECDSA_P256_SHA256_SIGNING.components(),
                                 )
                                 .unwrap();
+                                certparams.distinguished_name = rcgen::DistinguishedName::new();
+
+                                let cn = table.get("commonName").unwrap().as_str().unwrap();
+                                let days = table.get("days").unwrap().as_integer().unwrap();
+                                let chain_length =
+                                    table.get("chain_length").unwrap().as_integer().unwrap() as u8;
+
+                                certparams
+                                    .distinguished_name
+                                    .push(rcgen::DnType::CommonName, cn);
+                                certparams.not_before = time::OffsetDateTime::now_utc();
+                                certparams.not_after =
+                                    certparams.not_before + time::Duration::days(days);
+                                let basic_constraints =
+                                    rcgen::BasicConstraints::Constrained(chain_length);
+                                certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
                                 let cert = rcgen::Certificate::from_params(certparams).unwrap();
                                 let cert_der = cert.serialize_der().unwrap();
                                 ca.save_root_cert(&cert_der).await;
