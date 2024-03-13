@@ -1737,8 +1737,7 @@ dependencies = [
 [[package]]
 name = "ocsp"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aef2010711f55f8ed2627630936202af42741336bc1ceaf1b0b256e02e821f18"
+source = "git+https://github.com/uglyoldbob/ocsp-rs#244c100ee1fa0dc0951e01e907b6444bfba710df"
 dependencies = [
  "asn1_der",
  "chrono",
@@ -1747,6 +1746,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-futures",
+ "yasna 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

@@ -13,7 +13,6 @@ html = "0.6.3"
 http-body-util = "0.1.0"
 lazy_static = "1.4.0"
 multipart = "0.18.0"
-ocsp = "0.4.0"
 oid = "0.2.1"
 pem = "3.0.3"
 pin-project-lite = "0.2.13"
@@ -42,6 +41,9 @@ features = ["http1", "http2", "server"]
 version = "24.0.0"
 default-features = false
 features = ["default-rustls"]
+
+[dependencies.ocsp]
+git = "https://github.com/uglyoldbob/ocsp-rs"
 
 [dependencies.p12]
 git = "https://github.com/uglyoldbob/p12.git"

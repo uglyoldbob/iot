@@ -17,7 +17,7 @@ impl PkixAuthorityInfoAccess {
         let asn = p12::yasna::construct_der(|w| {
             w.write_sequence(|w| {
                 w.next().write_sequence(|w| {
-                    w.next().write_oid(&OID_OCSP);
+                    w.next().write_oid(&OID_OCSP.to_yasna());
                     let d = p12::yasna::models::TaggedDerValue::from_tag_and_bytes(
                         p12::yasna::Tag::context(6),
                         url.as_bytes().to_vec(),
@@ -134,7 +134,7 @@ impl CaCertificateStorage {
         let mut revoke_reason = None;
         let mut status = ocsp::response::CertStatusCode::Unknown;
 
-        let hash = if oid == *OID_HASH_SHA1 {
+        let hash = if oid == OID_HASH_SHA1.to_yasna() {
             HashType::Sha1
         } else {
             println!("Unknown OID for hash is {:?}", oid);
@@ -285,7 +285,7 @@ impl CaCertificateStorage {
                                     .collect();
                                 let mut certparams = rcgen::CertificateParams::new(san);
                                 certparams.alg = rcgen::SignatureAlgorithm::from_oid(
-                                    OID_ECDSA_P256_SHA256_SIGNING.components(),
+                                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
                                 )
                                 .unwrap();
                                 certparams.distinguished_name = rcgen::DistinguishedName::new();
@@ -309,7 +309,7 @@ impl CaCertificateStorage {
                                     PkixAuthorityInfoAccess::new(Self::get_ocsp_url(settings));
                                 let ocsp_data = pkix.der;
                                 let ocsp = rcgen::CustomExtension::from_oid_content(
-                                    OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
+                                    &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
                                     ocsp_data,
                                 );
                                 certparams.custom_extensions.push(ocsp);
@@ -440,6 +440,26 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// How the signature is generated for an ocsp response
+enum OcspResponseDigestMethod {
+    /// The digest is sha256 and rsa
+    Sha256Rsa,
+}
+
+impl OcspResponseDigestMethod {
+    fn algorithm(&self) -> ocsp::common::asn1::Oid {
+        match self {
+            OcspResponseDigestMethod::Sha256Rsa => PKCS1_SHA256_RSA_ENCRYPTED.to_ocsp(),
+        }
+    }
+
+    fn sign(&self, data: &[u8]) -> Vec<u8> {
+        match self {
+            OcspResponseDigestMethod::Sha256Rsa => sha256::digest(data).as_bytes().to_vec(),
+        }
+    }
+}
+
 struct OcspRequirements {
     signature: bool,
 }
@@ -489,7 +509,15 @@ async fn build_ocsp_response(
         }
     }
 
-    let hash = HashType::Sha1.hash(ca_cert.as_bytes()).unwrap();
+    let hash = HashType::Sha1
+        .hash(
+            x509_cert
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                .raw_bytes(),
+        )
+        .unwrap();
     let id = ocsp::response::ResponderId::new_key_hash(&hash);
 
     if let Some(ndata) = nonce {
@@ -524,18 +552,13 @@ async fn build_ocsp_response(
     );
 
     let data_der = data.to_der().unwrap();
-    let sign = sha256::digest(data_der).as_bytes().to_vec();
+    let method = OcspResponseDigestMethod::Sha256Rsa;
+    let sign = method.sign(&data_der);
+    let cert = Some(ca_cert.as_bytes().to_vec());
 
-    let certs = None;
-
-    let bresp = ocsp::response::BasicResponse::new(
-        data,
-        PKCS1_SHA256_RSA_ENCRYPTED.to_owned(),
-        sign,
-        certs,
-    );
-    let bytes = ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_owned(), bresp)
-        .unwrap();
+    let bresp = ocsp::response::BasicResponse::new(data, method.algorithm(), sign, cert);
+    let bytes =
+        ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_ocsp(), bresp).unwrap();
     ocsp::response::OcspResponse::new_success(bytes)
 }
 

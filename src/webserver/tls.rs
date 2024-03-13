@@ -70,7 +70,7 @@ impl HmacMethod {
 
     /// Convert from oid to Self, if possible
     fn from_oid(oid: yasna::models::ObjectIdentifier) -> Option<Self> {
-        if oid == *OID_HMAC_SHA256 {
+        if oid == OID_HMAC_SHA256.to_yasna() {
             Some(HmacMethod::Sha256)
         } else {
             None
@@ -204,7 +204,7 @@ impl Pkcs5Pbes2 {
         r.read_multi(|r| {
             r.next().read_sequence(|r| {
                 let oid = r.next().read_oid()?;
-                if oid == *OID_PKCS5_PBKDF2 {
+                if oid == OID_PKCS5_PBKDF2.to_yasna() {
                     let mut lparams = Pbes2Pbkdf2Params::new();
                     r.next().read_sequence(|r| {
                         let data = r.next().read_bytes()?;
@@ -228,7 +228,7 @@ impl Pkcs5Pbes2 {
             r.next().read_sequence(|r| {
                 let oid = r.next().read_oid()?;
                 let data = r.next().read_bytes()?;
-                if oid == *OID_AES_256_CBC {
+                if oid == OID_AES_256_CBC.to_yasna() {
                     let mut d: [u8; 16] = [0; 16];
                     d.copy_from_slice(&data);
                     scheme = EncryptionScheme::Aes256(d);
@@ -274,7 +274,7 @@ impl PkiMessage {
                     .next()
                     .read_sequence(|r| {
                         let oid = r.next().read_oid()?;
-                        let cert = if oid == *OID_CERT_BAG {
+                        let cert = if oid == OID_CERT_BAG.to_yasna() {
                             let certdata = r
                                 .next()
                                 .read_tagged(yasna::Tag::context(0), |r| {
@@ -298,12 +298,12 @@ impl PkiMessage {
                         r.next().read_set_of(|r| {
                             r.read_sequence(|r| {
                                 let oid = r.next().read_oid()?;
-                                if oid == *OID_PKCS9_LOCAL_KEY_ID {
+                                if oid == OID_PKCS9_LOCAL_KEY_ID.to_yasna() {
                                     r.next().read_set_of(|r| {
                                         let _d = r.read_bytes()?;
                                         Ok(())
                                     })?;
-                                } else if oid == *OID_PKCS9_FRIENDLY_NAME {
+                                } else if oid == OID_PKCS9_FRIENDLY_NAME.to_yasna() {
                                     r.next().read_set_of(|r| {
                                         let _name = r.read_bmp_string()?;
                                         Ok(())
@@ -364,7 +364,7 @@ impl X509Request {
     /// * pass - The password protecting the private key.
     fn decrypt(&self, pass: &[u8]) -> Option<zeroize::Zeroizing<X509PrivateKey>> {
         if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
-            if o.algorithm_type == *OID_PKCS5_PBES2 {
+            if o.algorithm_type == OID_PKCS5_PBES2.to_yasna() {
                 let data = o.params.as_ref().unwrap();
                 let p =
                     yasna::parse_der(data, |r| r.read_sequence(|r| Pkcs5Pbes2::parse(r.next())))
@@ -387,7 +387,7 @@ impl X509Request {
             r.read_sequence(|r| {
                 r.next().read_sequence(|r| {
                     let oid = r.next().read_oid()?;
-                    let pkey = if oid == *OID_SHROUDED_KEY_BAG {
+                    let pkey = if oid == OID_SHROUDED_KEY_BAG.to_yasna() {
                         let pkey = r.next().read_tagged(yasna::Tag::context(0), |r| {
                             p12::EncryptedPrivateKeyInfo::parse(r)
                         })?;
@@ -399,7 +399,7 @@ impl X509Request {
                     let s = r.next().read_set_of(|r| {
                         let s = r.read_sequence(|r| {
                             let oid = r.next().read_oid().expect("Failed to read oid");
-                            if oid == *OID_PKCS9_LOCAL_KEY_ID {
+                            if oid == OID_PKCS9_LOCAL_KEY_ID.to_yasna() {
                                 r.next()
                                     .read_set(|r| {
                                         let _d = r
@@ -409,7 +409,7 @@ impl X509Request {
                                         Ok(())
                                     })
                                     .expect("Failed to read sequence 2");
-                            } else if oid == *OID_PKCS9_FRIENDLY_NAME {
+                            } else if oid == OID_PKCS9_FRIENDLY_NAME.to_yasna() {
                                 r.next()
                                     .read_set(|r| {
                                         let _d = r
@@ -517,7 +517,7 @@ where
             None
         };
         let ob = mob.expect("Expected other bag data");
-        if ob.bag_id == *OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE {
+        if ob.bag_id == OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE.to_yasna() {
             if let Ok(bag) = cms::encrypted_data::EncryptedData::from_der(&ob.bag_value) {
                 let algorithm = bag.enc_content_info.content_enc_alg;
                 let bag_data = bag.enc_content_info.encrypted_content.unwrap();
@@ -527,7 +527,7 @@ where
                     let bdv = bag_data.into_bytes();
                     let decrypted = a.decrypt(&bdv, pass.as_bytes());
                     let decrypted_oid = bag.enc_content_info.content_type;
-                    if decrypted_oid == *OID2_DATA_CONTENT_TYPE {
+                    if decrypted_oid == OID2_DATA_CONTENT_TYPE.to_const() {
                         let cert = PkiMessage::parse(&decrypted)
                             .expect("Failed to parse certificate data");
                         certificate = Some(cert);
@@ -536,7 +536,7 @@ where
                     panic!("Unexpected algorithm {:?}", algorithm.oid);
                 }
             }
-        } else if ob.bag_id == *OID_PKCS7_DATA_CONTENT_TYPE {
+        } else if ob.bag_id == OID_PKCS7_DATA_CONTENT_TYPE.to_yasna() {
             let bag_data = yasna::parse_der(&ob.bag_value, |r| r.read_bytes())
                 .expect("Failed to read bag data");
             let req = X509Request::parse(&bag_data).expect("Failed to read request");
