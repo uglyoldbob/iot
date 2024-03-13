@@ -1,5 +1,6 @@
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
 
 //! This program is for managing iot devices.
 
@@ -129,26 +130,7 @@ async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
             }
         }
     }
-    if s.post.contains_key("username") && s.post.contains_key("password") {
-        let uname = &s.post["username"];
-        let pass = &s.post["password"];
-        let useri = s
-            .pool
-            .as_mut()
-            .and_then(|f| user::get_user_info(f, uname.to_string()));
-        let login_pass = user::try_user_login2(&useri, pass.to_string());
-        if login_pass {
-            let useru = useri.unwrap();
-            let value = s.pool.as_mut().map(|f| user::new_user_login(f, useru));
-            let print = format!("Login pass {:?}", value);
-            c.push_str(&print);
-            let cookieval = format!("{:?}", value);
-            logincookie = Some(cookieval);
-        } else {
-            //login failed because account does not exist
-            c.push_str("Login fail");
-        }
-    }
+
     /*user::try_user_hash(&mut s.pool,
     s.session.user.to_owned(),
     s.session.passhash.to_owned());*/

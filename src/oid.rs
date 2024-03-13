@@ -58,5 +58,11 @@ lazy_static::lazy_static! {
         as_oid(&[1,3,6,1,5,5,7,1,1]);
     /// The oid used in the authority info access for ocsp url
     pub static ref OID_OCSP: yasna::models::ObjectIdentifier =
-    as_oid(&[1,3,6,1,5,5,7,48,1]);
+        as_oid(&[1,3,6,1,5,5,7,48,1]);
+    /// The oid for ocsp basic response
+    pub static ref OID_OCSP_RESPONSE_BASIC: ocsp::common::asn1::Oid =
+        ocsp::common::asn1::Oid::new_from_dot("1.3.6.1.5.5.7.48.1.1").unwrap();
+    /// The oid for sha256 with rsa encryption algorithm
+    pub static ref PKCS1_SHA256_RSA_ENCRYPTED: ocsp::common::asn1::Oid =
+        ocsp::common::asn1::Oid::new_from_dot("1.2.840.113549.1.1.11").unwrap();
 }

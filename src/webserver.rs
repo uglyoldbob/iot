@@ -118,7 +118,7 @@ pub struct WebPageContext {
     /// The proxy sub-directory
     pub proxy: String,
     /// The map of all post arguments
-    pub post: HashMap<String, String>,
+    pub post: PostContent,
     /// The map of all get arguments
     pub get: HashMap<String, String>,
     /// The login cookie
@@ -129,6 +129,36 @@ pub struct WebPageContext {
     pub user_certs: UserCerts,
     /// The application settings
     pub settings: Arc<crate::MainConfiguration>,
+}
+
+/// Represents the contents of a post request
+pub struct PostContent {
+    body: Option<hyper::body::Bytes>,
+    headers: hyper::header::HeaderMap,
+}
+
+impl PostContent {
+    fn new(body: Option<hyper::body::Bytes>, headers: hyper::header::HeaderMap) -> Self {
+        Self { body, headers }
+    }
+
+    pub fn ocsp(&self) -> Option<ocsp::request::OcspRequest> {
+        let b = self.body.as_ref()?;
+        ocsp::request::OcspRequest::parse(b.as_ref()).ok()
+    }
+}
+
+impl<'a> multipart::server::HttpRequest for &'a PostContent {
+    type Body = &'a [u8];
+
+    fn body(self) -> Self::Body {
+        self.body.as_ref().map(|f| f.as_ref()).unwrap()
+    }
+
+    fn multipart_boundary(&self) -> Option<&str> {
+        let h = self.headers.get("Content-Type")?;
+        None
+    }
 }
 
 /// Represents the information required to handle web requests
@@ -201,6 +231,19 @@ where
     }
 }
 
+struct BodyHandler {
+    b: hyper::body::Incoming,
+}
+
+impl Future for BodyHandler {
+    type Output = Option<Result<hyper::body::Frame<hyper::body::Bytes>, hyper::Error>>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let a = Pin::new(&mut self.b);
+        hyper::body::Body::poll_frame(a, cx)
+    }
+}
+
 /// Handle a web request
 async fn handle<'a>(
     context: Arc<HttpContext>,
@@ -208,10 +251,18 @@ async fn handle<'a>(
     _addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<http_body_util::Full<hyper::body::Bytes>>, Infallible> {
-    let (rparts, _body) = req.into_parts();
+    let (rparts, body) = req.into_parts();
 
-    let post_data = HashMap::new();
-    // TODO collect post data from body
+    let mut post_data: Option<hyper::body::Bytes> = None;
+
+    let reader = BodyHandler { b: body };
+    let body = reader.await;
+    if let Some(Ok(b)) = body {
+        let b = b.into_data().unwrap();
+        post_data = Some(b);
+    }
+
+    let post_data = PostContent::new(post_data, rparts.headers.to_owned());
 
     let mut get_map = HashMap::new();
     let get_data = rparts.uri.query().unwrap_or("");

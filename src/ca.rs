@@ -1,9 +1,7 @@
 //! Handles certificate authority functionality
 
-use std::default;
 use std::path::PathBuf;
 
-use cms::cert;
 use hyper::header::HeaderValue;
 
 use crate::{webserver, WebPageContext, WebRouter};
@@ -46,6 +44,7 @@ pub enum CaCertificateStorage {
 }
 
 /// Errors that can occur when attempting to load a certificate
+#[derive(Debug)]
 enum CertificateLoadingError {
     /// The certificate does not exist
     DoesNotExist,
@@ -138,7 +137,7 @@ impl CaCertificateStorage {
             .ca
             .as_ref()
             .unwrap()
-            .get("ocsp")
+            .get("ocsp_url")
             .unwrap()
             .as_str()
             .unwrap();
@@ -338,7 +337,163 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+struct OcspRequirements {
+    signature: bool,
+}
+
+impl OcspRequirements {
+    fn new() -> Self {
+        Self { signature: false }
+    }
+}
+
+async fn build_ocsp_response(
+    ca: CaCertificateStorage,
+    req: ocsp::request::OcspRequest,
+) -> ocsp::response::OcspResponse {
+    let mut nonce = None;
+    let mut crl = None;
+
+    let mut responses = Vec::new();
+    let mut extensions = Vec::new();
+
+    for r in req.tbs_request.request_list {
+        let ri = ocsp::response::RevokedInfo {
+            revocation_time: ocsp::common::asn1::GeneralizedTime::now(),
+            revocation_reason: None,
+        };
+
+        let resp = ocsp::response::OneResp {
+            cid: r.certid,
+            cert_status: ocsp::response::CertStatus::new(
+                ocsp::response::CertStatusCode::Revoked,
+                Some(ri),
+            ),
+            this_update: ocsp::common::asn1::GeneralizedTime::now(),
+            next_update: None,
+            one_resp_ext: None,
+        };
+        responses.push(resp);
+    }
+    if let Some(extensions) = req.tbs_request.request_ext {
+        for e in extensions {
+            match e.ext {
+                ocsp::common::ocsp::OcspExt::Nonce { nonce: n } => nonce = Some(n),
+                ocsp::common::ocsp::OcspExt::CrlRef { url, num, time } => {
+                    crl = Some((url, num, time));
+                }
+            }
+        }
+    }
+
+    let hash: &[u8] = {
+        use sha1::{Digest, Sha1};
+        let mut hasher = Sha1::new();
+        hasher.update(ca.load_root_ca_cert().await.unwrap().as_bytes());
+        &hasher.finalize()
+    };
+    let id = ocsp::response::ResponderId::new_key_hash(hash);
+
+    if let Some(ndata) = nonce {
+        let n = ndata;
+        let data = ocsp::common::ocsp::OcspExt::Nonce { nonce: n }
+            .to_der()
+            .unwrap();
+        let datas = p12::yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                w.next().write_der(&data);
+            });
+        });
+        let mut exts = ocsp::common::ocsp::OcspExtI::parse(&datas).unwrap();
+        extensions.append(&mut exts);
+    }
+
+    if crl.is_some() {
+        panic!("Unsure what to do with crl");
+    }
+
+    let extensions = if extensions.is_empty() {
+        None
+    } else {
+        Some(extensions)
+    };
+
+    let data = ocsp::response::ResponseData::new(
+        id,
+        ocsp::common::asn1::GeneralizedTime::now(),
+        responses,
+        extensions,
+    );
+
+    let data_der = data.to_der().unwrap();
+    let sign = sha256::digest(data_der).as_bytes().to_vec();
+
+    let certs = None;
+
+    let bresp = ocsp::response::BasicResponse::new(
+        data,
+        PKCS1_SHA256_RSA_ENCRYPTED.to_owned(),
+        sign,
+        certs,
+    );
+    let bytes = ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_owned(), bresp)
+        .unwrap();
+    ocsp::response::OcspResponse::new_success(bytes)
+}
+
+async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
+    let ca = CaCertificateStorage::from_config(&s.settings);
+
+    let ocsp_request = s.post.ocsp();
+
+    let mut ocsp_requirements = OcspRequirements::new();
+    let ocsp_response = if let Some(ocsp) = ocsp_request {
+        let ocsp_table = s.settings.ca.as_ref().unwrap().get("ocsp").unwrap();
+        if let toml::Value::Table(t) = ocsp_table {
+            let require_signature = matches!(t.get("signature").unwrap().as_str().unwrap(), "yes");
+            ocsp_requirements.signature = require_signature;
+        }
+
+        if ocsp_requirements.signature {
+            match ocsp.optional_signature {
+                None => ocsp::response::OcspResponse::new_non_success(
+                    ocsp::response::OcspRespStatus::SigRequired,
+                )
+                .unwrap(),
+                Some(s) => {
+                    println!("Signature is {:?}", s);
+                    todo!("Verify signature");
+                    build_ocsp_response(ca, ocsp).await
+                }
+            }
+        } else {
+            build_ocsp_response(ca, ocsp).await
+        }
+    } else {
+        println!("Did not parse ocsp request");
+        ocsp::response::OcspResponse::new_non_success(ocsp::response::OcspRespStatus::MalformedReq)
+            .unwrap()
+    };
+
+    let der = ocsp_response.to_der().unwrap();
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.headers.append(
+        "Content-Type",
+        HeaderValue::from_static("application/ocsp-response"),
+    );
+
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(der));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
+    router.register("/ca/ocsp", ca_ocsp_responder);
 }
