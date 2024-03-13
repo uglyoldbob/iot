@@ -48,6 +48,10 @@ git = "https://github.com/uglyoldbob/ocsp-rs"
 [dependencies.p12]
 git = "https://github.com/uglyoldbob/p12.git"
 
+[dependencies.p256]
+version = "0.13.2"
+features = ["ecdsa-core"]
+
 [dependencies.pkcs8]
 version = "0.10.2"
 features = ["encryption", "pem", "std"]

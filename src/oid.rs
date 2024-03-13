@@ -106,7 +106,6 @@ fn as_oid2(s: &'static str) -> Oid {
     Oid::Const(const_oid::ObjectIdentifier::from_str(s).unwrap())
 }
 
-/// OID constants
 lazy_static::lazy_static! {
     /// The oid for pkcs1 ecdsa signing
     pub static ref OID_ECDSA_P256_SHA256_SIGNING: Oid =

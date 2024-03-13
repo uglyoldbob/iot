@@ -3,6 +3,8 @@
 use std::path::PathBuf;
 
 use hyper::header::HeaderValue;
+use p256::ecdsa::signature::SignerMut;
+use pkcs8::DecodePrivateKey;
 
 use crate::{webserver, WebPageContext, WebRouter};
 
@@ -327,7 +329,26 @@ impl CaCertificateStorage {
         ca
     }
 
-    /// Load the root ca cert and private key from the specified storage media, converting to der as required.
+    /// Load the root ca private key from the specified storage media, converting to der as required. TODO REMOVE THIS
+    async fn load_root_ca_key(&self) -> Result<der::Document, CertificateLoadingError> {
+        match self {
+            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::FilesystemDer(p) => {
+                use der::Decode;
+                use tokio::io::AsyncReadExt;
+                let mut certp = p.clone();
+                certp.push("root_key.der");
+                let mut f = tokio::fs::File::open(certp).await?;
+                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
+                f.read_to_end(&mut cert).await?;
+                let cert = der::Document::from_der(&cert)
+                    .map_err(|_e| CertificateLoadingError::InvalidCert)?;
+                Ok(cert)
+            }
+        }
+    }
+
+    /// Load the root ca cert from the specified storage media, converting to der as required.
     async fn load_root_ca_cert(&self) -> Result<der::Document, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
@@ -444,18 +465,38 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 enum OcspResponseDigestMethod {
     /// The digest is sha256 and rsa
     Sha256Rsa,
+    /// The digest is sha256 and ecdsa
+    Sha256Ecdsa,
 }
 
 impl OcspResponseDigestMethod {
     fn algorithm(&self) -> ocsp::common::asn1::Oid {
         match self {
             OcspResponseDigestMethod::Sha256Rsa => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_ocsp(),
+            OcspResponseDigestMethod::Sha256Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_ocsp(),
         }
     }
 
-    fn sign(&self, data: &[u8]) -> Vec<u8> {
+    fn sign(&self, pkey_der: &[u8], data: &[u8]) -> Vec<u8> {
         match self {
             OcspResponseDigestMethod::Sha256Rsa => sha256::digest(data).as_bytes().to_vec(),
+            OcspResponseDigestMethod::Sha256Ecdsa => {
+                let mut key = p256::ecdsa::SigningKey::from_pkcs8_der(pkey_der).unwrap();
+                let sig: p256::ecdsa::Signature = key.sign(data);
+                let r = sig.r().to_bytes();
+                let s = sig.s().to_bytes();
+                let rb: &[u8] = r.as_ref();
+                let sb: &[u8] = s.as_ref();
+                println!("SIG: {:02X?}", sig.to_bytes());
+                println!("R: {:02X?}", rb);
+                println!("S: {:02X?}", sb);
+                p12::yasna::construct_der(|w| {
+                    w.write_sequence(|w| {
+                        w.next().write_bitvec_bytes(rb, rb.len() * 8);
+                        w.next().write_bitvec_bytes(sb, sb.len() * 8);
+                    })
+                })
+            }
         }
     }
 }
@@ -552,8 +593,13 @@ async fn build_ocsp_response(
     );
 
     let data_der = data.to_der().unwrap();
-    let method = OcspResponseDigestMethod::Sha256Rsa;
-    let sign = method.sign(&data_der);
+    println!("Der data to sign is {:02X?}", data_der);
+    let method = OcspResponseDigestMethod::Sha256Ecdsa;
+
+    let pkey_doc = ca.load_root_ca_key().await.unwrap();
+
+    let sign = method.sign(pkey_doc.as_bytes(), &data_der);
+    println!("DER SIGNATURE IS {} {:02X?}", sign.len(), sign);
     let cert = Some(ca_cert.as_bytes().to_vec());
 
     let bresp = ocsp::response::BasicResponse::new(data, method.algorithm(), sign, cert);
