@@ -43,6 +43,35 @@ pub enum CaCertificateStorage {
     FilesystemDer(PathBuf),
 }
 
+/// The ways to hash data for the certificate checks
+enum HashType {
+    /// Use the sha1 algorithm
+    Sha1,
+    /// Unknown algorithm
+    Unknown,
+}
+
+impl HashType {
+    fn hash(&self, data: &[u8]) -> Option<Vec<u8>> {
+        match self {
+            HashType::Unknown => None,
+            HashType::Sha1 => {
+                use sha1::{Digest, Sha1};
+                let mut hasher = Sha1::new();
+                hasher.update(data);
+                Some(hasher.finalize().to_vec())
+            }
+        }
+    }
+}
+
+/// Represents a type that can be good, an error, or non-existent.
+enum MaybeError<T, E> {
+    Ok(T),
+    Err(E),
+    None,
+}
+
 /// Errors that can occur when attempting to load a certificate
 #[derive(Debug)]
 enum CertificateLoadingError {
@@ -75,6 +104,80 @@ impl CaCertificateStorage {
             }
         }
         Self::Nowhere
+    }
+
+    /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
+    /// # Arguments
+    /// * serial - The serial number of the certificate
+    async fn get_cert_by_serial(
+        &self,
+        _serial: &[u8],
+    ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
+        match self {
+            CaCertificateStorage::Nowhere => MaybeError::None,
+            CaCertificateStorage::FilesystemDer(p) => MaybeError::None,
+        }
+    }
+
+    /// Get the status of the status, part of handling an ocsp request
+    /// # Arguments
+    /// * root_cert - The root certificate of the ca authority
+    /// * certid - The certid from an ocsp request to check
+    async fn get_cert_status(
+        &self,
+        root_cert: &x509_cert::Certificate,
+        certid: &ocsp::common::asn1::CertId,
+    ) -> ocsp::response::CertStatus {
+        let oid_der = certid.hash_algo.to_der_raw().unwrap();
+        let oid: p12::yasna::models::ObjectIdentifier = p12::yasna::decode_der(&oid_der).unwrap();
+
+        let mut revoke_reason = None;
+        let mut status = ocsp::response::CertStatusCode::Unknown;
+
+        let hash = if oid == *OID_HASH_SHA1 {
+            HashType::Sha1
+        } else {
+            println!("Unknown OID for hash is {:?}", oid);
+            HashType::Unknown
+        };
+
+        let dn = {
+            use der::Encode;
+            root_cert.tbs_certificate.subject.to_der().unwrap()
+        };
+        let dnhash = hash.hash(&dn).unwrap();
+
+        if dnhash == certid.issuer_name_hash {
+            let key = root_cert
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                .as_bytes()
+                .unwrap();
+            let keyhash = hash.hash(key).unwrap();
+            if keyhash == certid.issuer_key_hash {
+                let cert = self.get_cert_by_serial(&certid.serial_num).await;
+                match cert {
+                    MaybeError::Ok(_cert) => {
+                        status = ocsp::response::CertStatusCode::Good;
+                    }
+                    MaybeError::Err(e) => {
+                        status = ocsp::response::CertStatusCode::Revoked;
+                        revoke_reason = Some(e);
+                    }
+                    MaybeError::None => {
+                        status = ocsp::response::CertStatusCode::Revoked;
+                        let reason = ocsp::response::CrlReason::OcspRevokeUnspecified;
+                        revoke_reason = Some(ocsp::response::RevokedInfo::new(
+                            ocsp::common::asn1::GeneralizedTime::now(),
+                            Some(reason),
+                        ))
+                    }
+                }
+            }
+        }
+
+        ocsp::response::CertStatus::new(status, revoke_reason)
     }
 
     /// Save the root certificate to the storage method
@@ -357,18 +460,18 @@ async fn build_ocsp_response(
     let mut responses = Vec::new();
     let mut extensions = Vec::new();
 
-    for r in req.tbs_request.request_list {
-        let ri = ocsp::response::RevokedInfo {
-            revocation_time: ocsp::common::asn1::GeneralizedTime::now(),
-            revocation_reason: None,
-        };
+    let ca_cert = ca.load_root_ca_cert().await.unwrap();
 
+    let x509_cert = {
+        use der::Decode;
+        x509_cert::Certificate::from_der(ca_cert.as_bytes()).unwrap()
+    };
+
+    for r in req.tbs_request.request_list {
+        let stat = ca.get_cert_status(&x509_cert, &r.certid).await;
         let resp = ocsp::response::OneResp {
             cid: r.certid,
-            cert_status: ocsp::response::CertStatus::new(
-                ocsp::response::CertStatusCode::Revoked,
-                Some(ri),
-            ),
+            cert_status: stat,
             this_update: ocsp::common::asn1::GeneralizedTime::now(),
             next_update: None,
             one_resp_ext: None,
@@ -386,13 +489,8 @@ async fn build_ocsp_response(
         }
     }
 
-    let hash: &[u8] = {
-        use sha1::{Digest, Sha1};
-        let mut hasher = Sha1::new();
-        hasher.update(ca.load_root_ca_cert().await.unwrap().as_bytes());
-        &hasher.finalize()
-    };
-    let id = ocsp::response::ResponderId::new_key_hash(hash);
+    let hash = HashType::Sha1.hash(ca_cert.as_bytes()).unwrap();
+    let id = ocsp::response::ResponderId::new_key_hash(&hash);
 
     if let Some(ndata) = nonce {
         let n = ndata;
