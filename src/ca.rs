@@ -449,7 +449,7 @@ enum OcspResponseDigestMethod {
 impl OcspResponseDigestMethod {
     fn algorithm(&self) -> ocsp::common::asn1::Oid {
         match self {
-            OcspResponseDigestMethod::Sha256Rsa => PKCS1_SHA256_RSA_ENCRYPTED.to_ocsp(),
+            OcspResponseDigestMethod::Sha256Rsa => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_ocsp(),
         }
     }
 

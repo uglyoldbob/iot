@@ -121,17 +121,11 @@ lazy_static::lazy_static! {
     pub static ref OID_PKCS5_PBES2: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 5, 13]);
     /// The oid for pkcs1 rsa encryption
-    pub static ref OID_PKCS1_RSA_ENCRYPTION: Oid =
+    pub static ref OID_PKCS1_SHA256_RSA_ENCRYPTION: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 1, 11]);
-    /// The oid for sha256 with rsa encryption algorithm
-    pub static ref PKCS1_SHA256_RSA_ENCRYPTED: Oid =
-        as_oid2("1.2.840.113549.1.1.11");
     /// The oid for pkcs7 data content
     pub static ref OID_PKCS7_DATA_CONTENT_TYPE: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 1]);
-    /// The oid for pkcs7 data
-    pub static ref OID2_DATA_CONTENT_TYPE: Oid =
-        as_oid2("1.2.840.113549.1.7.1");
     /// The oid for pkcs7 encrypted data
     pub static ref OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);

@@ -527,7 +527,7 @@ where
                     let bdv = bag_data.into_bytes();
                     let decrypted = a.decrypt(&bdv, pass.as_bytes());
                     let decrypted_oid = bag.enc_content_info.content_type;
-                    if decrypted_oid == OID2_DATA_CONTENT_TYPE.to_const() {
+                    if decrypted_oid == OID_PKCS7_DATA_CONTENT_TYPE.to_const() {
                         let cert = PkiMessage::parse(&decrypted)
                             .expect("Failed to parse certificate data");
                         certificate = Some(cert);
