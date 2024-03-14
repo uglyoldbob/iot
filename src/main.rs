@@ -338,7 +338,13 @@ async fn main() {
 
     let mut hc = HttpContext {
         dirmap: router,
-        root: ".".to_string(),
+        root: settings
+            .general
+            .get("static_content")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string(),
         proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
