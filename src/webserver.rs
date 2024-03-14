@@ -84,6 +84,8 @@ pub struct HttpContext {
     pub pool: Option<mysql::Pool>,
     /// The application settings
     pub settings: Arc<crate::MainConfiguration>,
+    /// The ca object
+    pub ca: Arc<futures::lock::Mutex<crate::ca::Ca>>,
 }
 
 /// Represents extra context for a web service
@@ -129,6 +131,8 @@ pub struct WebPageContext {
     pub user_certs: UserCerts,
     /// The application settings
     pub settings: Arc<crate::MainConfiguration>,
+    /// The ca object
+    pub ca: Arc<futures::lock::Mutex<crate::ca::Ca>>,
 }
 
 /// Represents the contents of a post request
@@ -314,6 +318,7 @@ async fn handle<'a>(
         pool: mysql,
         user_certs,
         settings: context.settings.clone(),
+        ca: context.ca.clone(),
     };
 
     let path = rparts.uri.path();

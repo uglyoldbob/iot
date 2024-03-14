@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 
 use hyper::header::HeaderValue;
-use p256::ecdsa::signature::SignerMut;
-use pkcs8::DecodePrivateKey;
+use zeroize::Zeroizing;
 
 use crate::{webserver, WebPageContext, WebRouter};
 
@@ -35,14 +34,6 @@ impl PkixAuthorityInfoAccess {
         println!("");
         Self { der: asn }
     }
-}
-
-/// Specifies how to access ca certificates on a ca
-pub enum CaCertificateStorage {
-    /// The certificates are stored nowhere. Used for testing.
-    Nowhere,
-    /// The certificates are stored on a filesystem, in der format, private key and certificate in separate files
-    FilesystemDer(PathBuf),
 }
 
 /// The ways to hash data for the certificate checks
@@ -97,15 +88,172 @@ impl From<std::io::Error> for CertificateLoadingError {
     }
 }
 
-impl CaCertificateStorage {
+/// The actual ca object
+pub struct Ca {
+    /// Where certificates are stored
+    medium: CaCertificateStorage,
+    /// Represents the root certificate for the ca
+    root_cert: Result<CaCertificate, CertificateLoadingError>,
+}
+
+impl Ca {
     /// Create a Self from the application configuration
     fn from_config(settings: &crate::MainConfiguration) -> Self {
-        if let Some(section) = &settings.ca {
+        let medium = if let Some(section) = &settings.ca {
             if section.contains_key("path") {
-                return Self::FilesystemDer(section.get("path").unwrap().as_str().unwrap().into());
+                CaCertificateStorage::FilesystemDer(
+                    section.get("path").unwrap().as_str().unwrap().into(),
+                )
+            } else {
+                CaCertificateStorage::Nowhere
+            }
+        } else {
+            CaCertificateStorage::Nowhere
+        };
+        Self {
+            medium,
+            root_cert: Err(CertificateLoadingError::DoesNotExist),
+        }
+    }
+
+    /// Initialize the ca root certificates if necessary and configured to do so by the configuration
+    pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
+        let mut ca = Self::from_config(settings);
+        match ca.load_root_ca_cert().await {
+            Ok(_cert) => {}
+            Err(e) => {
+                if let CertificateLoadingError::DoesNotExist = e {
+                    if let Some(table) = &settings.ca {
+                        if matches!(
+                            table
+                                .get("generate")
+                                .map(|f| f.to_owned())
+                                .unwrap_or_else(|| toml::Value::String("no".to_string()))
+                                .as_str()
+                                .unwrap(),
+                            "yes"
+                        ) {
+                            if let Some(san) = table.get("san").unwrap().as_array() {
+                                println!("Generating a root certificate for ca operations");
+                                let san: Vec<String> = san
+                                    .iter()
+                                    .map(|e| e.as_str().unwrap().to_string())
+                                    .collect();
+                                let mut certparams = rcgen::CertificateParams::new(san);
+                                certparams.alg = rcgen::SignatureAlgorithm::from_oid(
+                                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
+                                )
+                                .unwrap();
+                                certparams.distinguished_name = rcgen::DistinguishedName::new();
+
+                                let cn = table.get("commonName").unwrap().as_str().unwrap();
+                                let days = table.get("days").unwrap().as_integer().unwrap();
+                                let chain_length =
+                                    table.get("chain_length").unwrap().as_integer().unwrap() as u8;
+
+                                certparams
+                                    .distinguished_name
+                                    .push(rcgen::DnType::CommonName, cn);
+                                certparams.not_before = time::OffsetDateTime::now_utc();
+                                certparams.not_after =
+                                    certparams.not_before + time::Duration::days(days);
+                                let basic_constraints =
+                                    rcgen::BasicConstraints::Constrained(chain_length);
+                                certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
+
+                                let pkix =
+                                    PkixAuthorityInfoAccess::new(Self::get_ocsp_url(settings));
+                                let ocsp_data = pkix.der;
+                                let ocsp = rcgen::CustomExtension::from_oid_content(
+                                    &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
+                                    ocsp_data,
+                                );
+                                certparams.custom_extensions.push(ocsp);
+                                let cert = rcgen::Certificate::from_params(certparams).unwrap();
+                                let cert_der = cert.serialize_der().unwrap();
+                                let key_der = cert.get_key_pair().serialize_der();
+
+                                let cacert = CaCertificate::from_existing(
+                                    CertificateSigningMethod::Ecdsa,
+                                    ca.medium.clone(),
+                                    &cert_der,
+                                    Some(Zeroizing::from(key_der)),
+                                    "root".to_string(),
+                                );
+                                cacert.save_to_medium().await;
+                                ca.root_cert = Ok(cacert);
+                            }
+                        }
+                    }
+                }
             }
         }
-        Self::Nowhere
+        ca
+    }
+
+    /// Return a reference to the root cert
+    async fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.root_cert.as_ref()
+    }
+
+    /// Load the root ca cert from the specified storage media, converting to der as required.
+    async fn load_root_ca_cert(&mut self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        if self.root_cert.is_err() {
+            self.root_cert = self.medium.load_from_medium("root").await;
+        }
+        self.root_cert.as_ref()
+    }
+
+    /// Returns the ocsp url, based on the application settings, preferring https over http
+    pub fn get_ocsp_url(settings: &crate::MainConfiguration) -> String {
+        let mut url = String::new();
+        let mut port_override = None;
+        if matches!(
+            settings.https.get("enabled").unwrap().as_str().unwrap(),
+            "yes"
+        ) {
+            let default_port = 443;
+            let p = settings.get_https_port();
+            if p != default_port {
+                port_override = Some(p);
+            }
+            url.push_str("https://");
+        } else if matches!(
+            settings.https.get("enabled").unwrap().as_str().unwrap(),
+            "yes"
+        ) {
+            let default_port = 80;
+            let p = settings.get_http_port();
+            if p != default_port {
+                port_override = Some(p);
+            }
+            url.push_str("http://");
+        } else {
+            panic!("Cannot build ocsp responder url");
+        }
+
+        let n = settings
+            .ca
+            .as_ref()
+            .unwrap()
+            .get("ocsp_url")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        url.push_str(n);
+        if let Some(p) = port_override {
+            url.push_str(&format!(":{}", p));
+        }
+
+        let proxy = settings
+            .general
+            .get("proxy")
+            .map(|e| e.to_owned())
+            .unwrap_or(toml::Value::String("".to_string()));
+        url.push_str(proxy.as_str().unwrap());
+        url.push_str("/ca/ocsp");
+
+        url
     }
 
     /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
@@ -115,7 +263,7 @@ impl CaCertificateStorage {
         &self,
         _serial: &[u8],
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
-        match self {
+        match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::FilesystemDer(p) => MaybeError::None,
         }
@@ -181,188 +329,137 @@ impl CaCertificateStorage {
 
         ocsp::response::CertStatus::new(status, revoke_reason)
     }
+}
 
-    /// Save the root certificate to the storage method
-    async fn save_root_cert(&self, der: &[u8]) {
+/// Specifies how to access ca certificates on a ca
+#[derive(Clone)]
+pub enum CaCertificateStorage {
+    /// The certificates are stored nowhere. Used for testing.
+    Nowhere,
+    /// The certificates are stored on a filesystem, in der format, private key and certificate in separate files
+    FilesystemDer(PathBuf),
+}
+
+impl CaCertificateStorage {
+    /// Save this certificate to the storage medium
+    pub async fn save_to_medium(&self, name: &str, cert: &CaCertificate) {
         match self {
-            Self::Nowhere => {}
-            Self::FilesystemDer(p) => {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
                 use tokio::io::AsyncWriteExt;
-                let mut cp = p.clone();
-                cp.push("root_cert.der");
+                let cp = p.with_file_name(format!("{}_cert.der", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                cf.write_all(der).await;
-            }
-        }
-    }
+                cf.write_all(&cert.cert).await;
 
-    /// Save the root private key to the storage method
-    async fn save_root_key(&self, der: &[u8]) {
-        match self {
-            Self::Nowhere => {}
-            Self::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let mut cp = p.clone();
-                cp.push("root_key.der");
-                let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                cf.write_all(der).await;
-            }
-        }
-    }
-
-    /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_url(settings: &crate::MainConfiguration) -> String {
-        let mut url = String::new();
-        let mut port_override = None;
-        if matches!(
-            settings.https.get("enabled").unwrap().as_str().unwrap(),
-            "yes"
-        ) {
-            let default_port = 443;
-            let p = settings.get_https_port();
-            if p != default_port {
-                port_override = Some(p);
-            }
-            url.push_str("https://");
-        } else if matches!(
-            settings.https.get("enabled").unwrap().as_str().unwrap(),
-            "yes"
-        ) {
-            let default_port = 80;
-            let p = settings.get_http_port();
-            if p != default_port {
-                port_override = Some(p);
-            }
-            url.push_str("http://");
-        } else {
-            panic!("Cannot build ocsp responder url");
-        }
-
-        let n = settings
-            .ca
-            .as_ref()
-            .unwrap()
-            .get("ocsp_url")
-            .unwrap()
-            .as_str()
-            .unwrap();
-        url.push_str(n);
-        if let Some(p) = port_override {
-            url.push_str(&format!(":{}", p));
-        }
-
-        let proxy = settings
-            .general
-            .get("proxy")
-            .map(|e| e.to_owned())
-            .unwrap_or(toml::Value::String("".to_string()));
-        url.push_str(proxy.as_str().unwrap());
-        url.push_str("/ca/ocsp");
-
-        url
-    }
-
-    /// Initialize the ca root certificates if necessary and configured to do so by the configuration
-    pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
-        let ca = Self::from_config(settings);
-        match ca.load_root_ca_cert().await {
-            Ok(_cert) => {}
-            Err(e) => {
-                if let CertificateLoadingError::DoesNotExist = e {
-                    if let Some(table) = &settings.ca {
-                        if matches!(
-                            table
-                                .get("generate")
-                                .map(|f| f.to_owned())
-                                .unwrap_or_else(|| toml::Value::String("no".to_string()))
-                                .as_str()
-                                .unwrap(),
-                            "yes"
-                        ) {
-                            if let Some(san) = table.get("san").unwrap().as_array() {
-                                println!("Generating a root certificate for ca operations");
-                                let san: Vec<String> = san
-                                    .iter()
-                                    .map(|e| e.as_str().unwrap().to_string())
-                                    .collect();
-                                let mut certparams = rcgen::CertificateParams::new(san);
-                                certparams.alg = rcgen::SignatureAlgorithm::from_oid(
-                                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
-                                )
-                                .unwrap();
-                                certparams.distinguished_name = rcgen::DistinguishedName::new();
-
-                                let cn = table.get("commonName").unwrap().as_str().unwrap();
-                                let days = table.get("days").unwrap().as_integer().unwrap();
-                                let chain_length =
-                                    table.get("chain_length").unwrap().as_integer().unwrap() as u8;
-
-                                certparams
-                                    .distinguished_name
-                                    .push(rcgen::DnType::CommonName, cn);
-                                certparams.not_before = time::OffsetDateTime::now_utc();
-                                certparams.not_after =
-                                    certparams.not_before + time::Duration::days(days);
-                                let basic_constraints =
-                                    rcgen::BasicConstraints::Constrained(chain_length);
-                                certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
-
-                                let pkix =
-                                    PkixAuthorityInfoAccess::new(Self::get_ocsp_url(settings));
-                                let ocsp_data = pkix.der;
-                                let ocsp = rcgen::CustomExtension::from_oid_content(
-                                    &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
-                                    ocsp_data,
-                                );
-                                certparams.custom_extensions.push(ocsp);
-                                let cert = rcgen::Certificate::from_params(certparams).unwrap();
-                                let cert_der = cert.serialize_der().unwrap();
-                                ca.save_root_cert(&cert_der).await;
-                                let key_der = cert.get_key_pair().serialize_der();
-                                ca.save_root_key(&key_der).await;
-                            }
-                        }
-                    }
+                if let Some(key) = &cert.pkey {
+                    let cp = p.with_file_name(format!("{}_key.der", name));
+                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                    cf.write_all(&key).await;
                 }
             }
         }
-        ca
     }
 
-    /// Load the root ca private key from the specified storage media, converting to der as required. TODO REMOVE THIS
-    async fn load_root_ca_key(&self) -> Result<der::Document, CertificateLoadingError> {
+    /// Load a certificate from the storage medium
+    pub async fn load_from_medium(
+        &self,
+        name: &str,
+    ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::FilesystemDer(p) => {
-                use der::Decode;
                 use tokio::io::AsyncReadExt;
-                let mut certp = p.clone();
-                certp.push("root_key.der");
+                let certp = p.with_file_name(format!("{}_cert.der", name));
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
-                let cert = der::Document::from_der(&cert)
-                    .map_err(|_e| CertificateLoadingError::InvalidCert)?;
+
+                let keyp = p.with_file_name(format!("{}_key.der", name));
+                let f2 = tokio::fs::File::open(keyp).await;
+                let pkey = if let Ok(mut f2) = f2 {
+                    let mut pkey = Zeroizing::new(Vec::with_capacity(
+                        f2.metadata().await.unwrap().len() as usize,
+                    ));
+                    f2.read_to_end(&mut pkey).await?;
+                    Some(pkey)
+                } else {
+                    None
+                };
+
+                //TODO actually determine the signing method by parsing the public certificate
+                let cert = CaCertificate::from_existing(
+                    CertificateSigningMethod::Ecdsa,
+                    self.clone(),
+                    &cert,
+                    pkey,
+                    name.to_string(),
+                );
                 Ok(cert)
             }
         }
     }
+}
 
-    /// Load the root ca cert from the specified storage media, converting to der as required.
-    async fn load_root_ca_cert(&self) -> Result<der::Document, CertificateLoadingError> {
-        match self {
-            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
-            CaCertificateStorage::FilesystemDer(p) => {
-                use der::Decode;
-                use tokio::io::AsyncReadExt;
-                let mut certp = p.clone();
-                certp.push("root_cert.der");
-                let mut f = tokio::fs::File::open(certp).await?;
-                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut cert).await?;
-                let cert = der::Document::from_der(&cert)
-                    .map_err(|_e| CertificateLoadingError::InvalidCert)?;
-                Ok(cert)
+/// Represents a certificate that might be able to sign things
+pub struct CaCertificate {
+    /// The algorithm used for the ceertificate
+    algorithm: CertificateSigningMethod,
+    /// Where the certificate is stored
+    medium: CaCertificateStorage,
+    /// The public certificate in der format
+    cert: Vec<u8>,
+    /// The optional private key in der format
+    pkey: Option<Zeroizing<Vec<u8>>>,
+    /// The certificate name to use for storage
+    name: String,
+}
+
+impl CaCertificate {
+    /// Load a caCertificate instance from der data of the certificate
+    pub fn from_existing(
+        algorithm: CertificateSigningMethod,
+        medium: CaCertificateStorage,
+        der: &[u8],
+        pkey: Option<Zeroizing<Vec<u8>>>,
+        name: String,
+    ) -> Self {
+        Self {
+            algorithm,
+            medium,
+            cert: der.to_vec(),
+            pkey,
+            name,
+        }
+    }
+
+    /// Save this certificate to the storage medium
+    pub async fn save_to_medium(&self) {
+        self.medium.save_to_medium(&self.name, self).await;
+    }
+
+    /// Create a pem version of the public certificate
+    pub fn public_pem(&self) -> Result<String, der::Error> {
+        use der::Decode;
+        let doc: der::Document = der::Document::from_der(&self.cert)?;
+        doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
+    }
+
+    /// Sign some data with the certificate, if possible
+    pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
+        match &self.algorithm {
+            CertificateSigningMethod::Ecdsa => {
+                if let Some(pkey) = &self.pkey {
+                    let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
+                    let rng = &ring::rand::SystemRandom::new();
+                    let key = ring::signature::EcdsaKeyPair::from_pkcs8(alg, &pkey, rng).unwrap();
+                    let signature = key.sign(rng, data).unwrap();
+                    Some((self.algorithm.oid(), signature.as_ref().to_vec()))
+                } else {
+                    todo!("Sign with exterenal method")
+                }
+            }
+            CertificateSigningMethod::Rsa => {
+                todo!("Sign with rsa");
             }
         }
     }
@@ -407,14 +504,14 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
 async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
-    let ca = CaCertificateStorage::from_config(&s.settings);
+    let ca = s.ca.lock().await;
 
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
     let mut cert: Option<Vec<u8>> = None;
 
-    if let Ok(cert_der) = ca.load_root_ca_cert().await {
+    if let Ok(cert_der) = ca.root_ca_cert().await {
         let ty = if s.get.contains_key("type") {
             s.get.get("type").unwrap().to_owned()
         } else {
@@ -431,7 +528,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
                     "Content-Disposition",
                     HeaderValue::from_static("attachment; filename=ca.cer"),
                 );
-                cert = Some(cert_der.to_vec());
+                cert = Some(cert_der.cert.to_owned());
             }
             "pem" => {
                 response.headers.append(
@@ -442,7 +539,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
                     "Content-Disposition",
                     HeaderValue::from_static("attachment; filename=ca.pem"),
                 );
-                if let Ok(pem) = cert_der.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF) {
+                if let Ok(pem) = cert_der.public_pem() {
                     cert = Some(pem.as_bytes().to_vec());
                 }
             }
@@ -461,42 +558,19 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
-/// How the signature is generated for an ocsp response
-enum OcspResponseDigestMethod {
-    /// The digest is sha256 and rsa
-    Sha256Rsa,
-    /// The digest is sha256 and ecdsa
-    Sha256Ecdsa,
+/// The method that a certificate uses to sign stuff
+enum CertificateSigningMethod {
+    /// An rsa certificate use RSA
+    Rsa,
+    /// Ecdsa
+    Ecdsa,
 }
 
-impl OcspResponseDigestMethod {
-    fn algorithm(&self) -> ocsp::common::asn1::Oid {
+impl CertificateSigningMethod {
+    fn oid(&self) -> crate::oid::Oid {
         match self {
-            OcspResponseDigestMethod::Sha256Rsa => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_ocsp(),
-            OcspResponseDigestMethod::Sha256Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_ocsp(),
-        }
-    }
-
-    fn sign(&self, pkey_der: &[u8], data: &[u8]) -> Vec<u8> {
-        match self {
-            OcspResponseDigestMethod::Sha256Rsa => sha256::digest(data).as_bytes().to_vec(),
-            OcspResponseDigestMethod::Sha256Ecdsa => {
-                let mut key = p256::ecdsa::SigningKey::from_pkcs8_der(pkey_der).unwrap();
-                let sig: p256::ecdsa::Signature = key.sign(data);
-                let r = sig.r().to_bytes();
-                let s = sig.s().to_bytes();
-                let rb: &[u8] = r.as_ref();
-                let sb: &[u8] = s.as_ref();
-                println!("SIG: {:02X?}", sig.to_bytes());
-                println!("R: {:02X?}", rb);
-                println!("S: {:02X?}", sb);
-                p12::yasna::construct_der(|w| {
-                    w.write_sequence(|w| {
-                        w.next().write_bitvec_bytes(rb, rb.len() * 8);
-                        w.next().write_bitvec_bytes(sb, sb.len() * 8);
-                    })
-                })
-            }
+            Self::Rsa => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
+            Self::Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
     }
 }
@@ -512,7 +586,7 @@ impl OcspRequirements {
 }
 
 async fn build_ocsp_response(
-    ca: CaCertificateStorage,
+    ca: &mut Ca,
     req: ocsp::request::OcspRequest,
 ) -> ocsp::response::OcspResponse {
     let mut nonce = None;
@@ -521,11 +595,11 @@ async fn build_ocsp_response(
     let mut responses = Vec::new();
     let mut extensions = Vec::new();
 
-    let ca_cert = ca.load_root_ca_cert().await.unwrap();
+    let ca_cert = ca.root_ca_cert().await.unwrap();
 
     let x509_cert = {
         use der::Decode;
-        x509_cert::Certificate::from_der(ca_cert.as_bytes()).unwrap()
+        x509_cert::Certificate::from_der(&ca_cert.cert).unwrap()
     };
 
     for r in req.tbs_request.request_list {
@@ -593,23 +667,18 @@ async fn build_ocsp_response(
     );
 
     let data_der = data.to_der().unwrap();
-    println!("Der data to sign is {:02X?}", data_der);
-    let method = OcspResponseDigestMethod::Sha256Ecdsa;
 
-    let pkey_doc = ca.load_root_ca_key().await.unwrap();
+    let (oid, sign) = ca_cert.sign(&data_der).await.unwrap();
+    let cert = Some(ca_cert.cert.to_owned());
 
-    let sign = method.sign(pkey_doc.as_bytes(), &data_der);
-    println!("DER SIGNATURE IS {} {:02X?}", sign.len(), sign);
-    let cert = Some(ca_cert.as_bytes().to_vec());
-
-    let bresp = ocsp::response::BasicResponse::new(data, method.algorithm(), sign, cert);
+    let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, cert);
     let bytes =
         ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_ocsp(), bresp).unwrap();
     ocsp::response::OcspResponse::new_success(bytes)
 }
 
 async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
-    let ca = CaCertificateStorage::from_config(&s.settings);
+    let mut ca = s.ca.lock().await;
 
     let ocsp_request = s.post.ocsp();
 
@@ -630,11 +699,11 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
                 Some(s) => {
                     println!("Signature is {:?}", s);
                     todo!("Verify signature");
-                    build_ocsp_response(ca, ocsp).await
+                    build_ocsp_response(&mut ca, ocsp).await
                 }
             }
         } else {
-            build_ocsp_response(ca, ocsp).await
+            build_ocsp_response(&mut ca, ocsp).await
         }
     } else {
         println!("Did not parse ocsp request");

@@ -6,6 +6,7 @@ use der::Decode;
 use p12::yasna;
 
 /// Represents an object identifier used in ASN.1 syntax
+#[derive(Clone)]
 pub enum Oid {
     /// The oid as represented by yasna
     Yasna(yasna::models::ObjectIdentifier),

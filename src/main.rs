@@ -330,6 +330,12 @@ async fn main() {
 
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
+    let ca = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async { ca::Ca::load_and_init(&settings).await })
+    });
+
+    let ca = Arc::new(futures::lock::Mutex::new(ca));
+
     let mut hc = HttpContext {
         dirmap: router,
         root: ".".to_string(),
@@ -337,6 +343,7 @@ async fn main() {
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
+        ca,
     };
 
     if let Some(mysql_conn_s) = &mut mysql_conn_s {
@@ -387,12 +394,6 @@ async fn main() {
         tokio::task::JoinSet::new();
 
     let client_certs = webserver::tls::load_user_cert_data(&settings);
-
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            ca::CaCertificateStorage::load_and_init(&settings).await;
-        });
-    });
 
     if http_enable {
         let http_port = settings.get_http_port();
