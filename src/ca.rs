@@ -342,12 +342,12 @@ impl CaCertificateStorage {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
                 use tokio::io::AsyncWriteExt;
-                let cp = p.with_file_name(format!("{}_cert.der", name));
+                let cp = p.join(format!("{}_cert.der", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
                 cf.write_all(&cert.cert).await;
 
                 if let Some(key) = &cert.pkey {
-                    let cp = p.with_file_name(format!("{}_key.der", name));
+                    let cp = p.join(format!("{}_key.der", name));
                     let mut cf = tokio::fs::File::create(cp).await.unwrap();
                     cf.write_all(&key).await;
                 }
@@ -364,12 +364,12 @@ impl CaCertificateStorage {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::FilesystemDer(p) => {
                 use tokio::io::AsyncReadExt;
-                let certp = p.with_file_name(format!("{}_cert.der", name));
+                let certp = p.join(format!("{}_cert.der", name));
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
 
-                let keyp = p.with_file_name(format!("{}_key.der", name));
+                let keyp = p.join(format!("{}_key.der", name));
                 let f2 = tokio::fs::File::open(keyp).await;
                 let pkey = if let Ok(mut f2) = f2 {
                     let mut pkey = Zeroizing::new(Vec::with_capacity(
