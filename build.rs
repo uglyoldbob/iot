@@ -1,7 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=js/package.json");
-    println!("cargo:rerun-if-changed=js/package-lock.json");
+    println!("cargo:rerun-if-changed=js");
 
     // false - run npm out of the source directory
     // true - run npm out of the build directory
@@ -35,19 +34,24 @@ fn main() {
         panic!("Npm install failed");
     }
 
-    let nfp = p.join("node_modules").join("node-forge").join("dist");
-    let filenames = ["forge.all.min.js", "forge.min.js", "prime.worker.min.js"];
+    let nfp = p.join("node_modules");
+    let filenames = [
+        ("node-forge/dist/forge.all.min.js", "forge.all.min.js"),
+        ("node-forge/dist/forge.min.js", "forge.min.js"),
+        ("node-forge/dist/prime.worker.min.js", "prime.worker.min.js"),
+        ("certgen/index.min.js", "certgen.min.js"),
+    ];
     if use_out {
-        for f in filenames {
+        for (f, g) in filenames {
             let src = nfp.join(f);
-            std::fs::copy(src, out_path.join(f)).expect(&format!("Failed to copy js file {}", f));
+            std::fs::copy(src, out_path.join(g)).expect(&format!("Failed to copy js file {}", f));
         }
     } else {
         let p = source_path.join("content").join("js");
         std::fs::create_dir_all(&p).expect("Failed to create file for npm built files");
-        for f in filenames {
+        for (f, g) in filenames {
             let src = nfp.join(f);
-            let dst = p.join(f);
+            let dst = p.join(g);
             std::fs::copy(&src, dst)
                 .expect(&format!("Failed to copy js file {}", src.to_str().unwrap()));
         }

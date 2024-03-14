@@ -474,18 +474,24 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
                 .rel("stylesheet")
                 .media("screen and (max-width: 640px)")
         });
+        h.script(|sb| {
+            sb.src(format!("/{}js/forge.min.js", s.proxy));
+            sb
+        });
+        h.script(|sb| {
+            sb.src(format!("/{}js/certgen.min.js", s.proxy));
+            sb
+        });
         h
     })
     .body(|b| {
-        b.text("Signature request in pem format");
-        b.division(|d| {
-            d.class("signing_request");
-            d.text_area(|ta| {
-                ta.rows(40);
-                ta.name("request");
-                ta
+        b.form(|form| {
+            form.onsubmit("generate_cert()");
+            form.input(|i| {
+                i.type_("submit");
+                i
             });
-            d
+            form
         });
         b.line_break(|lb| lb);
         b

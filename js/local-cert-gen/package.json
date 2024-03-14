@@ -1,0 +1,17 @@
+{
+  "name": "local-cert-gen",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "prepare": "uglifyjs -c -m -o index.min.js index.js -- index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "node-forge": "^1.3.1",
+    "uglify-js": "^3.17.4"
+  }
+}
