@@ -27,11 +27,6 @@ impl PkixAuthorityInfoAccess {
                 });
             });
         });
-        println!("DER for pkix is following:");
-        for b in &asn {
-            print!("{:02X} ", b);
-        }
-        println!("");
         Self { der: asn }
     }
 }
@@ -559,7 +554,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// The method that a certificate uses to sign stuff
-enum CertificateSigningMethod {
+pub enum CertificateSigningMethod {
     /// An rsa certificate use RSA
     Rsa,
     /// Ecdsa
