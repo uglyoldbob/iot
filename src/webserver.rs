@@ -340,7 +340,7 @@ async fn handle<'a>(
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
-        let file = std::fs::read_to_string(sys_path.clone());
+        let file = tokio::fs::read_to_string(sys_path.clone()).await;
         let body = match file {
             Ok(c) => http_body_util::Full::new(hyper::body::Bytes::from(c)),
             Err(_e) => {

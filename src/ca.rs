@@ -62,7 +62,7 @@ enum MaybeError<T, E> {
 
 /// Errors that can occur when attempting to load a certificate
 #[derive(Debug)]
-enum CertificateLoadingError {
+pub enum CertificateLoadingError {
     /// The certificate does not exist
     DoesNotExist,
     /// Cannot open the certificate
@@ -460,32 +460,87 @@ impl CaCertificate {
     }
 }
 
+async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        h.title(|t| t.text("UglyOldBob Certificate Authority"));
+        h.link(|h| {
+            h.href(format!("/{}css/ca.css", s.proxy))
+                .rel("stylesheet")
+                .media("all")
+        });
+        h.link(|h| {
+            h.href(format!("/{}css/ca-mobile.css", s.proxy))
+                .rel("stylesheet")
+                .media("screen and (max-width: 640px)")
+        });
+        h
+    })
+    .body(|b| {
+        b.text("Signature request in pem format");
+        b.division(|d| {
+            d.class("signing_request");
+            d.text_area(|ta| {
+                ta.rows(40);
+                ta.name("request");
+                ta
+            });
+            d
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
-    html.head(|h| h.title(|t| t.text("UglyOldBob Certificate Authority")))
-        .body(|b| {
-            b.anchor(|ab| {
-                ab.text("Download CA certificate as der");
-                ab.href("/ca/get_ca.rs?type=der");
-                ab.target("_blank");
-                ab
-            });
-            b.line_break(|lb| lb);
-            b.anchor(|ab| {
-                ab.text("Download CA certificate as pem");
-                ab.href("/ca/get_ca.rs?type=pem");
-                ab.target("_blank");
-                ab
-            });
-            b.line_break(|lb| lb);
-            b.ordered_list(|ol| {
-                for name in ["I", "am", "groot"] {
-                    ol.list_item(|li| li.text(name));
-                }
-                ol
-            })
+    html.head(|h| {
+        h.title(|t| t.text("UglyOldBob Certificate Authority"));
+        h.link(|h| {
+            h.href(format!("/{}css/ca.css", s.proxy))
+                .rel("stylesheet")
+                .media("all")
         });
+        h.link(|h| {
+            h.href(format!("/{}css/ca-mobile.css", s.proxy))
+                .rel("stylesheet")
+                .media("screen and (max-width: 640px)")
+        });
+        h
+    })
+    .body(|b| {
+        b.anchor(|ab| {
+            ab.text("Download CA certificate as der");
+            ab.href(format!("/{}ca/get_ca.rs?type=der", s.proxy));
+            ab.target("_blank");
+            ab
+        });
+        b.line_break(|lb| lb);
+        b.anchor(|ab| {
+            ab.text("Download CA certificate as pem");
+            ab.href(format!("/{}ca/get_ca.rs?type=pem", s.proxy));
+            ab.target("_blank");
+            ab
+        });
+        b.line_break(|lb| lb);
+        b.anchor(|ab| {
+            ab.text("Request a signature on a certificate");
+            ab.href(format!("/{}ca/request.rs", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
     let html = html.build();
 
     let response = hyper::Response::new("dummy");
@@ -727,4 +782,5 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
+    router.register("/ca/request.rs", ca_request);
 }

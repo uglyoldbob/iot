@@ -14,3 +14,12 @@ android/captures
 .externalNativeBuild
 .cxx
 android/local.properties
+js/node_modules
+*.der
+*.p7c
+*.p7b
+*.p12
+*.pem
+*.key
+*.csr
+*.crt
