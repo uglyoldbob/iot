@@ -38,6 +38,7 @@ fn main() {
     let filenames = [
         ("node-forge/dist/forge.all.min.js", "forge.all.min.js"),
         ("node-forge/dist/forge.min.js", "forge.min.js"),
+        ("node-forge/dist/forge.min.js.map", "forge.min.js.map"),
         ("node-forge/dist/prime.worker.min.js", "prime.worker.min.js"),
         ("certgen/index.min.js", "certgen.min.js"),
     ];

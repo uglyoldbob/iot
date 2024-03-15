@@ -182,7 +182,7 @@ You are logged in
     html.head(|h| {
         h.title(|t| t.text("Rust IOT Management Console"));
         h.meta(|h| {
-            h.http_equiv("content-type")
+            h.http_equiv("Content-Type")
                 .content("text/html;charset=utf-8")
         });
         h.link(|h| {

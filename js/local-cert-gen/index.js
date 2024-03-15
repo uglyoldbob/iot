@@ -1,7 +1,33 @@
-function generate_cert() {
-  console.log("Starting generate cert");
+function hide(elements) {
+  elements = elements.length ? elements : [elements];
+  for (var index = 0; index < elements.length; index++) {
+    elements[index].style.display = 'none';
+  }
+}
 
- // generate a key pair
+function show (elements, specifiedDisplay) {
+  elements = elements.length ? elements : [elements];
+  for (var index = 0; index < elements.length; index++) {
+    elements[index].style.display = specifiedDisplay || 'block';
+  }
+}
+
+async function test_display() {
+  var loading = document.getElementsByClassName("cert_generating");
+  show(loading, 'inline');
+
+  await new Promise(r => setTimeout(r, 2000));
+
+  hide(loading);
+}
+
+function do_csr_submit() {
+  let submit = document.getElementById('submit');
+  submit.click();
+}
+
+function cert_work() {
+  // generate a key pair
   console.log('Generating 4096-bit key-pair...');
   var keys = forge.pki.rsa.generateKeyPair(4096);
   console.log('Key-pair created.');
@@ -41,9 +67,16 @@ function generate_cert() {
   csr.sign(keys.privateKey/*, forge.md.sha256.create()*/);
   console.log('Certification request (CSR) created.');
 
+  var rsaPrivateKey = forge.pki.privateKeyToAsn1(keys.privateKey);
+  var privateKeyInfo = forge.pki.wrapRsaPrivateKey(rsaPrivateKey);
+  var encryptedPrivateKeyInfo = forge.pki.encryptPrivateKeyInfo(
+    privateKeyInfo, 'myCustomPasswordHere', {
+      algorithm: 'aes256',
+    });
+
   // PEM-format keys and csr
   var pem = {
-    privateKey: forge.pki.privateKeyToPem(keys.privateKey),
+    privateKey: forge.pki.encryptedPrivateKeyToPem(encryptedPrivateKeyInfo),
     publicKey: forge.pki.publicKeyToPem(keys.publicKey),
     csr: forge.pki.certificationRequestToPem(csr)
   };
@@ -81,8 +114,22 @@ function generate_cert() {
   document.body.appendChild(link)
   link.click()
 
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
+  var loading = document.getElementsByClassName("cert_generating");
+  hide(loading);
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+
+  document.request.csr.value = pem.csr;
+  setTimeout(do_csr_submit, 1);
+}
+
+function generate_cert() {
+  console.log("Starting generate cert");
+
+  var loading = document.getElementsByClassName("cert_generating");
+  show(loading, 'inline');
+
+  setTimeout(cert_work, 1);
 
   console.log("Done with generate cert");
 }

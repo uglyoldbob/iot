@@ -460,40 +460,62 @@ impl CaCertificate {
     }
 }
 
+async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        let f = s.post.form();
+        if let Some(form) = f {
+            if let Some(csr) = form.get_first("csr") {
+                b.text(csr.to_owned()).line_break(|f| f);
+            }
+        }
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        h.title(|t| t.text("UglyOldBob Certificate Authority"));
-        h.link(|h| {
-            h.href(format!("/{}css/ca.css", s.proxy))
-                .rel("stylesheet")
-                .media("all")
-        });
-        h.link(|h| {
-            h.href(format!("/{}css/ca-mobile.css", s.proxy))
-                .rel("stylesheet")
-                .media("screen and (max-width: 640px)")
-        });
-        h.script(|sb| {
-            sb.src(format!("/{}js/forge.min.js", s.proxy));
-            sb
-        });
-        h.script(|sb| {
-            sb.src(format!("/{}js/certgen.min.js", s.proxy));
-            sb
-        });
-        h
+        generic_head(h, &s)
+            .script(|sb| {
+                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb
+            })
+            .script(|sb| {
+                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb
+            })
     })
     .body(|b| {
-        b.form(|form| {
-            form.onsubmit("generate_cert()");
-            form.input(|i| {
-                i.type_("submit");
-                i
-            });
-            form
-        });
+        b.button(|b| b.text("Generate 2").onclick("generate_cert()"));
         b.line_break(|lb| lb);
+        b.division(|div| {
+            div.class("hidden");
+            div.form(|f| {
+                f.name("request");
+                f.action(format!("/{}ca/submit_request.rs", s.proxy));
+                f.method("post");
+                f.input(|i| i.type_("text").id("csr").name("csr"));
+                f.input(|i| i.type_("submit").id("submit"));
+                f
+            });
+            div
+        });
+        b.division(|div| {
+            div.class("cert_generating");
+            div.text("Generating request...");
+            div.line_break(|a| a);
+            div
+        });
         b
     });
     let html = html.build();
@@ -510,21 +532,7 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
-    html.head(|h| {
-        h.title(|t| t.text("UglyOldBob Certificate Authority"));
-        h.link(|h| {
-            h.href(format!("/{}css/ca.css", s.proxy))
-                .rel("stylesheet")
-                .media("all")
-        });
-        h.link(|h| {
-            h.href(format!("/{}css/ca-mobile.css", s.proxy))
-                .rel("stylesheet")
-                .media("screen and (max-width: 640px)")
-        });
-        h
-    })
-    .body(|b| {
+    html.head(|h| generic_head(h, &s)).body(|b| {
         b.anchor(|ab| {
             ab.text("Download CA certificate as der");
             ab.href(format!("/{}ca/get_ca.rs?type=der", s.proxy));
@@ -784,9 +792,29 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+fn generic_head<'a>(
+    h: &'a mut html::metadata::builders::HeadBuilder,
+    s: &WebPageContext,
+) -> &'a mut html::metadata::builders::HeadBuilder {
+    h.title(|t| t.text("UglyOldBob Certificate Authority"));
+    h.meta(|m| m.charset("UTF-8"));
+    h.link(|h| {
+        h.href(format!("/{}css/ca.css", s.proxy))
+            .rel("stylesheet")
+            .media("all")
+    });
+    h.link(|h| {
+        h.href(format!("/{}css/ca-mobile.css", s.proxy))
+            .rel("stylesheet")
+            .media("screen and (max-width: 640px)")
+    });
+    h
+}
+
 pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
     router.register("/ca/request.rs", ca_request);
+    router.register("/ca/submit_request.rs", ca_submit_request);
 }

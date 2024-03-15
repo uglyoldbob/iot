@@ -25,6 +25,7 @@ textnonce = "1.0.0"
 time = "0.3.34"
 tokio-rustls = "0.25.0"
 toml = "0.8.11"
+url_encoded_data = "0.6.1"
 x509-cert = "0.2.5"
 zeroize = "1.7.0"
 

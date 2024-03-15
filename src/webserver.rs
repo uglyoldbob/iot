@@ -136,6 +136,7 @@ pub struct WebPageContext {
 }
 
 /// Represents the contents of a post request
+#[derive(Clone)]
 pub struct PostContent {
     body: Option<hyper::body::Bytes>,
     headers: hyper::header::HeaderMap,
@@ -146,17 +147,49 @@ impl PostContent {
         Self { body, headers }
     }
 
+    /// Just get the post content
+    pub fn content(&self) -> Option<Vec<u8>> {
+        self.body.as_ref().map(|d| d.to_vec())
+    }
+
+    /// Convert the post content to an ocsp request if possible.
     pub fn ocsp(&self) -> Option<ocsp::request::OcspRequest> {
         let b = self.body.as_ref()?;
         ocsp::request::OcspRequest::parse(b.as_ref()).ok()
     }
+
+    /// Convert the post content to form data if possible
+    pub fn form<'a>(&'a self) -> Option<url_encoded_data::UrlEncodedData<'a>> {
+        let s = std::str::from_utf8(self.body.as_ref().unwrap()).ok()?;
+        self.body
+            .as_ref()
+            .map(|d| url_encoded_data::UrlEncodedData::parse_str(s))
+    }
+
+    /// Convert the post content to a multipart request if possible.
+    pub fn multipart(&self) -> Option<multipart::server::Multipart<Self>> {
+        multipart::server::Multipart::from_request(self.to_owned()).ok()
+    }
 }
 
-impl<'a> multipart::server::HttpRequest for &'a PostContent {
-    type Body = &'a [u8];
+impl std::io::Read for PostContent {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let b = match self.body.as_ref() {
+            None => {
+                return Ok(0);
+            }
+            Some(a) => a,
+        };
+        buf.copy_from_slice(b);
+        Ok(b.len())
+    }
+}
+
+impl multipart::server::HttpRequest for PostContent {
+    type Body = Self;
 
     fn body(self) -> Self::Body {
-        self.body.as_ref().map(|f| f.as_ref()).unwrap()
+        self
     }
 
     fn multipart_boundary(&self) -> Option<&str> {
@@ -342,7 +375,28 @@ async fn handle<'a>(
         let (mut response, _) = response.into_parts();
         let file = tokio::fs::read_to_string(sys_path.clone()).await;
         let body = match file {
-            Ok(c) => http_body_util::Full::new(hyper::body::Bytes::from(c)),
+            Ok(c) => {
+                let p = std::path::PathBuf::from(sys_path);
+                match p.extension() {
+                    Some(ext) => match ext.to_str().unwrap() {
+                        "css" => {
+                            response.headers.append(
+                                "Content-Type",
+                                hyper::header::HeaderValue::from_static("text/css"),
+                            );
+                        }
+                        "js" => {
+                            response.headers.append(
+                                "Content-Type",
+                                hyper::header::HeaderValue::from_static("text/javascript"),
+                            );
+                        }
+                        _ => {}
+                    },
+                    None => {}
+                }
+                http_body_util::Full::new(hyper::body::Bytes::from(c))
+            }
             Err(_e) => {
                 response.status = StatusCode::NOT_FOUND;
                 http_body_util::Full::new(hyper::body::Bytes::from("missing"))
