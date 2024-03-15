@@ -450,7 +450,7 @@ impl CaCertificate {
                     let signature = key.sign(rng, data).unwrap();
                     Some((self.algorithm.oid(), signature.as_ref().to_vec()))
                 } else {
-                    todo!("Sign with exterenal method")
+                    todo!("Sign with external method")
                 }
             }
             CertificateSigningMethod::Rsa => {
@@ -465,8 +465,13 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     html.head(|h| generic_head(h, &s)).body(|b| {
         let f = s.post.form();
         if let Some(form) = f {
+            use der::DecodePem;
             if let Some(csr) = form.get_first("csr") {
                 b.text(csr.to_owned()).line_break(|f| f);
+                let cert = x509_cert::request::CertReq::from_pem(csr);
+                if let Ok(csr) = cert {
+                    b.text(format!("CertReq is {:?}", csr)).line_break(|a| a);
+                }
             }
         }
         b
@@ -504,7 +509,7 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
                 f.name("request");
                 f.action(format!("/{}ca/submit_request.rs", s.proxy));
                 f.method("post");
-                f.input(|i| i.type_("text").id("csr").name("csr"));
+                f.text_area(|i| i.id("csr").name("csr"));
                 f.input(|i| i.type_("submit").id("submit"));
                 f
             });
