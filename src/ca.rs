@@ -83,6 +83,37 @@ impl From<std::io::Error> for CertificateLoadingError {
     }
 }
 
+#[derive(Debug)]
+struct PublicKey<'a> {
+    key: ring::signature::UnparsedPublicKey<&'a [u8]>,
+}
+
+impl<'a> PublicKey<'a> {
+    fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
+        match algorithm {
+            CertificateSigningMethod::Rsa => Self {
+                key: ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                    key,
+                ),
+            },
+            CertificateSigningMethod::Ecdsa => {
+                todo!();
+            }
+            CertificateSigningMethod::Rsa_Sha256 => {
+                todo!();
+            }
+        }
+    }
+
+    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
+        self.key.verify(data, signature).map_err(|e| {
+            println!("Error verifying is {:?}", e);
+            ()
+        })
+    }
+}
+
 /// The actual ca object
 pub struct Ca {
     /// Where certificates are stored
@@ -92,6 +123,40 @@ pub struct Ca {
 }
 
 impl Ca {
+    /// Verify a certificate signing request
+    async fn verify_request(
+        &mut self,
+        csr: &x509_cert::request::CertReq,
+    ) -> Result<&x509_cert::request::CertReq, ()> {
+        use der::Encode;
+        let info = csr.info.to_der().unwrap();
+        let pubkey = &csr.info.public_key;
+        let signature = &csr.signature;
+
+        let p = &pubkey.subject_public_key;
+        let pder = p.to_der().unwrap();
+
+        let pkey = p12::yasna::parse_der(&pder, |r| {
+            let (data, _size) = r.read_bitvec_bytes()?;
+            Ok(data)
+        })
+        .unwrap();
+
+        if let Ok(algo) = pubkey.algorithm.to_owned().try_into() {
+            println!("Checking csr with algo {:?}", algo);
+            let csr_cert = PublicKey::create_with(algo, &pkey);
+            println!("Cert is {:?}", csr_cert);
+            csr_cert
+                .verify(&info, signature.as_bytes().unwrap())
+                .map_err(|e| {
+                    println!("Verify failed {:?}", e);
+                    ()
+                })?;
+            println!("Verify worked");
+        }
+        Err(())
+    }
+
     /// Create a Self from the application configuration
     fn from_config(settings: &crate::MainConfiguration) -> Self {
         let medium = if let Some(section) = &settings.ca {
@@ -327,7 +392,7 @@ impl Ca {
 }
 
 /// Specifies how to access ca certificates on a ca
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum CaCertificateStorage {
     /// The certificates are stored nowhere. Used for testing.
     Nowhere,
@@ -396,6 +461,7 @@ impl CaCertificateStorage {
 }
 
 /// Represents a certificate that might be able to sign things
+#[derive(Debug)]
 pub struct CaCertificate {
     /// The algorithm used for the ceertificate
     algorithm: CertificateSigningMethod,
@@ -439,6 +505,27 @@ impl CaCertificate {
         doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
     }
 
+    /// Verify some data with the certificate
+    pub async fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
+        match &self.algorithm {
+            CertificateSigningMethod::Rsa => {
+                use der::DecodePem;
+                let cert = x509_cert::Certificate::from_pem(&self.cert).map_err(|_| ())?;
+                let p = cert
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .subject_public_key;
+                let pubkey = ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                    p.as_bytes().unwrap(),
+                );
+                pubkey.verify(data, signature).map_err(|_| ())
+            }
+            CertificateSigningMethod::Rsa_Sha256 => todo!(),
+            CertificateSigningMethod::Ecdsa => todo!(),
+        }
+    }
+
     /// Sign some data with the certificate, if possible
     pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
         match &self.algorithm {
@@ -456,23 +543,37 @@ impl CaCertificate {
             CertificateSigningMethod::Rsa => {
                 todo!("Sign with rsa");
             }
+            CertificateSigningMethod::Rsa_Sha256 => {
+                todo!("Sign with rsa-sha256");
+            }
         }
     }
 }
 
 async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut ca = s.ca.lock().await;
+
+    let mut valid_csr = false;
+
+    let f = s.post.form();
+    if let Some(form) = f {
+        use der::DecodePem;
+        if let Some(csr) = form.get_first("csr") {
+            let cert = x509_cert::request::CertReq::from_pem(csr);
+            if let Ok(csr) = cert {
+                valid_csr = ca.verify_request(&csr).await.is_ok();
+            }
+        }
+    }
+
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
         let f = s.post.form();
-        if let Some(form) = f {
-            use der::DecodePem;
-            if let Some(csr) = form.get_first("csr") {
-                b.text(csr.to_owned()).line_break(|f| f);
-                let cert = x509_cert::request::CertReq::from_pem(csr);
-                if let Ok(csr) = cert {
-                    b.text(format!("CertReq is {:?}", csr)).line_break(|a| a);
-                }
-            }
+        if valid_csr {
+            b.text("Your request has been submitted").line_break(|f| f);
+        } else {
+            b.text("Your request was considered invalid")
+                .line_break(|f| f);
         }
         b
     });
@@ -628,17 +729,40 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// The method that a certificate uses to sign stuff
+#[derive(Debug)]
 pub enum CertificateSigningMethod {
     /// An rsa certificate use RSA
     Rsa,
+    /// An rsa certificate rsa with sha256
+    Rsa_Sha256,
     /// Ecdsa
     Ecdsa,
+}
+
+impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
+    type Error = ();
+    fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
+        let oid = value.oid;
+        println!("OID {:?}", oid);
+        println!("OID2: {:?}", OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const());
+        if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
+            Ok(Self::Rsa_Sha256)
+        } else if oid == OID_PKCS1_RSA_ENCRYPTION.to_const() {
+            Ok(Self::Rsa)
+        } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
+            Ok(Self::Ecdsa)
+        } else {
+            println!("The oid to convert is {:?}", value.oid);
+            Err(())
+        }
+    }
 }
 
 impl CertificateSigningMethod {
     fn oid(&self) -> crate::oid::Oid {
         match self {
-            Self::Rsa => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
+            Self::Rsa => OID_PKCS1_RSA_ENCRYPTION.to_owned(),
+            Self::Rsa_Sha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
             Self::Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
     }
