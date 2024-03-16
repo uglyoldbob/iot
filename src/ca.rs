@@ -111,7 +111,7 @@ impl<'a> PublicKey<'a> {
     }
 
     fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
-        self.key.verify(data, signature).map_err(|_|())
+        self.key.verify(data, signature).map_err(|_| ())
     }
 }
 
@@ -150,9 +150,40 @@ impl Ca {
             csr_cert
                 .verify(&info, signature.as_bytes().unwrap())
                 .map_err(|_| ())?;
+            //TODO perform more validation of the csr
             return Ok(csr);
         }
         Err(())
+    }
+
+    async fn save_csr(&mut self, csr: &x509_cert::request::CertReq) {
+        use der::EncodePem;
+        use tokio::io::AsyncWriteExt;
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("csr");
+                std::fs::create_dir_all(&pb);
+                let pf = std::fs::read_dir(&pb).unwrap();
+                let mut highest = 0;
+                for f in pf {
+                    if let Ok(ent) = f {
+                        if ent.file_type().unwrap().is_file() {
+                            let name = ent.file_name();
+                            let i = str::parse(name.to_str().unwrap()).unwrap();
+                            if i > highest {
+                                highest = i;
+                            }
+                        }
+                    }
+                }
+                highest += 1;
+                let cp = pb.join(format!("{}.csr", highest));
+                let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                let pem = csr.to_pem(pkcs8::LineEnding::CRLF).unwrap();
+                cf.write_all(pem.as_bytes()).await;
+            }
+        }
     }
 
     /// Create a Self from the application configuration
@@ -404,6 +435,7 @@ impl CaCertificateStorage {
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
+                std::fs::create_dir_all(&p);
                 use tokio::io::AsyncWriteExt;
                 let cp = p.join(format!("{}_cert.der", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
@@ -540,7 +572,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
             if let Ok(csr) = cert {
                 valid_csr = ca.verify_request(&csr).await.is_ok();
                 if valid_csr {
-                    println!("Need to save a certificate request now");
+                    ca.save_csr(&csr).await;
                 }
             }
         }
