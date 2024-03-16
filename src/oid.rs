@@ -123,6 +123,9 @@ lazy_static::lazy_static! {
     /// The oid for pkcs1 rsa encryption
     pub static ref OID_PKCS1_RSA_ENCRYPTION: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 1, 1]);
+    /// The oid for pkcs1 rsa encryption with sha1
+    pub static ref OID_PKCS1_SHA1_RSA_ENCRYPTION: Oid =
+        as_oid(&[1, 2, 840, 113_549, 1, 1, 5]);
     /// The oid for pkcs1 rsa encryption with sha256
     pub static ref OID_PKCS1_SHA256_RSA_ENCRYPTION: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 1, 11]);

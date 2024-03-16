@@ -89,9 +89,13 @@ struct PublicKey<'a> {
 }
 
 impl<'a> PublicKey<'a> {
+    /// Create the public key with the specified algorithm.
+    /// # Arguments
+    /// * algorithm - The signing algorithm for the public key
+    /// * key - The der bytes of the public key. For RSA this is a sequence of two integers.
     fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
         match algorithm {
-            CertificateSigningMethod::Rsa => Self {
+            CertificateSigningMethod::Rsa_Sha1 => Self {
                 key: ring::signature::UnparsedPublicKey::new(
                     &ring::signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                     key,
@@ -107,10 +111,7 @@ impl<'a> PublicKey<'a> {
     }
 
     fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
-        self.key.verify(data, signature).map_err(|e| {
-            println!("Error verifying is {:?}", e);
-            ()
-        })
+        self.key.verify(data, signature).map_err(|_|())
     }
 }
 
@@ -142,13 +143,13 @@ impl Ca {
         })
         .unwrap();
 
-        if let Ok(algo) = pubkey.algorithm.to_owned().try_into() {
+        if let Ok(algo) = csr.algorithm.to_owned().try_into() {
             println!("Checking csr with algo {:?}", algo);
             let csr_cert = PublicKey::create_with(algo, &pkey);
             println!("Cert is {:?}", csr_cert);
             csr_cert
                 .verify(&info, signature.as_bytes().unwrap())
-                .map_err(|_|())?;
+                .map_err(|_| ())?;
             return Ok(csr);
         }
         Err(())
@@ -502,27 +503,6 @@ impl CaCertificate {
         doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
     }
 
-    /// Verify some data with the certificate
-    pub async fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
-        match &self.algorithm {
-            CertificateSigningMethod::Rsa => {
-                use der::DecodePem;
-                let cert = x509_cert::Certificate::from_pem(&self.cert).map_err(|_| ())?;
-                let p = cert
-                    .tbs_certificate
-                    .subject_public_key_info
-                    .subject_public_key;
-                let pubkey = ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
-                    p.as_bytes().unwrap(),
-                );
-                pubkey.verify(data, signature).map_err(|_| ())
-            }
-            CertificateSigningMethod::Rsa_Sha256 => todo!(),
-            CertificateSigningMethod::Ecdsa => todo!(),
-        }
-    }
-
     /// Sign some data with the certificate, if possible
     pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
         match &self.algorithm {
@@ -537,7 +517,7 @@ impl CaCertificate {
                     todo!("Sign with external method")
                 }
             }
-            CertificateSigningMethod::Rsa => {
+            CertificateSigningMethod::Rsa_Sha1 => {
                 todo!("Sign with rsa");
             }
             CertificateSigningMethod::Rsa_Sha256 => {
@@ -730,8 +710,8 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 /// The method that a certificate uses to sign stuff
 #[derive(Debug)]
 pub enum CertificateSigningMethod {
-    /// An rsa certificate use RSA
-    Rsa,
+    /// An rsa certificate with sha1
+    Rsa_Sha1,
     /// An rsa certificate rsa with sha256
     Rsa_Sha256,
     /// Ecdsa
@@ -746,8 +726,8 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
         println!("OID2: {:?}", OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const());
         if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
             Ok(Self::Rsa_Sha256)
-        } else if oid == OID_PKCS1_RSA_ENCRYPTION.to_const() {
-            Ok(Self::Rsa)
+        } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
+            Ok(Self::Rsa_Sha1)
         } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
             Ok(Self::Ecdsa)
         } else {
@@ -760,7 +740,7 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
 impl CertificateSigningMethod {
     fn oid(&self) -> crate::oid::Oid {
         match self {
-            Self::Rsa => OID_PKCS1_RSA_ENCRYPTION.to_owned(),
+            Self::Rsa_Sha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
             Self::Rsa_Sha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
             Self::Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
