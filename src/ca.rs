@@ -93,7 +93,7 @@ impl<'a> PublicKey<'a> {
         match algorithm {
             CertificateSigningMethod::Rsa => Self {
                 key: ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                    &ring::signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                     key,
                 ),
             },
@@ -124,10 +124,10 @@ pub struct Ca {
 
 impl Ca {
     /// Verify a certificate signing request
-    async fn verify_request(
+    async fn verify_request<'a>(
         &mut self,
-        csr: &x509_cert::request::CertReq,
-    ) -> Result<&x509_cert::request::CertReq, ()> {
+        csr: &'a x509_cert::request::CertReq,
+    ) -> Result<&'a x509_cert::request::CertReq, ()> {
         use der::Encode;
         let info = csr.info.to_der().unwrap();
         let pubkey = &csr.info.public_key;
@@ -148,11 +148,8 @@ impl Ca {
             println!("Cert is {:?}", csr_cert);
             csr_cert
                 .verify(&info, signature.as_bytes().unwrap())
-                .map_err(|e| {
-                    println!("Verify failed {:?}", e);
-                    ()
-                })?;
-            println!("Verify worked");
+                .map_err(|_|())?;
+            return Ok(csr);
         }
         Err(())
     }
@@ -279,7 +276,7 @@ impl Ca {
             }
             url.push_str("https://");
         } else if matches!(
-            settings.https.get("enabled").unwrap().as_str().unwrap(),
+            settings.http.get("enabled").unwrap().as_str().unwrap(),
             "yes"
         ) {
             let default_port = 80;
@@ -558,17 +555,19 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let f = s.post.form();
     if let Some(form) = f {
         use der::DecodePem;
-        if let Some(csr) = form.get_first("csr") {
-            let cert = x509_cert::request::CertReq::from_pem(csr);
+        if let Some(pem) = form.get_first("csr") {
+            let cert = x509_cert::request::CertReq::from_pem(pem);
             if let Ok(csr) = cert {
                 valid_csr = ca.verify_request(&csr).await.is_ok();
+                if valid_csr {
+                    println!("Need to save a certificate request now");
+                }
             }
         }
     }
 
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
-        let f = s.post.form();
         if valid_csr {
             b.text("Your request has been submitted").line_break(|f| f);
         } else {

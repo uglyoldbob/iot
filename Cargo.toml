@@ -62,7 +62,7 @@ features = ["encryption", "pem", "std"]
 
 [dependencies.rcgen]
 version = "0.12.1"
-features = ["aws_lc_rs", "ring", "pem"]
+features = ["ring", "pem"]
 
 [dependencies.serde]
 version = "1.0.197"
