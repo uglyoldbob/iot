@@ -9,6 +9,42 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
+/// The types of attributes that can be present in a csr
+pub enum CsrAttribute {
+    /// The challenge password
+    ChallengePassword(String),
+    /// The unstructured name
+    UnstructuredName(String),
+    /// All others
+    Unrecognized(Oid, der::Any)
+}
+
+impl CsrAttribute {
+    fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
+        if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
+            let n = any.decode_as().unwrap();
+            Self::UnstructuredName(n)
+        }
+        else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
+            let n = any.decode_as().unwrap();
+            Self::ChallengePassword(n)
+        }
+        else {
+            Self::Unrecognized(oid, any)
+        }
+    }
+}
+
+impl std::fmt::Display for CsrAttribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CsrAttribute::ChallengePassword(s) => f.write_str(&format!("Password: {}", s)),
+            CsrAttribute::UnstructuredName(s) => f.write_str(&format!("Unstructured Name: {}", s)),
+            CsrAttribute::Unrecognized(oid, _a) => f.write_str(&format!("Unrecognized: {:?}", oid)),
+        }
+    }
+}
+
 /// Contains a user signing request for a certificate
 #[derive(serde::Deserialize, serde::Serialize)]
 struct CsrRequest {
@@ -820,9 +856,9 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                         b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
                         b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                         for attr in csr.info.attributes.iter() {
-                            b.text(format!("{:?}: ", attr.oid)).line_break(|a| a);
                             for p in attr.values.iter() {
-                                b.text(format!("\t{:?}", p)).line_break(|a| a);
+                                let pa = CsrAttribute::with_oid_and_any(Oid::from_const(attr.oid), p.to_owned());
+                                b.text(format!("\t{}", pa)).line_break(|a| a);
                             }
                         }
                     }

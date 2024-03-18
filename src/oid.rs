@@ -6,7 +6,7 @@ use der::Decode;
 use p12::yasna;
 
 /// Represents an object identifier used in ASN.1 syntax
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Oid {
     /// The oid as represented by yasna
     Yasna(yasna::models::ObjectIdentifier),
@@ -14,6 +14,16 @@ pub enum Oid {
     Const(const_oid::ObjectIdentifier),
     /// The oid as represented by ocsp
     Ocsp(ocsp::common::asn1::Oid),
+}
+
+impl PartialEq for Oid {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_const() == other.to_const()
+    }
+
+    fn ne(&self, other: &Self) -> bool {
+        self.to_const() != other.to_const()
+    }
 }
 
 impl Oid {
@@ -135,6 +145,12 @@ lazy_static::lazy_static! {
     /// The oid for pkcs7 encrypted data
     pub static ref OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 7, 6]);
+    /// The oid for the pkcs9 unstructured name
+    pub static ref OID_PKCS9_UNSTRUCTURED_NAME: Oid =
+        as_oid(&[1, 2, 840, 113_549, 1, 9, 2]);
+    /// The oid for the pkcs9 challenge password
+    pub static ref OID_PKCS9_CHALLENGE_PASSWORD: Oid =
+        as_oid(&[1, 2, 840, 113_549, 1, 9, 7]);
     /// The oid for the pkcs9 friendly name
     pub static ref OID_PKCS9_FRIENDLY_NAME: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 9, 20]);
