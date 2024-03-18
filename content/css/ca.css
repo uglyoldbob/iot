@@ -3,6 +3,11 @@ div.cert_generating
     display: none;
 }
 
+div.advanced
+{
+    display: none;
+}
+
 div.hidden
 {
     display: none;

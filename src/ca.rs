@@ -287,7 +287,7 @@ impl Ca {
                 use tokio::io::AsyncReadExt;
                 let pb = p.join("certs");
                 let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::open(path).await.ok().unwrap();
+                let mut f = tokio::fs::File::open(path).await.ok()?;
                 let mut contents = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut contents).await;
                 Some(contents)
@@ -331,10 +331,10 @@ impl Ca {
         }
     }
 
-    async fn save_csr(&mut self, csr: &CsrRequest) {
+    async fn save_csr(&mut self, csr: &CsrRequest) -> Option<usize> {
         use tokio::io::AsyncWriteExt;
         match &self.medium {
-            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
                 let pb = p.join("csr");
                 tokio::fs::create_dir_all(&pb).await;
@@ -345,6 +345,7 @@ impl Ca {
                     let csr_doc = toml::to_string(csr).unwrap();
                     cf.write_all(csr_doc.as_bytes()).await;
                 }
+                newid
             }
         }
     }
@@ -783,6 +784,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
     let mut valid_csr = false;
+    let mut id = None;
 
     let f = s.post.form();
     if let Some(form) = f {
@@ -800,7 +802,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
                         email: form.get_first("email").unwrap().to_string(),
                         phone: form.get_first("phone").unwrap().to_string(),
                     };
-                    ca.save_csr(&csrr).await;
+                    id = ca.save_csr(&csrr).await;
                 }
             }
         }
@@ -810,6 +812,12 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     html.head(|h| generic_head(h, &s)).body(|b| {
         if valid_csr {
             b.text("Your request has been submitted").line_break(|f| f);
+            b.anchor(|ab| {
+                ab.text("View status of request");
+                ab.href(format!("/{}ca/view_cert.rs?id={}", s.proxy, id.unwrap()));
+                ab
+            });
+            b.line_break(|lb| lb);
         } else {
             b.text("Your request was considered invalid")
                 .line_break(|f| f);
@@ -841,14 +849,25 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
             })
     })
     .body(|b| {
-        b.button(|b| b.text("Generate 2").onclick("generate_cert()"));
+        b.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
+        b.button(|b| b.text("Generate a certificate").onclick("generate_cert()"));
         b.line_break(|lb| lb);
+        b.division(|div| {
+            div.class("advanced");
+            div.button(|b| b.text("Simple").onclick("show_regular()")).line_break(|a|a);
+            div
+        });
+        b.division(|div| {
+            div.class("regular");
+            div.button(|b| b.text("Advanced").onclick("show_advanced()")).line_break(|a|a);
+            div
+        });
         b.division(|div| {
             div.form(|f| {
                 f.name("request");
                 f.action(format!("/{}ca/submit_request.rs", s.proxy));
                 f.method("post");
-                f.text("Name")
+                f.text("Your Name")
                     .line_break(|a| a)
                     .input(|i| i.type_("text").id("name").name("name"))
                     .line_break(|a| a);
@@ -860,12 +879,60 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
                     .line_break(|a| a)
                     .input(|i| i.type_("tel").id("phone").name("phone"))
                     .line_break(|a| a);
-                f.text("CSR")
+                f.text("Password for private key")
+                    .line_break(|a|a)
+                    .input(|i| i.type_("password").id("password"))
+                    .line_break(|a|a);
+                f.heading_1(|h| {
+                    h.text("Certificate Information").line_break(|a|a)
+                });
+                f.text("Certificate Name")
                     .line_break(|a| a)
-                    .text_area(|i| i.id("csr").name("csr"))
+                    .input(|i| i.type_("text").id("cname").name("cname"))
                     .line_break(|a| a);
-                f.input(|i| i.type_("submit").id("submit"))
+                f.text("Country")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("country").name("country"))
                     .line_break(|a| a);
+                f.text("State")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("state").name("state"))
+                    .line_break(|a| a);
+                f.text("Locality")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("locality").name("locality"))
+                    .line_break(|a| a);
+                f.text("Organization Name")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("organization").name("organization"))
+                    .line_break(|a| a);
+                f.text("Organization Unit")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
+                    .line_break(|a| a);
+                f.text("Challenge password")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
+                    .line_break(|a| a);
+                f.text("Challenge name")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
+                    .line_break(|a| a);
+                f.division(|div| {
+                    div.class("advanced");
+                    div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
+                    div.text("CSR")
+                        .line_break(|a| a)
+                        .text_area(|i| i.id("csr").name("csr"))
+                        .line_break(|a| a);
+                    div
+                });
+                f.division(|div| {
+                    div.class("hidden");
+                    div.input(|i| i.type_("submit").id("submit").value("Submit"))
+                    .line_break(|a| a);
+                    div
+                });
                 f
             });
             div
@@ -1088,12 +1155,16 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let (response, _dummybody) = response.into_parts();
 
     let mut cert: Option<Vec<u8>> = None;
+    let mut csr = None;
     let mut myid = 0;
 
     if let Some(id) = s.get.get("id") {
         let id: Result<usize, std::num::ParseIntError> = str::parse(id.as_str());
         if let Ok(id) = id {
             cert = ca.get_user_cert(id).await;
+            if cert.is_none() {
+                csr = ca.get_csr_by_id(id);
+            }
             myid = id;
         }
     }
@@ -1151,8 +1222,12 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                     println!("Error reading certificate {:?}", e);
                 }
             }
-        } else {
-            b.text("Missing").line_break(|a| a);
+        } else if let Some(csr) = csr {
+            b.text(format!(
+                "Your request is pending at {}",
+                time::OffsetDateTime::now_utc()
+            ))
+            .line_break(|a| a);
         }
         b
     });

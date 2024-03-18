@@ -1,3 +1,21 @@
+function show_advanced() {
+  show(document.getElementsByClassName("advanced"));
+  hide(document.getElementsByClassName("regular"));
+}
+
+function show_regular() {
+  hide(document.getElementsByClassName("advanced"));
+  show(document.getElementsByClassName("regular"));
+}
+
+function show_loading() {
+  show(document.getElementsByClassName("cert_generating"));
+}
+
+function hide_loading() {
+  hide(document.getElementsByClassName("cert_generating"));
+}
+
 function hide(elements) {
   elements = elements.length ? elements : [elements];
   for (var index = 0; index < elements.length; index++) {
@@ -45,41 +63,62 @@ function reader_to_blob(stream) {
 }
 
 function cert_work() {
-  // generate a key pair
+  var subject_stuff = [];
+  var subject_good = 0;
+  const cname = document.getElementById('cname').value;
+  if (cname.length != 0) {
+    subject_good = 1;
+    subject_stuff.push({name: 'commonName', value: cname});
+  }
+
+  const country = document.getElementById('country').value;
+  if (country.length != 0) {
+    subject_stuff.push({name: 'countryName', value: country});
+  }
+
+  const state = document.getElementById('state').value;
+  if (state.length != 0) {
+    subject_stuff.push({name: 'ST', value: state});
+  }
+
+  const locality = document.getElementById('locality').value;
+  if (locality.length != 0) {
+    subject_stuff.push({name: 'localityName', value: locality});
+  }
+
+  const organization = document.getElementById('organization').value;
+  if (organization.length != 0) {
+    subject_stuff.push({name: 'organizationName', value: organization});
+  }
+
+  const ou = document.getElementById('organization-unit').value;
+  if (ou.length != 0) {
+    subject_stuff.push({name: 'OU', value: ou});
+  }
+
+  if (subject_good == 0) {
+    alert("The certificate subject information is invalid");
+    hide_loading();
+    return;
+  }
+
+  console.log('Creating certification request (CSR) ...');
+  var csr = forge.pki.createCertificationRequest();
+  csr.setSubject(subject_stuff);
+  // add optional attributes
+  csr.setAttributes([{
+    name: 'challengePassword',
+    value: document.getElementById('challenge-pass').value
+  }, {
+    name: 'unstructuredName',
+    value: document.getElementById('challenge-name').value
+  }]);
+
   console.log('Generating 4096-bit key-pair...');
   var keys = forge.pki.rsa.generateKeyPair(4096);
   console.log('Key-pair created.');
 
-  console.log('Creating certification request (CSR) ...');
-  var csr = forge.pki.createCertificationRequest();
   csr.publicKey = keys.publicKey;
-  csr.setSubject([{
-    name: 'commonName',
-    value: 'example.org'
-  }, {
-    name: 'countryName',
-    value: 'US'
-  }, {
-    shortName: 'ST',
-    value: 'Virginia'
-  }, {
-    name: 'localityName',
-    value: 'Blacksburg'
-  }, {
-    name: 'organizationName',
-    value: 'Test'
-  }, {
-    shortName: 'OU',
-    value: 'Test'
-  }]);
-  // add optional attributes
-  csr.setAttributes([{
-    name: 'challengePassword',
-    value: 'password'
-  }, {
-    name: 'unstructuredName',
-    value: 'My company'
-  }]);
 
   // sign certification request
   csr.sign(keys.privateKey, forge.md.sha256.create());
@@ -124,9 +163,8 @@ function cert_work() {
 
   do_download(file);
 
-  var loading = document.getElementsByClassName("cert_generating");
   document.request.csr.value = pem.csr;
-  hide(loading);
+  hide_loading();
   setTimeout(do_csr_submit, 1);
 }
 
@@ -141,8 +179,7 @@ function generate_cert() {
 
   console.log("Starting generate cert");
 
-  var loading = document.getElementsByClassName("cert_generating");
-  show(loading, 'inline');
+  show_loading();
 
   setTimeout(cert_work, 1);
 
