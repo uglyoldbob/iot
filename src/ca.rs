@@ -9,6 +9,30 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
+/// The types of attributes that can be present in a certificate
+pub enum CertAttribute {
+    /// All other types of attributes
+    Unrecognized(Oid, der::asn1::OctetString),
+}
+
+impl std::fmt::Display for CertAttribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CertAttribute::Unrecognized(oid, _a) => {
+                f.write_str(&format!("Unrecognized: {:?}", oid))
+            }
+        }
+    }
+}
+
+impl CertAttribute {
+    fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
+        {
+            Self::Unrecognized(oid, data)
+        }
+    }
+}
+
 /// The types of attributes that can be present in a csr
 pub enum CsrAttribute {
     /// The challenge password
@@ -820,7 +844,6 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
         b.button(|b| b.text("Generate 2").onclick("generate_cert()"));
         b.line_break(|lb| lb);
         b.division(|div| {
-            div.class("hidden");
             div.form(|f| {
                 f.name("request");
                 f.action(format!("/{}ca/submit_request.rs", s.proxy));
@@ -917,9 +940,11 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
         let id = str::parse::<usize>(id);
         if let Ok(id) = id {
             if let Some(csrr) = ca.get_csr_by_id(id) {
-                let a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
-                match &a {
+                let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
+                match &mut a {
                     Ok(csr) => {
+                        csr.params.not_before = time::OffsetDateTime::now_utc();
+                        csr.params.not_after = csr.params.not_before + time::Duration::days(365);
                         println!("Ready to sign the csr");
                         let der = csr
                             .serialize_der_with_signer(
@@ -1049,6 +1074,91 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+/// Runs the page for fetching the user certificate for the certificate authority being run
+async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
+    let ca = s.ca.lock().await;
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+    let mut myid = 0;
+
+    if let Some(id) = s.get.get("id") {
+        let id: Result<usize, std::num::ParseIntError> = str::parse(id.as_str());
+        if let Ok(id) = id {
+            cert = ca.get_user_cert(id).await;
+            myid = id;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, &s)
+            .script(|sb| {
+                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb
+            })
+            .script(|sb| {
+                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb
+            })
+    })
+    .body(|b| {
+        if let Some(cert_der) = cert {
+            use der::Decode;
+            let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
+                x509_cert::Certificate::from_der(&cert_der);
+            match cert {
+                Ok(cert) => {
+                    let csr_names: Vec<String> = cert
+                        .tbs_certificate
+                        .subject
+                        .0
+                        .iter()
+                        .map(|n| format!("{}", n))
+                        .collect();
+                    let t = csr_names.join(", ");
+                    b.text(t).line_break(|a| a);
+                    if let Some(extensions) = &cert.tbs_certificate.extensions {
+                        for e in extensions {
+                            let ca = CertAttribute::with_oid_and_data(
+                                e.extn_id.into(),
+                                e.extn_value.to_owned(),
+                            );
+                            b.text(format!("\t{}", ca)).line_break(|a| a);
+                        }
+                    }
+                    b.button(|b| b.text("Build certificate").onclick("build_cert()"));
+                    b.form(|form| form.input(|i| i.type_("file").id("file-selector")));
+                    b.division(|div| {
+                        div.class("hidden");
+                        div.anchor(|a| {
+                            a.id("get_request")
+                                .text(format!("/{}ca/get_cert.rs?id={}&type=pem", s.proxy, myid))
+                        });
+                        div
+                    });
+                    b.line_break(|lb| lb);
+                }
+                Err(e) => {
+                    println!("Error reading certificate {:?}", e);
+                }
+            }
+        } else {
+            b.text("Missing").line_break(|a| a);
+        }
+        b
+    });
+    let html = html.build();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+
     webserver::WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie,
@@ -1389,6 +1499,7 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
+    router.register("/ca/view_cert.rs", ca_view_user_cert);
     router.register("/ca/get_cert.rs", ca_get_user_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
     router.register("/ca/request.rs", ca_request);

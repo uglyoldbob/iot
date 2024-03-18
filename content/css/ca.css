@@ -2,3 +2,8 @@ div.cert_generating
 {
     display: none;
 }
+
+div.hidden
+{
+    display: none;
+}

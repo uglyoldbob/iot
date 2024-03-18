@@ -26,6 +26,12 @@ impl PartialEq for Oid {
     }
 }
 
+impl From<const_oid::ObjectIdentifier> for Oid {
+    fn from(value: const_oid::ObjectIdentifier) -> Self {
+        Self::from_const(value)
+    }
+}
+
 impl Oid {
     /// Convert from the yasna oid
     pub fn from_yasna(oid: yasna::models::ObjectIdentifier) -> Self {
