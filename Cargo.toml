@@ -18,6 +18,7 @@ pkcs5 = "0.7.1"
 rand = "0.8.5"
 regex = "1.10.3"
 ring = "0.17.8"
+rsa = "0.9.6"
 scrypt = "0.11.0"
 sha1 = "0.10.6"
 sha256 = "1.5.0"
@@ -62,9 +63,7 @@ features = ["encryption", "pem", "std"]
 
 [dependencies.rcgen]
 version = "0.12.1"
-git = "https://github.com/uglyoldbob/rcgen.git"
-branch = "rel-0.12"
-features = ["ring", "pem", "x509-parser", "rsa"]
+features = ["ring", "pem", "x509-parser"]
 
 [dependencies.serde]
 version = "1.0.197"

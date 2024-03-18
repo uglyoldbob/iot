@@ -255,6 +255,23 @@ impl Ca {
         }
     }
 
+    /// Retrieve the specified index of user certificate
+    async fn get_user_cert(&self, id: usize) -> Option<Vec<u8>> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncReadExt;
+                let pb = p.join("certs");
+                let path = pb.join(format!("{}.der", id));
+                let mut f = tokio::fs::File::open(path).await.ok().unwrap();
+                let mut contents = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
+                f.read_to_end(&mut contents).await;
+                Some(contents)
+            }
+        }
+    }
+
+    /// Save the user cert of the specified index to storage
     async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
@@ -381,12 +398,22 @@ impl Ca {
                             "yes"
                         ) {
                             if let Some(san) = table.get("san").unwrap().as_array() {
+                                use pkcs8::EncodePrivateKey;
                                 println!("Generating a root certificate for ca operations");
+
+                                let mut rng = rand::thread_rng();
+                                let bits = 4096;
+                                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
+                                let private_key_der = private_key.to_pkcs8_der().unwrap();
+                                let key_pair =
+                                    rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
+
                                 let san: Vec<String> = san
                                     .iter()
                                     .map(|e| e.as_str().unwrap().to_string())
                                     .collect();
                                 let mut certparams = rcgen::CertificateParams::new(san);
+                                certparams.key_pair = Some(key_pair);
                                 certparams.alg = rcgen::SignatureAlgorithm::from_oid(
                                     &OID_PKCS1_SHA256_RSA_ENCRYPTION.components(),
                                 )
@@ -899,7 +926,10 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                                 &ca.load_root_ca_cert().await.unwrap().as_certificate(),
                             )
                             .unwrap();
-                        println!("got a signed der certificate for the user");
+                        println!(
+                            "got a signed der certificate for the user length {}",
+                            der.len()
+                        );
                         ca.save_user_cert(id, &der).await;
                         csr_check = Some(der);
                     }
@@ -1019,6 +1049,70 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+/// Runs the page for fetching the user certificate for the certificate authority being run
+async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
+    let ca = s.ca.lock().await;
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+
+    if let Some(id) = s.get.get("id") {
+        let id: Result<usize, std::num::ParseIntError> = str::parse(id.as_str());
+        if let Ok(id) = id {
+            if let Some(cert_der) = ca.get_user_cert(id).await {
+                let ty = if s.get.contains_key("type") {
+                    s.get.get("type").unwrap().to_owned()
+                } else {
+                    "der".to_string()
+                };
+
+                match ty.as_str() {
+                    "der" => {
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x509-ca-cert"),
+                        );
+                        let name = format!("attachment; filename={}.der", id);
+                        response
+                            .headers
+                            .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
+                        cert = Some(cert_der);
+                    }
+                    "pem" => {
+                        use der::Decode;
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x-pem-file"),
+                        );
+                        let name = format!("attachment; filename={}.pem", id);
+                        response
+                            .headers
+                            .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
+                        let pem = der::Document::from_der(&cert_der)
+                            .unwrap()
+                            .to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
+                            .unwrap();
+                        cert = Some(pem.as_bytes().to_vec());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    } else {
+        http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+    };
     webserver::WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie,
@@ -1295,6 +1389,7 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
+    router.register("/ca/get_cert.rs", ca_get_user_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
     router.register("/ca/request.rs", ca_request);
     router.register("/ca/submit_request.rs", ca_submit_request);
