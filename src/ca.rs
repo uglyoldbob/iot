@@ -16,7 +16,7 @@ pub enum CsrAttribute {
     /// The unstructured name
     UnstructuredName(String),
     /// All others
-    Unrecognized(Oid, der::Any)
+    Unrecognized(Oid, der::Any),
 }
 
 impl CsrAttribute {
@@ -24,12 +24,10 @@ impl CsrAttribute {
         if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
             let n = any.decode_as().unwrap();
             Self::UnstructuredName(n)
-        }
-        else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
+        } else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
             let n = any.decode_as().unwrap();
             Self::ChallengePassword(n)
-        }
-        else {
+        } else {
             Self::Unrecognized(oid, any)
         }
     }
@@ -635,6 +633,17 @@ impl CaCertificate {
         }
     }
 
+    pub fn as_certificate(&self) -> rcgen::Certificate {
+        let keypair = if let Some(kp) = &self.pkey {
+            rcgen::KeyPair::from_der(kp).unwrap()
+        }
+        else {
+            panic!("No keypair - need to implement RemoteKeyPair trait");
+        };
+        let mut p = rcgen::CertificateParams::from_ca_cert_der(&self.cert, keypair).unwrap();
+        rcgen::Certificate::from_params(p).unwrap()
+    }
+
     /// Save this certificate to the storage medium
     pub async fn save_to_medium(&self) {
         self.medium.save_to_medium(&self.name, self).await;
@@ -825,6 +834,51 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut ca = s.ca.lock().await;
+
+    let mut csr_check = None;
+    if let Some(id) = s.get.get("id") {
+        let id = str::parse::<usize>(id);
+        if let Ok(id) = id {
+            if let Some(csrr) = ca.get_csr_by_id(id) {
+                let a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
+                match &a {
+                    Ok(csr) => {
+                        println!("Ready to sign the csr");
+                        let der = csr
+                            .serialize_der_with_signer(
+                                &ca.load_root_ca_cert().await.unwrap().as_certificate(),
+                            )
+                            .unwrap();
+                        println!("got a signed der certificate for the user");
+                    }
+                    Err(e) => {
+                        println!("Error decoding csr to sign: {:?}", e);
+                    }
+                }
+                csr_check = Some(a);
+            }
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        b.text("The request has been signed?").line_break(|a| a);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
@@ -846,8 +900,8 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                             .collect();
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
-                            ab.text("View this request");
-                            ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
+                            ab.text("Back to all requests");
+                            ab.href(format!("/{}ca/list.rs", s.proxy));
                             ab
                         })
                         .line_break(|a| a);
@@ -857,10 +911,19 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                         b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                         for attr in csr.info.attributes.iter() {
                             for p in attr.values.iter() {
-                                let pa = CsrAttribute::with_oid_and_any(Oid::from_const(attr.oid), p.to_owned());
+                                let pa = CsrAttribute::with_oid_and_any(
+                                    Oid::from_const(attr.oid),
+                                    p.to_owned(),
+                                );
                                 b.text(format!("\t{}", pa)).line_break(|a| a);
                             }
                         }
+                        b.anchor(|ab| {
+                            ab.text("Sign this request");
+                            ab.href(format!("/{}ca/request_sign.rs?id={}", s.proxy, id));
+                            ab
+                        })
+                        .line_break(|a| a);
                     }
                 }
             }
@@ -1179,4 +1242,5 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca/request.rs", ca_request);
     router.register("/ca/submit_request.rs", ca_submit_request);
     router.register("/ca/list.rs", ca_list_requests);
+    router.register("/ca/request_sign.rs", ca_sign_request);
 }

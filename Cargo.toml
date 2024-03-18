@@ -62,7 +62,7 @@ features = ["encryption", "pem", "std"]
 
 [dependencies.rcgen]
 version = "0.12.1"
-features = ["ring", "pem"]
+features = ["ring", "pem", "x509-parser"]
 
 [dependencies.serde]
 version = "1.0.197"
