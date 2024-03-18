@@ -9,6 +9,19 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
+/// Contains a user signing request for a certificate
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CsrRequest {
+    /// The actual certificate request in pem format
+    cert: String,
+    /// The name of the person issuing the request
+    name: String,
+    /// The email of the person issuing the request
+    email: String,
+    /// The phone number of the person issuing the request
+    phone: String,
+}
+
 struct PkixAuthorityInfoAccess {
     der: Vec<u8>,
 }
@@ -115,6 +128,42 @@ impl<'a> PublicKey<'a> {
     }
 }
 
+/// An iterator over the csr of a certificate authority
+enum CaCsrIter {
+    Nowhere,
+    FilesystemDer(std::fs::ReadDir),
+}
+
+impl Iterator for CaCsrIter {
+    type Item = (CsrRequest, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            CaCsrIter::Nowhere => None,
+            CaCsrIter::FilesystemDer(rd) => {
+                let n = rd.next();
+                let a = n.map(|rde| {
+                    rde.map(|de| {
+                        use std::io::Read;
+                        let path = de.path();
+                        let fname = path.file_stem().unwrap();
+                        let fnint: usize = fname.to_str().unwrap().parse().unwrap();
+                        let mut f = std::fs::File::open(path).ok().unwrap();
+                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
+                        f.read_to_end(&mut cert).unwrap();
+                        (
+                            toml::from_str(std::str::from_utf8(&cert).unwrap()).unwrap(),
+                            fnint,
+                        )
+                    })
+                    .unwrap()
+                });
+                a
+            }
+        }
+    }
+}
+
 /// The actual ca object
 pub struct Ca {
     /// Where certificates are stored
@@ -156,8 +205,35 @@ impl Ca {
         Err(())
     }
 
-    async fn save_csr(&mut self, csr: &x509_cert::request::CertReq) {
-        use der::EncodePem;
+    /// Get an iterator for the csr of a ca
+    fn get_csr_iter(&self) -> CaCsrIter {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => CaCsrIter::Nowhere,
+            CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("csr");
+                std::fs::create_dir_all(&pb);
+                let pf = std::fs::read_dir(&pb).unwrap();
+                CaCsrIter::FilesystemDer(pf)
+            }
+        }
+    }
+
+    fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::FilesystemDer(p) => {
+                use std::io::Read;
+                let pb = p.join("csr");
+                let path = pb.join(format!("{}.toml", id));
+                let mut f = std::fs::File::open(path).ok().unwrap();
+                let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
+                f.read_to_end(&mut cert).unwrap();
+                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
+            }
+        }
+    }
+
+    async fn save_csr(&mut self, csr: &CsrRequest) {
         use tokio::io::AsyncWriteExt;
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
@@ -178,10 +254,10 @@ impl Ca {
                     }
                 }
                 highest += 1;
-                let cp = pb.join(format!("{}.csr", highest));
+                let cp = pb.join(format!("{}.toml", highest));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                let pem = csr.to_pem(pkcs8::LineEnding::CRLF).unwrap();
-                cf.write_all(pem.as_bytes()).await;
+                let csr_doc = toml::to_string(csr).unwrap();
+                cf.write_all(csr_doc.as_bytes()).await;
             }
         }
     }
@@ -572,7 +648,15 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
             if let Ok(csr) = cert {
                 valid_csr = ca.verify_request(&csr).await.is_ok();
                 if valid_csr {
-                    ca.save_csr(&csr).await;
+                    use der::EncodePem;
+                    let pem = csr.to_pem(pkcs8::LineEnding::CRLF).unwrap();
+                    let csrr = CsrRequest {
+                        cert: pem,
+                        name: form.get_first("name").unwrap().to_string(),
+                        email: form.get_first("email").unwrap().to_string(),
+                        phone: form.get_first("phone").unwrap().to_string(),
+                    };
+                    ca.save_csr(&csrr).await;
                 }
             }
         }
@@ -621,8 +705,24 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
                 f.name("request");
                 f.action(format!("/{}ca/submit_request.rs", s.proxy));
                 f.method("post");
-                f.text_area(|i| i.id("csr").name("csr"));
-                f.input(|i| i.type_("submit").id("submit"));
+                f.text("Name")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("text").id("name").name("name"))
+                    .line_break(|a| a);
+                f.text("Email")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("email").id("email").name("email"))
+                    .line_break(|a| a);
+                f.text("Phone Number")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("tel").id("phone").name("phone"))
+                    .line_break(|a| a);
+                f.text("CSR")
+                    .line_break(|a| a)
+                    .text_area(|i| i.id("csr").name("csr"))
+                    .line_break(|a| a);
+                f.input(|i| i.type_("submit").id("submit"))
+                    .line_break(|a| a);
                 f
             });
             div
@@ -670,6 +770,92 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
             ab
         });
         b.line_break(|lb| lb);
+        b.anchor(|ab| {
+            ab.text("List pending requests");
+            ab.href(format!("/{}ca/list.rs", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
+    let ca = s.ca.lock().await;
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        if let Some(id) = s.get.get("id") {
+            let id = str::parse::<usize>(id);
+            if let Ok(id) = id {
+                if let Some(csrr) = ca.get_csr_by_id(id) {
+                    use der::DecodePem;
+                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                    if let Ok(csr) = csr {
+                        let csr_names: Vec<String> = csr
+                            .info
+                            .subject
+                            .0
+                            .iter()
+                            .map(|n| format!("{}", n))
+                            .collect();
+                        let t = csr_names.join(", ");
+                        b.anchor(|ab| {
+                            ab.text("View this request");
+                            ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
+                            ab
+                        })
+                        .line_break(|a| a);
+                        b.text(t).line_break(|a| a);
+                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                        for attr in csr.info.attributes.iter() {
+                            b.text(format!("{:?}: ", attr.oid)).line_break(|a| a);
+                            for p in attr.values.iter() {
+                                b.text(format!("\t{:?}", p)).line_break(|a| a);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            b.text("List all pending requests");
+            b.line_break(|a| a);
+            for (csrr, id) in ca.get_csr_iter() {
+                use der::DecodePem;
+                let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                if let Ok(csr) = csr {
+                    let csr_names: Vec<String> = csr
+                        .info
+                        .subject
+                        .0
+                        .iter()
+                        .map(|n| format!("{}", n))
+                        .collect();
+                    let t = csr_names.join(", ");
+                    b.anchor(|ab| {
+                        ab.text("View this request");
+                        ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.text(t).line_break(|a| a);
+                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                }
+            }
+        }
         b
     });
     let html = html.build();
@@ -754,8 +940,6 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
     type Error = ();
     fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
         let oid = value.oid;
-        println!("OID {:?}", oid);
-        println!("OID2: {:?}", OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const());
         if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
             Ok(Self::Rsa_Sha256)
         } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
@@ -953,8 +1137,10 @@ fn generic_head<'a>(
 
 pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
+    router.register("/ca/", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
     router.register("/ca/request.rs", ca_request);
     router.register("/ca/submit_request.rs", ca_submit_request);
+    router.register("/ca/list.rs", ca_list_requests);
 }
