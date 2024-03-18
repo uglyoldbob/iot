@@ -62,7 +62,9 @@ features = ["encryption", "pem", "std"]
 
 [dependencies.rcgen]
 version = "0.12.1"
-features = ["ring", "pem", "x509-parser"]
+git = "https://github.com/uglyoldbob/rcgen.git"
+branch = "rel-0.12"
+features = ["ring", "pem", "x509-parser", "rsa"]
 
 [dependencies.serde]
 version = "1.0.197"

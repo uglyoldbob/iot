@@ -151,9 +151,12 @@ impl<'a> PublicKey<'a> {
             CertificateSigningMethod::Ecdsa => {
                 todo!();
             }
-            CertificateSigningMethod::Rsa_Sha256 => {
-                todo!();
-            }
+            CertificateSigningMethod::Rsa_Sha256 => Self {
+                key: ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                    key,
+                ),
+            },
         }
     }
 
@@ -252,6 +255,26 @@ impl Ca {
         }
     }
 
+    async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let oldname = p.join("csr").join(format!("{}.toml", id));
+                let newpath = p.join("csr-done");
+                tokio::fs::create_dir_all(&newpath).await;
+                let newname = newpath.join(format!("{}.toml", id));
+                tokio::fs::rename(oldname, newname).await;
+                let pb = p.join("certs");
+                tokio::fs::create_dir_all(&pb).await;
+                let path = pb.join(format!("{}.der", id));
+                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
+                f.write_all(cert_der).await;
+            }
+        }
+    }
+
+    /// Retrieve a certificate signing request by id, if it exists
     fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
@@ -273,25 +296,14 @@ impl Ca {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
                 let pb = p.join("csr");
-                std::fs::create_dir_all(&pb);
-                let pf = std::fs::read_dir(&pb).unwrap();
-                let mut highest = 0;
-                for f in pf {
-                    if let Ok(ent) = f {
-                        if ent.file_type().unwrap().is_file() {
-                            let name = ent.file_name();
-                            let i = str::parse(name.to_str().unwrap()).unwrap();
-                            if i > highest {
-                                highest = i;
-                            }
-                        }
-                    }
+                tokio::fs::create_dir_all(&pb).await;
+                let newid = self.get_new_request_id().await;
+                if let Some(newid) = newid {
+                    let cp = pb.join(format!("{}.toml", newid));
+                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                    let csr_doc = toml::to_string(csr).unwrap();
+                    cf.write_all(csr_doc.as_bytes()).await;
                 }
-                highest += 1;
-                let cp = pb.join(format!("{}.toml", highest));
-                let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                let csr_doc = toml::to_string(csr).unwrap();
-                cf.write_all(csr_doc.as_bytes()).await;
             }
         }
     }
@@ -312,6 +324,42 @@ impl Ca {
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
+        }
+    }
+
+    /// Initialize the request id system
+    pub async fn init_request_id(&mut self) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let pb = p.join("certs.txt");
+                let mut cf = tokio::fs::File::create(pb).await.unwrap();
+                cf.write(b"1").await;
+            }
+        }
+    }
+
+    /// Get a new request id, if possible
+    pub async fn get_new_request_id(&mut self) -> Option<usize> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncReadExt;
+                let pb = p.join("certs.txt");
+                let mut contents = Vec::new();
+                let mut cf = tokio::fs::File::open(&pb).await.unwrap();
+                cf.read_to_end(&mut contents).await;
+                if let Ok(cid) = str::parse(std::str::from_utf8(&contents).unwrap()) {
+                    use tokio::io::AsyncWriteExt;
+                    let new_id = cid + 1;
+                    let mut cf = tokio::fs::File::create(pb).await.unwrap();
+                    cf.write(format!("{}", new_id).as_bytes()).await;
+                    Some(cid)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -340,7 +388,7 @@ impl Ca {
                                     .collect();
                                 let mut certparams = rcgen::CertificateParams::new(san);
                                 certparams.alg = rcgen::SignatureAlgorithm::from_oid(
-                                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
+                                    &OID_PKCS1_SHA256_RSA_ENCRYPTION.components(),
                                 )
                                 .unwrap();
                                 certparams.distinguished_name = rcgen::DistinguishedName::new();
@@ -381,6 +429,7 @@ impl Ca {
                                 );
                                 cacert.save_to_medium().await;
                                 ca.root_cert = Ok(cacert);
+                                ca.init_request_id().await;
                             }
                         }
                     }
@@ -545,7 +594,7 @@ impl CaCertificateStorage {
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
-                std::fs::create_dir_all(&p);
+                tokio::fs::create_dir_all(&p).await;
                 use tokio::io::AsyncWriteExt;
                 let cp = p.join(format!("{}_cert.der", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
@@ -588,7 +637,7 @@ impl CaCertificateStorage {
 
                 //TODO actually determine the signing method by parsing the public certificate
                 let cert = CaCertificate::from_existing(
-                    CertificateSigningMethod::Ecdsa,
+                    CertificateSigningMethod::Rsa_Sha256,
                     self.clone(),
                     &cert,
                     pkey,
@@ -636,8 +685,7 @@ impl CaCertificate {
     pub fn as_certificate(&self) -> rcgen::Certificate {
         let keypair = if let Some(kp) = &self.pkey {
             rcgen::KeyPair::from_der(kp).unwrap()
-        }
-        else {
+        } else {
             panic!("No keypair - need to implement RemoteKeyPair trait");
         };
         let mut p = rcgen::CertificateParams::from_ca_cert_der(&self.cert, keypair).unwrap();
@@ -852,12 +900,13 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                             )
                             .unwrap();
                         println!("got a signed der certificate for the user");
+                        ca.save_user_cert(id, &der).await;
+                        csr_check = Some(der);
                     }
                     Err(e) => {
                         println!("Error decoding csr to sign: {:?}", e);
                     }
                 }
-                csr_check = Some(a);
             }
         }
     }
@@ -865,7 +914,15 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
 
     html.head(|h| generic_head(h, &s)).body(|b| {
-        b.text("The request has been signed?").line_break(|a| a);
+        match csr_check {
+            Some(_der) => {
+                b.text("The request has been signed").line_break(|a| a);
+            }
+            None => {
+                b.text("There was a problem signing the certificate")
+                    .line_break(|a| a);
+            }
+        }
         b
     });
     let html = html.build();
