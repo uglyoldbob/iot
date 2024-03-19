@@ -447,12 +447,12 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
 
 impl Pkcs12 {
     /// Create a pkcs12 formatted output
-    pub fn get_pkcs12(&self) -> Vec<u8> {
+    pub fn get_pkcs12(&self, password: &str) -> Vec<u8> {
         let p12 = p12::PFX::new(
             &self.certificate.get_der(),
             &self.pkey.get_der(),
             None,
-            "password",
+            password,
             "certname",
         )
         .unwrap();

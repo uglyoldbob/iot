@@ -725,7 +725,10 @@ impl Ca {
                                 admin_cert.save_to_medium().await;
                                 let admin_p12: crate::pkcs12::Pkcs12 =
                                     admin_cert.try_into().unwrap();
-                                ca.save_admin(&admin_p12.get_pkcs12()).await;
+                                ca.save_admin(&admin_p12.get_pkcs12(
+                                    table.get("admin-password").unwrap().as_str().unwrap(),
+                                ))
+                                .await;
                             }
                         }
                     }
