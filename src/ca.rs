@@ -120,17 +120,20 @@ struct PkixAuthorityInfoAccess {
 }
 
 impl PkixAuthorityInfoAccess {
-    fn new(url: String) -> Self {
+    fn new(urls: Vec<String>) -> Self {
+        println!("The ocsp urls are {:?}", urls);
         let asn = p12::yasna::construct_der(|w| {
-            w.write_sequence(|w| {
-                w.next().write_sequence(|w| {
-                    w.next().write_oid(&OID_OCSP.to_yasna());
-                    let d = p12::yasna::models::TaggedDerValue::from_tag_and_bytes(
-                        p12::yasna::Tag::context(6),
-                        url.as_bytes().to_vec(),
-                    );
-                    w.next().write_tagged_der(&d);
-                });
+            w.write_sequence_of(|w| {
+                for url in urls {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&OID_OCSP.to_yasna());
+                        let d = p12::yasna::models::TaggedDerValue::from_tag_and_bytes(
+                            p12::yasna::Tag::context(6),
+                            url.as_bytes().to_vec(),
+                        );
+                        w.next().write_tagged_der(&d);
+                    });
+                }
             });
         });
         Self { der: asn }
@@ -567,7 +570,7 @@ impl Ca {
                                 certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
 
                                 let pkix =
-                                    PkixAuthorityInfoAccess::new(Self::get_ocsp_url(settings));
+                                    PkixAuthorityInfoAccess::new(Self::get_ocsp_urls(settings));
                                 let ocsp_data = pkix.der;
                                 let ocsp = rcgen::CustomExtension::from_oid_content(
                                     &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
@@ -611,55 +614,58 @@ impl Ca {
     }
 
     /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_url(settings: &crate::MainConfiguration) -> String {
-        let mut url = String::new();
-        let mut port_override = None;
-        if matches!(
-            settings.https.get("enabled").unwrap().as_str().unwrap(),
-            "yes"
-        ) {
-            let default_port = 443;
-            let p = settings.get_https_port();
-            if p != default_port {
-                port_override = Some(p);
+    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
+        let mut urls = Vec::new();
+
+        if let Some(table) = &settings.ca {
+            if let Some(sans) = table.get("san").unwrap().as_array() {
+                for san in sans {
+                    let san: &str = san.as_str().unwrap();
+
+                    let mut url = String::new();
+                    let mut port_override = None;
+                    if matches!(
+                        settings.https.get("enabled").unwrap().as_str().unwrap(),
+                        "yes"
+                    ) {
+                        let default_port = 443;
+                        let p = settings.get_https_port();
+                        if p != default_port {
+                            port_override = Some(p);
+                        }
+                        url.push_str("https://");
+                    } else if matches!(
+                        settings.http.get("enabled").unwrap().as_str().unwrap(),
+                        "yes"
+                    ) {
+                        let default_port = 80;
+                        let p = settings.get_http_port();
+                        if p != default_port {
+                            port_override = Some(p);
+                        }
+                        url.push_str("http://");
+                    } else {
+                        panic!("Cannot build ocsp responder url");
+                    }
+
+                    url.push_str(san);
+                    if let Some(p) = port_override {
+                        url.push_str(&format!(":{}", p));
+                    }
+
+                    let proxy = settings
+                        .general
+                        .get("proxy")
+                        .map(|e| e.to_owned())
+                        .unwrap_or(toml::Value::String("".to_string()));
+                    url.push_str(proxy.as_str().unwrap());
+                    url.push_str("/ca/ocsp");
+                    urls.push(url);
+                }
             }
-            url.push_str("https://");
-        } else if matches!(
-            settings.http.get("enabled").unwrap().as_str().unwrap(),
-            "yes"
-        ) {
-            let default_port = 80;
-            let p = settings.get_http_port();
-            if p != default_port {
-                port_override = Some(p);
-            }
-            url.push_str("http://");
-        } else {
-            panic!("Cannot build ocsp responder url");
         }
 
-        let n = settings
-            .ca
-            .as_ref()
-            .unwrap()
-            .get("ocsp_url")
-            .unwrap()
-            .as_str()
-            .unwrap();
-        url.push_str(n);
-        if let Some(p) = port_override {
-            url.push_str(&format!(":{}", p));
-        }
-
-        let proxy = settings
-            .general
-            .get("proxy")
-            .map(|e| e.to_owned())
-            .unwrap_or(toml::Value::String("".to_string()));
-        url.push_str(proxy.as_str().unwrap());
-        url.push_str("/ca/ocsp");
-
-        url
+        urls
     }
 
     /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
