@@ -1827,6 +1827,7 @@ async fn build_ocsp_response(
     let mut extensions = Vec::new();
 
     let ocsp_cert = ca.ocsp_ca_cert().unwrap();
+    let root_cert = ca.root_ca_cert().unwrap();
 
     let x509_cert = {
         use der::Decode;
@@ -1900,9 +1901,12 @@ async fn build_ocsp_response(
     let data_der = data.to_der().unwrap();
 
     let (oid, sign) = ocsp_cert.sign(&data_der).await.unwrap();
-    let cert = Some(ocsp_cert.cert.to_owned());
+    let mut certs = Vec::new();
+    certs.push(ocsp_cert.cert.to_owned());
+    certs.push(root_cert.cert.to_owned());
+    let certs = Some(certs);
 
-    let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, cert);
+    let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, certs);
     let bytes =
         ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_ocsp(), bresp).unwrap();
     ocsp::response::OcspResponse::new_success(bytes)

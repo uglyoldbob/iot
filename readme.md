@@ -11,3 +11,6 @@ openssl req -newkey rsa:2048 -keyout private.key -out server.csr
 openssl pkcs12 -export -in server.pem -inkey private.key -name ‘test-server’ -out keyStore.p12
 openssl pkcs8 -topk8 -in private.key -out server-pkcs8.key
 ```
+
+Use openssl to query an ocsp responder, validating the root cert, assuming the root cert of the ca is at ~/Downloads/ca.pem
+`openssl ocsp -issuer ~/Downloads/ca.pem -cert ~/Downloads/ca.pem -url https://self.uglyoldbob.com:3001/ca/ocsp -resp_text -VAfile ~/Downloads/ca.pem -CAfile ~/Downloads/ca.pem`

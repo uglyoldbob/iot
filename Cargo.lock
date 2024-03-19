@@ -1612,7 +1612,7 @@ dependencies = [
 [[package]]
 name = "ocsp"
 version = "0.4.0"
-source = "git+https://github.com/uglyoldbob/ocsp-rs#e7715c4307793c30ff84788f29b341e91caa3c7b"
+source = "git+https://github.com/uglyoldbob/ocsp-rs#cbb2858ce3b5875307bf38cabbad54a0bf20c215"
 dependencies = [
  "asn1_der",
  "chrono",
