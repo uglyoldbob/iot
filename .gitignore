@@ -24,3 +24,4 @@ js/node_modules
 *.csr
 *.crt
 *.min.js
+cafiles
