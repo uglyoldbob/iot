@@ -605,8 +605,15 @@ impl Ca {
     /// Initialize the ca root certificates if necessary and configured to do so by the configuration
     pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::from_config(settings);
-        ca.load_ocsp_cert().await;
-        match ca.load_root_ca_cert().await {
+
+        let table = settings.ca.as_ref().unwrap();
+
+        ca.load_ocsp_cert(table.get("ocsp-password").unwrap().as_str().unwrap())
+            .await;
+        match ca
+            .load_root_ca_cert(table.get("root-password").unwrap().as_str().unwrap())
+            .await
+        {
             Ok(_cert) => {}
             Err(e) => {
                 if let CertificateLoadingError::DoesNotExist = e {
@@ -677,7 +684,11 @@ impl Ca {
                                     Some(Zeroizing::from(key_der)),
                                     "root".to_string(),
                                 );
-                                cacert.save_to_medium().await;
+                                cacert
+                                    .save_to_medium(
+                                        table.get("root-password").unwrap().as_str().unwrap(),
+                                    )
+                                    .await;
                                 ca.root_cert = Ok(cacert);
                                 ca.init_request_id().await;
                                 println!("Generating OCSP responder certificate");
@@ -700,7 +711,11 @@ impl Ca {
                                 let mut ocsp_cert =
                                     ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr).unwrap();
                                 ocsp_cert.medium = ca.medium.clone();
-                                ocsp_cert.save_to_medium().await;
+                                ocsp_cert
+                                    .save_to_medium(
+                                        table.get("ocsp-password").unwrap().as_str().unwrap(),
+                                    )
+                                    .await;
                                 ca.ocsp_signer = Ok(ocsp_cert);
 
                                 let mut key_usage_oids = Vec::new();
@@ -722,13 +737,11 @@ impl Ca {
                                 let mut admin_cert =
                                     ca.root_cert.as_ref().unwrap().sign_csr(admin_csr).unwrap();
                                 admin_cert.medium = ca.medium.clone();
-                                admin_cert.save_to_medium().await;
-                                let admin_p12: crate::pkcs12::Pkcs12 =
-                                    admin_cert.try_into().unwrap();
-                                ca.save_admin(&admin_p12.get_pkcs12(
-                                    table.get("admin-password").unwrap().as_str().unwrap(),
-                                ))
-                                .await;
+                                admin_cert
+                                    .save_to_medium(
+                                        table.get("admin-password").unwrap().as_str().unwrap(),
+                                    )
+                                    .await;
                             }
                         }
                     }
@@ -749,17 +762,23 @@ impl Ca {
     }
 
     /// Load the ocsp signer certificate, loading if required.
-    async fn load_ocsp_cert(&mut self) -> Result<&CaCertificate, &CertificateLoadingError> {
+    async fn load_ocsp_cert(
+        &mut self,
+        password: &str,
+    ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
-            self.ocsp_signer = self.medium.load_from_medium("ocsp").await;
+            self.ocsp_signer = self.medium.load_from_medium("ocsp", password).await;
         }
         self.ocsp_signer.as_ref()
     }
 
     /// Load the root ca cert from the specified storage media, converting to der as required.
-    async fn load_root_ca_cert(&mut self) -> Result<&CaCertificate, &CertificateLoadingError> {
+    async fn load_root_ca_cert(
+        &mut self,
+        password: &str,
+    ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
-            self.root_cert = self.medium.load_from_medium("root").await;
+            self.root_cert = self.medium.load_from_medium("root", password).await;
         }
         self.root_cert.as_ref()
     }
@@ -905,21 +924,18 @@ pub enum CaCertificateStorage {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, name: &str, cert: &CaCertificate) {
+    pub async fn save_to_medium(&self, name: &str, cert: CaCertificate, password: &str) {
+        let p12: crate::pkcs12::Pkcs12 = cert.try_into().unwrap();
+        let p12_der = &p12.get_pkcs12(password);
+
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
                 tokio::fs::create_dir_all(&p).await;
                 use tokio::io::AsyncWriteExt;
-                let cp = p.join(format!("{}_cert.der", name));
+                let cp = p.join(format!("{}_cert.p12", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                cf.write_all(&cert.cert).await;
-
-                if let Some(key) = &cert.pkey {
-                    let cp = p.join(format!("{}_key.der", name));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    cf.write_all(&key).await;
-                }
+                cf.write_all(&p12_der).await;
             }
         }
     }
@@ -928,37 +944,21 @@ impl CaCertificateStorage {
     pub async fn load_from_medium(
         &self,
         name: &str,
+        password: &str,
     ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::FilesystemDer(p) => {
                 use tokio::io::AsyncReadExt;
-                let certp = p.join(format!("{}_cert.der", name));
+                let certp = p.join(format!("{}_cert.p12", name));
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
 
-                let keyp = p.join(format!("{}_key.der", name));
-                let f2 = tokio::fs::File::open(keyp).await;
-                let pkey = if let Ok(mut f2) = f2 {
-                    let mut pkey = Zeroizing::new(Vec::with_capacity(
-                        f2.metadata().await.unwrap().len() as usize,
-                    ));
-                    f2.read_to_end(&mut pkey).await?;
-                    Some(pkey)
-                } else {
-                    None
-                };
-
+                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
+                todo!("Convert fromm Pkcs12 to CaCertificate");
                 //TODO actually determine the signing method by parsing the public certificate
-                let cert = CaCertificate::from_existing(
-                    CertificateSigningMethod::Rsa_Sha256,
-                    self.clone(),
-                    &cert,
-                    pkey,
-                    name.to_string(),
-                );
-                Ok(cert)
+                Err(CertificateLoadingError::DoesNotExist)
             }
         }
     }
@@ -978,7 +978,7 @@ pub struct CaCertificateToBeSigned {
 }
 
 /// Represents a certificate that might be able to sign things
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CaCertificate {
     /// The algorithm used for the ceertificate
     algorithm: CertificateSigningMethod,
@@ -1032,8 +1032,10 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self) {
-        self.medium.save_to_medium(&self.name, self).await;
+    pub async fn save_to_medium(&self, password: &str) {
+        self.medium
+            .save_to_medium(&self.name, self.to_owned(), password)
+            .await;
     }
 
     /// Create a pem version of the public certificate
@@ -1377,9 +1379,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                         csr.params.not_after = csr.params.not_before + time::Duration::days(365);
                         println!("Ready to sign the csr");
                         let der = csr
-                            .serialize_der_with_signer(
-                                &ca.load_root_ca_cert().await.unwrap().as_certificate(),
-                            )
+                            .serialize_der_with_signer(&ca.root_ca_cert().unwrap().as_certificate())
                             .unwrap();
                         println!(
                             "got a signed der certificate for the user length {}",
@@ -1795,7 +1795,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// The method that a certificate uses to sign stuff
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CertificateSigningMethod {
     /// An rsa certificate with sha1
     Rsa_Sha1,
