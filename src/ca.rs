@@ -9,6 +9,14 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
+/// Errors that can occur when signing a csr
+enum CertificateSigningError {
+    /// The requested csr does not exist
+    CsrDoesNotExist,
+    /// Unable to delete the request after processing
+    FailedToDeleteRequest,
+}
+
 /// The types of attributes that can be present in a certificate
 pub enum CertAttribute {
     /// All other types of attributes
@@ -63,6 +71,33 @@ impl std::fmt::Display for CsrAttribute {
             CsrAttribute::ChallengePassword(s) => f.write_str(&format!("Password: {}", s)),
             CsrAttribute::UnstructuredName(s) => f.write_str(&format!("Unstructured Name: {}", s)),
             CsrAttribute::Unrecognized(oid, _a) => f.write_str(&format!("Unrecognized: {:?}", oid)),
+        }
+    }
+}
+
+/// Contains a user signing request for a certificate
+#[derive(serde::Deserialize, serde::Serialize)]
+struct CsrRejection {
+    /// The actual certificate request in pem format
+    cert: String,
+    /// The name of the person issuing the request
+    name: String,
+    /// The email of the person issuing the request
+    email: String,
+    /// The phone number of the person issuing the request
+    phone: String,
+    /// The reason for rejection
+    rejection: String,
+}
+
+impl CsrRejection {
+    fn from_csr_with_reason(csr: CsrRequest, reason: &String) -> Self {
+        Self {
+            cert: csr.cert,
+            name: csr.name,
+            email: csr.email,
+            phone: csr.phone,
+            rejection: reason.to_owned(),
         }
     }
 }
@@ -315,6 +350,77 @@ impl Ca {
         }
     }
 
+    /// Retrieve the reason the csr was rejected
+    async fn get_rejection_reason_by_id(&self, id: usize) -> Option<String> {
+        let rejection: Option<CsrRejection> = match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncReadExt;
+                let pb = p.join("csr-reject");
+                let path = pb.join(format!("{}.toml", id));
+                let mut f = tokio::fs::File::open(path).await.ok()?;
+                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
+                f.read_to_end(&mut cert).await.ok().unwrap();
+                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
+            }
+        };
+        rejection.map(|r| r.rejection)
+    }
+
+    /// Reject an existing certificate signing request by id.
+    async fn reject_csr_by_id(
+        &mut self,
+        id: usize,
+        reason: &String,
+    ) -> Result<(), CertificateSigningError> {
+        let csr = self.get_csr_by_id(id);
+        if csr.is_none() {
+            return Err(CertificateSigningError::CsrDoesNotExist);
+        }
+        let csr = csr.unwrap();
+        let reject = CsrRejection::from_csr_with_reason(csr, reason);
+        self.store_rejection(&reject).await?;
+        self.delete_request_by_id(id).await?;
+        Ok(())
+    }
+
+    /// Store a rejection struct
+    async fn store_rejection(
+        &mut self,
+        reject: &CsrRejection,
+    ) -> Result<(), CertificateSigningError> {
+        use tokio::io::AsyncWriteExt;
+        match &self.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("csr-reject");
+                tokio::fs::create_dir_all(&pb).await;
+                let newid = self.get_new_request_id().await;
+                if let Some(newid) = newid {
+                    let cp = pb.join(format!("{}.toml", newid));
+                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                    let csr_doc = toml::to_string(reject).unwrap();
+                    cf.write_all(csr_doc.as_bytes()).await;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    async fn delete_request_by_id(&mut self, id: usize) -> Result<(), CertificateSigningError> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("csr");
+                let cp = pb.join(format!("{}.toml", id));
+                tokio::fs::remove_file(cp)
+                    .await
+                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
+                Ok(())
+            }
+        }
+    }
+
     /// Retrieve a certificate signing request by id, if it exists
     fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
         match &self.medium {
@@ -323,9 +429,9 @@ impl Ca {
                 use std::io::Read;
                 let pb = p.join("csr");
                 let path = pb.join(format!("{}.toml", id));
-                let mut f = std::fs::File::open(path).ok().unwrap();
+                let mut f = std::fs::File::open(path).ok()?;
                 let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                f.read_to_end(&mut cert).unwrap();
+                f.read_to_end(&mut cert).ok().unwrap();
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
             }
         }
@@ -849,91 +955,95 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
             })
     })
     .body(|b| {
-        b.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
-        b.button(|b| b.text("Generate a certificate").onclick("generate_cert()"));
-        b.line_break(|lb| lb);
         b.division(|div| {
-            div.class("advanced");
-            div.button(|b| b.text("Simple").onclick("show_regular()")).line_break(|a|a);
-            div
-        });
-        b.division(|div| {
-            div.class("regular");
-            div.button(|b| b.text("Advanced").onclick("show_advanced()")).line_break(|a|a);
-            div
-        });
-        b.division(|div| {
-            div.form(|f| {
-                f.name("request");
-                f.action(format!("/{}ca/submit_request.rs", s.proxy));
-                f.method("post");
-                f.text("Your Name")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("name").name("name"))
-                    .line_break(|a| a);
-                f.text("Email")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("email").id("email").name("email"))
-                    .line_break(|a| a);
-                f.text("Phone Number")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("tel").id("phone").name("phone"))
-                    .line_break(|a| a);
-                f.text("Password for private key")
-                    .line_break(|a|a)
-                    .input(|i| i.type_("password").id("password"))
-                    .line_break(|a|a);
-                f.heading_1(|h| {
-                    h.text("Certificate Information").line_break(|a|a)
-                });
-                f.text("Certificate Name")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("cname").name("cname"))
-                    .line_break(|a| a);
-                f.text("Country")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("country").name("country"))
-                    .line_break(|a| a);
-                f.text("State")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("state").name("state"))
-                    .line_break(|a| a);
-                f.text("Locality")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("locality").name("locality"))
-                    .line_break(|a| a);
-                f.text("Organization Name")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("organization").name("organization"))
-                    .line_break(|a| a);
-                f.text("Organization Unit")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
-                    .line_break(|a| a);
-                f.text("Challenge password")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
-                    .line_break(|a| a);
-                f.text("Challenge name")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
-                    .line_break(|a| a);
-                f.division(|div| {
-                    div.class("advanced");
-                    div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
-                    div.text("CSR")
+            div.class("cert-gen-stuff");
+            div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
+            div.button(|b| b.text("Generate a certificate").onclick("generate_cert()"));
+            div.line_break(|lb| lb);
+            div.division(|div| {
+                div.class("advanced");
+                div.button(|b| b.text("Simple").onclick("show_regular()")).line_break(|a|a);
+                div
+            });
+            div.division(|div| {
+                div.class("regular");
+                div.button(|b| b.text("Advanced").onclick("show_advanced()")).line_break(|a|a);
+                div
+            });
+            div.division(|div| {
+                div.form(|f| {
+                    f.name("request");
+                    f.action(format!("/{}ca/submit_request.rs", s.proxy));
+                    f.method("post");
+                    f.text("Your Name")
                         .line_break(|a| a)
-                        .text_area(|i| i.id("csr").name("csr"))
+                        .input(|i| i.type_("text").id("name").name("name"))
                         .line_break(|a| a);
-                    div
+                    f.text("Email")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("email").id("email").name("email"))
+                        .line_break(|a| a);
+                    f.text("Phone Number")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("tel").id("phone").name("phone"))
+                        .line_break(|a| a);
+                    f.text("Password for private key")
+                        .line_break(|a|a)
+                        .input(|i| i.type_("password").id("password"))
+                        .line_break(|a|a);
+                    f.heading_1(|h| {
+                        h.text("Certificate Information").line_break(|a|a)
+                    });
+                    f.text("Certificate Name")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("cname").name("cname"))
+                        .line_break(|a| a);
+                    f.text("Country")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("country").name("country"))
+                        .line_break(|a| a);
+                    f.text("State")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("state").name("state"))
+                        .line_break(|a| a);
+                    f.text("Locality")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("locality").name("locality"))
+                        .line_break(|a| a);
+                    f.text("Organization Name")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("organization").name("organization"))
+                        .line_break(|a| a);
+                    f.text("Organization Unit")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
+                        .line_break(|a| a);
+                    f.text("Challenge password")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
+                        .line_break(|a| a);
+                    f.text("Challenge name")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
+                        .line_break(|a| a);
+                    f.division(|div| {
+                        div.class("advanced");
+                        div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
+                        div.text("CSR")
+                            .line_break(|a| a)
+                            .text_area(|i| i.id("csr").name("csr"))
+                            .line_break(|a| a);
+                        div
+                    });
+                    f.division(|div| {
+                        div.class("hidden");
+                        div.input(|i| i.type_("submit").id("submit").value("Submit"))
+                        .line_break(|a| a);
+                        div
+                    });
+                    f
                 });
-                f.division(|div| {
-                    div.class("hidden");
-                    div.input(|i| i.type_("submit").id("submit").value("Submit"))
-                    .line_break(|a| a);
-                    div
-                });
-                f
+                div
             });
             div
         });
@@ -999,10 +1109,58 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut ca = s.ca.lock().await;
+
+    let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
+    if let Some(id) = s.get.get("id") {
+        let id = str::parse::<usize>(id);
+        let reject = s.get.get("rejection").unwrap();
+        if let Ok(id) = id {
+            csr_check = ca.reject_csr_by_id(id, reject).await;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        match csr_check {
+            Ok(_der) => {
+                b.text("The request has been rejected").line_break(|a| a);
+            }
+            Err(e) => match e {
+                CertificateSigningError::CsrDoesNotExist => {
+                    b.text("The certificate signing request does not exist")
+                        .line_break(|a| a);
+                }
+                CertificateSigningError::FailedToDeleteRequest => {
+                    b.text("Unable to delete request").line_break(|a| a);
+                }
+            },
+        }
+        b.anchor(|ab| {
+            ab.text("List pending requests");
+            ab.href(format!("/{}ca/list.rs", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
-    let mut csr_check = None;
+    let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if let Some(id) = s.get.get("id") {
         let id = str::parse::<usize>(id);
         if let Ok(id) = id {
@@ -1023,7 +1181,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                             der.len()
                         );
                         ca.save_user_cert(id, &der).await;
-                        csr_check = Some(der);
+                        csr_check = Ok(der);
                     }
                     Err(e) => {
                         println!("Error decoding csr to sign: {:?}", e);
@@ -1037,14 +1195,25 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
 
     html.head(|h| generic_head(h, &s)).body(|b| {
         match csr_check {
-            Some(_der) => {
+            Ok(_der) => {
                 b.text("The request has been signed").line_break(|a| a);
             }
-            None => {
-                b.text("There was a problem signing the certificate")
-                    .line_break(|a| a);
-            }
+            Err(e) => match e {
+                CertificateSigningError::CsrDoesNotExist => {
+                    b.text("The certificate signing request does not exist")
+                        .line_break(|a| a);
+                }
+                CertificateSigningError::FailedToDeleteRequest => {
+                    b.text("Failed to delete request").line_break(|a| a);
+                }
+            },
         }
+        b.anchor(|ab| {
+            ab.text("List pending requests");
+            ab.href(format!("/{}ca/list.rs", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
         b
     });
     let html = html.build();
@@ -1103,16 +1272,37 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                             ab
                         })
                         .line_break(|a| a);
+                        b.form(|f| {
+                            f.action(format!("/{}ca/request_reject.rs", s.proxy));
+                            f.text("Reject reason")
+                                .line_break(|a| a)
+                                .input(|i| {
+                                    i.type_("hidden")
+                                        .id("id")
+                                        .name("id")
+                                        .value(format!("{}", id))
+                                })
+                                .input(|i| i.type_("text").id("rejection").name("rejection"))
+                                .line_break(|a| a);
+                            f.input(|i| i.type_("submit").value("Reject this request"))
+                                .line_break(|a| a);
+                            f
+                        });
                     }
                 }
             }
         } else {
             b.text("List all pending requests");
             b.line_break(|a| a);
+            let mut index_shown = 0;
             for (csrr, id) in ca.get_csr_iter() {
                 use der::DecodePem;
                 let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
                 if let Ok(csr) = csr {
+                    if index_shown > 0 {
+                        b.thematic_break(|a| a);
+                    }
+                    index_shown += 1;
                     let csr_names: Vec<String> = csr
                         .info
                         .subject
@@ -1156,6 +1346,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
 
     let mut cert: Option<Vec<u8>> = None;
     let mut csr = None;
+    let mut rejection = None;
     let mut myid = 0;
 
     if let Some(id) = s.get.get("id") {
@@ -1164,6 +1355,9 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
             cert = ca.get_user_cert(id).await;
             if cert.is_none() {
                 csr = ca.get_csr_by_id(id);
+            }
+            if csr.is_none() {
+                rejection = Some(ca.get_rejection_reason_by_id(id).await);
             }
             myid = id;
         }
@@ -1207,7 +1401,16 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                         }
                     }
                     b.button(|b| b.text("Build certificate").onclick("build_cert()"));
-                    b.form(|form| form.input(|i| i.type_("file").id("file-selector")));
+                    b.form(|form| {
+                        form.input(|i| i.type_("file").id("file-selector"));
+                        form.text("Password for private key").line_break(|a| a);
+                        form.input(|i| i.type_("password").id("password"));
+                        form.line_break(|a| a);
+                        form.text("Password for certificate").line_break(|a| a);
+                        form.input(|i| i.type_("password").id("cert-password"));
+                        form.line_break(|a| a);
+                        form
+                    });
                     b.division(|div| {
                         div.class("hidden");
                         div.anchor(|a| {
@@ -1228,7 +1431,33 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                 time::OffsetDateTime::now_utc()
             ))
             .line_break(|a| a);
+        } else if let Some(reason) = rejection {
+            match reason {
+                Some(reason) => {
+                    if reason.is_empty() {
+                        b.text("Your request is rejected: No reason given")
+                            .line_break(|a| a);
+                    } else {
+                        b.text(format!("Your request is rejected: {}", reason))
+                            .line_break(|a| a);
+                    }
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
+                None => {
+                    b.text("Your request is rejected: No reason given")
+                        .line_break(|a| a);
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
+            }
         }
+        b.anchor(|ab| {
+            ab.text("Back to main page");
+            ab.href(format!("/{}ca", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
         b
     });
     let html = html.build();
@@ -1581,4 +1810,5 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca/submit_request.rs", ca_submit_request);
     router.register("/ca/list.rs", ca_list_requests);
     router.register("/ca/request_sign.rs", ca_sign_request);
+    router.register("/ca/request_reject.rs", ca_reject_request);
 }

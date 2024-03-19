@@ -10,10 +10,12 @@ function show_regular() {
 
 function show_loading() {
   show(document.getElementsByClassName("cert_generating"));
+  hide(document.getElementsByClassName("cert-gen-stuff"));
 }
 
 function hide_loading() {
   hide(document.getElementsByClassName("cert_generating"));
+  show(document.getElementsByClassName("cert-gen-stuff"));
 }
 
 function hide(elements) {
@@ -78,7 +80,7 @@ function cert_work() {
 
   const state = document.getElementById('state').value;
   if (state.length != 0) {
-    subject_stuff.push({name: 'ST', value: state});
+    subject_stuff.push({shortName: 'ST', value: state});
   }
 
   const locality = document.getElementById('locality').value;
@@ -127,7 +129,7 @@ function cert_work() {
   var rsaPrivateKey = forge.pki.privateKeyToAsn1(keys.privateKey);
   var privateKeyInfo = forge.pki.wrapRsaPrivateKey(rsaPrivateKey);
   var encryptedPrivateKeyInfo = forge.pki.encryptPrivateKeyInfo(
-    privateKeyInfo, 'myCustomPasswordHere');
+    privateKeyInfo, document.getElementById('password').value);
 
   // PEM-format keys and csr
   var pem = {
@@ -244,7 +246,7 @@ function build_cert() {
         const file = contents.substring(37);
         const pkey = atob(file);
 
-        var pkey3 = forge.pki.decryptRsaPrivateKey(pkey, 'myCustomPasswordHere');
+        var pkey3 = forge.pki.decryptRsaPrivateKey(pkey, document.getElementById('password').value);
 
         var fetchid = document.getElementById('get_request');
         const fetch_url = fetchid.innerText;
@@ -256,12 +258,12 @@ function build_cert() {
           var cert = forge.pki.certificateFromPem(cpem);
 
           var p12Asn1 = forge.pkcs12.toPkcs12Asn1(
-            pkey3, cert, 'password');
+            pkey3, cert, document.getElementById('cert-password').value);
 
           var p12Der = forge.asn1.toDer(p12Asn1).getBytes();
           var p12b64 = forge.util.encode64(p12Der);
 
-          const blob = b64toFile(p12b64, 'test.p12');
+          const blob = b64toFile(p12b64, 'user-certificate.p12');
 
        
           do_download(blob);
