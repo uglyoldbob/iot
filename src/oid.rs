@@ -169,15 +169,12 @@ lazy_static::lazy_static! {
     /// The oid for certificate bag
     pub static ref OID_CERT_BAG: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 3]);
-    /// The oid for aes 256 cbc encryption
-    pub static ref OID_AES_256_CBC: Oid =
-        as_oid(&[2, 16, 840, 1, 101, 3, 4, 1, 42]);
-    /// The oid for sha256 encryption
-    pub static ref OID_SHA256: Oid =
-        as_oid(&[2, 16, 840, 1, 101, 3, 4, 2, 1]);
     /// The oid used in certificate authorities to indicate the ocsp responder
     pub static ref OID_PKIX_AUTHORITY_INFO_ACCESS: Oid =
         as_oid(&[1, 3, 6, 1, 5, 5, 7, 1, 1]);
+    /// The oid for extended usage ocsp signing
+    pub static ref OID_EXTENDED_KEY_USAGE_OCSP_SIGNING: Oid =
+        as_oid(&[1, 3, 6, 1, 5, 5, 7, 3, 9]);
     /// The oid used in the authority info access for ocsp url
     pub static ref OID_OCSP: Oid =
         as_oid(&[1, 3, 6, 1, 5, 5, 7, 48, 1]);
@@ -187,4 +184,13 @@ lazy_static::lazy_static! {
     /// The oid for sha1
     pub static ref OID_HASH_SHA1: Oid =
         as_oid(&[1, 3, 14, 3, 2, 26]);
+    /// The oid for extended key usage
+    pub static ref OID_EXTENDED_KEY_USAGE: Oid =
+        as_oid(&[2, 5, 29, 37]);
+    /// The oid for aes 256 cbc encryption
+    pub static ref OID_AES_256_CBC: Oid =
+        as_oid(&[2, 16, 840, 1, 101, 3, 4, 1, 42]);
+    /// The oid for sha256 encryption
+    pub static ref OID_SHA256: Oid =
+        as_oid(&[2, 16, 840, 1, 101, 3, 4, 2, 1]);
 }

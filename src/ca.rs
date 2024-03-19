@@ -43,6 +43,8 @@ impl CertAttribute {
 
 /// The types of attributes that can be present in a csr
 pub enum CsrAttribute {
+    /// What the certificate can be used for
+    ExtendedKeyUsage(Vec<Oid>),
     /// The challenge password
     ChallengePassword(String),
     /// The unstructured name
@@ -52,6 +54,29 @@ pub enum CsrAttribute {
 }
 
 impl CsrAttribute {
+    fn to_custom_extension(&self) -> rcgen::CustomExtension {
+        match self {
+            CsrAttribute::ExtendedKeyUsage(oids) => {
+                let oid = &OID_EXTENDED_KEY_USAGE.components();
+                let content = p12::yasna::construct_der(|w| {
+                    w.write_sequence_of(|w| {
+                        for o in oids {
+                            w.next().write_oid(&o.to_yasna());
+                        }
+                    });
+                });
+                rcgen::CustomExtension::from_oid_content(oid, content)
+            }
+            CsrAttribute::ChallengePassword(p) => todo!(),
+            CsrAttribute::UnstructuredName(n) => todo!(),
+            CsrAttribute::Unrecognized(oid, any) => todo!(),
+        }
+    }
+
+    fn build_extended_key_usage(usage: Vec<Oid>) -> Self {
+        Self::ExtendedKeyUsage(usage)
+    }
+
     fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
         if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
             let n = any.decode_as().unwrap();
@@ -70,6 +95,12 @@ impl std::fmt::Display for CsrAttribute {
         match self {
             CsrAttribute::ChallengePassword(s) => f.write_str(&format!("Password: {}", s)),
             CsrAttribute::UnstructuredName(s) => f.write_str(&format!("Unstructured Name: {}", s)),
+            CsrAttribute::ExtendedKeyUsage(usages) => {
+                for u in usages {
+                    f.write_str(&format!("Usage: {:?}", u))?;
+                }
+                Ok(())
+            }
             CsrAttribute::Unrecognized(oid, _a) => f.write_str(&format!("Unrecognized: {:?}", oid)),
         }
     }
@@ -269,6 +300,8 @@ pub struct Ca {
     medium: CaCertificateStorage,
     /// Represents the root certificate for the ca
     root_cert: Result<CaCertificate, CertificateLoadingError>,
+    /// Represents the certificate for signing ocsp responses
+    ocsp_signer: Result<CaCertificate, CertificateLoadingError>,
 }
 
 impl Ca {
@@ -330,6 +363,48 @@ impl Ca {
                 f.read_to_end(&mut contents).await;
                 Some(contents)
             }
+        }
+    }
+
+    /// Generate a signing request
+    /// # Arguments
+    /// * t - The signing method for the certificate that will eventually be created
+    /// * name - The storage name of the certificate
+    /// * common_name - The commonName field for the subject of the certificate
+    /// * names - Subject alternate names for the certificate
+    /// * extension - The list of extensions to use for the certificate
+    fn generate_signing_request(
+        &mut self,
+        t: CertificateSigningMethod,
+        name: String,
+        common_name: String,
+        names: Vec<String>,
+        extensions: Vec<rcgen::CustomExtension>,
+    ) -> CaCertificateToBeSigned {
+        let mut extensions = extensions.clone();
+        let mut params = rcgen::CertificateParams::new(names);
+        let (keypair, pkey) = t.generate_keypair().unwrap();
+        let public_key = keypair.public_key();
+        params.key_pair = Some(keypair);
+        params.alg =
+            rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components())
+                .unwrap();
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, common_name);
+        params.not_before = time::OffsetDateTime::now_utc();
+        params.not_after = params.not_before + time::Duration::days(365);
+        params.custom_extensions.append(&mut extensions);
+
+        let mut data: Vec<u8> = Vec::new();
+        let csr = rcgen::CertificateSigningRequest { params, public_key };
+        CaCertificateToBeSigned {
+            algorithm: t,
+            medium: self.medium.clone(),
+            csr,
+            pkey,
+            name,
         }
     }
 
@@ -475,6 +550,7 @@ impl Ca {
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
+            ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
         }
     }
 
@@ -517,6 +593,7 @@ impl Ca {
     /// Initialize the ca root certificates if necessary and configured to do so by the configuration
     pub async fn load_and_init(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::from_config(settings);
+        ca.load_ocsp_cert().await;
         match ca.load_root_ca_cert().await {
             Ok(_cert) => {}
             Err(e) => {
@@ -591,6 +668,27 @@ impl Ca {
                                 cacert.save_to_medium().await;
                                 ca.root_cert = Ok(cacert);
                                 ca.init_request_id().await;
+                                println!("Generating OCSP responder certificate");
+                                let ocsp_names = Self::get_ocsp_urls(settings);
+                                let mut key_usage_oids = Vec::new();
+                                key_usage_oids.push(OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned());
+                                let mut extensions = Vec::new();
+                                extensions.push(
+                                    CsrAttribute::build_extended_key_usage(key_usage_oids)
+                                        .to_custom_extension(),
+                                );
+                                let ocsp_csr = ca.generate_signing_request(
+                                    CertificateSigningMethod::Rsa_Sha256,
+                                    "ocsp".to_string(),
+                                    "OCSP Responder".to_string(),
+                                    ocsp_names,
+                                    extensions,
+                                );
+                                let mut ocsp_cert =
+                                    ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr).unwrap();
+                                ocsp_cert.medium = ca.medium.clone();
+                                ocsp_cert.save_to_medium().await;
+                                ca.ocsp_signer = Ok(ocsp_cert);
                             }
                         }
                     }
@@ -601,8 +699,21 @@ impl Ca {
     }
 
     /// Return a reference to the root cert
-    async fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+    fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
         self.root_cert.as_ref()
+    }
+
+    /// Return a reference to the ocsp cert
+    fn ocsp_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.ocsp_signer.as_ref()
+    }
+
+    /// Load the ocsp signer certificate, loading if required.
+    async fn load_ocsp_cert(&mut self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        if self.ocsp_signer.is_err() {
+            self.ocsp_signer = self.medium.load_from_medium("ocsp").await;
+        }
+        self.ocsp_signer.as_ref()
     }
 
     /// Load the root ca cert from the specified storage media, converting to der as required.
@@ -813,6 +924,19 @@ impl CaCertificateStorage {
     }
 }
 
+pub struct CaCertificateToBeSigned {
+    /// The algorithm used for the ceertificate
+    algorithm: CertificateSigningMethod,
+    /// Where the certificate is stored
+    medium: CaCertificateStorage,
+    /// The certificate signing request
+    csr: rcgen::CertificateSigningRequest,
+    /// The optional private key in der format
+    pkey: Option<Zeroizing<Vec<u8>>>,
+    /// The certificate name to use for storage
+    name: String,
+}
+
 /// Represents a certificate that might be able to sign things
 #[derive(Debug)]
 pub struct CaCertificate {
@@ -868,6 +992,21 @@ impl CaCertificate {
         doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
     }
 
+    /// Sign a csr with the certificate, if possible
+    pub fn sign_csr(&self, csr: CaCertificateToBeSigned) -> Option<CaCertificate> {
+        let cert = csr
+            .csr
+            .serialize_der_with_signer(&self.as_certificate())
+            .ok()?;
+        Some(CaCertificate {
+            algorithm: csr.algorithm,
+            medium: CaCertificateStorage::Nowhere,
+            cert,
+            pkey: csr.pkey,
+            name: csr.name,
+        })
+    }
+
     /// Sign some data with the certificate, if possible
     pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
         match &self.algorithm {
@@ -886,7 +1025,16 @@ impl CaCertificate {
                 todo!("Sign with rsa");
             }
             CertificateSigningMethod::Rsa_Sha256 => {
-                todo!("Sign with rsa-sha256");
+                if let Some(pkey) = &self.pkey {
+                    let rng = &ring::rand::SystemRandom::new();
+                    let key = ring::signature::RsaKeyPair::from_pkcs8(&pkey).unwrap();
+                    let mut signature = vec![0; key.public().modulus_len()];
+                    let pad = &ring::signature::RSA_PKCS1_SHA256;
+                    key.sign(pad, rng, data, &mut signature).unwrap();
+                    Some((self.algorithm.oid(), signature))
+                } else {
+                    todo!("Sign with external method")
+                }
             }
         }
     }
@@ -1548,7 +1696,7 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
 
     let mut cert: Option<Vec<u8>> = None;
 
-    if let Ok(cert_der) = ca.root_ca_cert().await {
+    if let Ok(cert_der) = ca.root_ca_cert() {
         let ty = if s.get.contains_key("type") {
             s.get.get("type").unwrap().to_owned()
         } else {
@@ -1606,6 +1754,31 @@ pub enum CertificateSigningMethod {
     Ecdsa,
 }
 
+impl CertificateSigningMethod {
+    fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
+        match self {
+            Self::Rsa_Sha1 | Self::Rsa_Sha256 => {
+                use pkcs8::EncodePrivateKey;
+                let mut rng = rand::thread_rng();
+                let bits = 4096;
+                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
+                let private_key_der = private_key.to_pkcs8_der().unwrap();
+                let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
+                let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
+                Some((key_pair, Some(pkey)))
+            }
+            Self::Ecdsa => {
+                let alg = rcgen::SignatureAlgorithm::from_oid(
+                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
+                )
+                .unwrap();
+                let keypair = rcgen::KeyPair::generate(alg).ok()?;
+                Some((keypair, None))
+            }
+        }
+    }
+}
+
 impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
     type Error = ();
     fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
@@ -1653,11 +1826,11 @@ async fn build_ocsp_response(
     let mut responses = Vec::new();
     let mut extensions = Vec::new();
 
-    let ca_cert = ca.root_ca_cert().await.unwrap();
+    let ocsp_cert = ca.ocsp_ca_cert().unwrap();
 
     let x509_cert = {
         use der::Decode;
-        x509_cert::Certificate::from_der(&ca_cert.cert).unwrap()
+        x509_cert::Certificate::from_der(&ocsp_cert.cert).unwrap()
     };
 
     for r in req.tbs_request.request_list {
@@ -1726,8 +1899,8 @@ async fn build_ocsp_response(
 
     let data_der = data.to_der().unwrap();
 
-    let (oid, sign) = ca_cert.sign(&data_der).await.unwrap();
-    let cert = Some(ca_cert.cert.to_owned());
+    let (oid, sign) = ocsp_cert.sign(&data_der).await.unwrap();
+    let cert = Some(ocsp_cert.cert.to_owned());
 
     let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, cert);
     let bytes =
