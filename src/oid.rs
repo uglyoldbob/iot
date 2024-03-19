@@ -172,6 +172,9 @@ lazy_static::lazy_static! {
     /// The oid used in certificate authorities to indicate the ocsp responder
     pub static ref OID_PKIX_AUTHORITY_INFO_ACCESS: Oid =
         as_oid(&[1, 3, 6, 1, 5, 5, 7, 1, 1]);
+    /// The oid for extended usage client authentication
+    pub static ref OID_EXTENDED_KEY_USAGE_CLIENT_AUTH: Oid =
+        as_oid(&[1, 3, 6, 1, 5, 5, 7, 3, 2]);
     /// The oid for extended usage ocsp signing
     pub static ref OID_EXTENDED_KEY_USAGE_OCSP_SIGNING: Oid =
         as_oid(&[1, 3, 6, 1, 5, 5, 7, 3, 9]);

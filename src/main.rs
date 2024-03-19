@@ -19,6 +19,7 @@ mod user;
 mod webserver;
 
 pub mod oid;
+pub mod pkcs12;
 
 use crate::webserver::tls::*;
 use crate::webserver::*;
