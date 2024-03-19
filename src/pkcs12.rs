@@ -425,7 +425,23 @@ pub struct Pkcs12 {
 impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
     type Error = ();
     fn try_from(value: crate::ca::CaCertificate) -> Result<Self, Self::Error> {
-        Err(())
+        use der::Decode;
+        let cert = value.certificate_der();
+        let pkim = PkiMessage {
+            cert: x509_cert::Certificate::from_der(&cert).map_err(|_| ())?,
+            der: cert,
+        };
+        let pder = value.pkey_der();
+        if pder.is_none() {
+            return Err(());
+        }
+        let pkey = zeroize::Zeroizing::new(X509PrivateKey {
+            der: pder.unwrap().to_vec(),
+        });
+        Ok(Self {
+            certificate: pkim,
+            pkey,
+        })
     }
 }
 

@@ -970,6 +970,17 @@ impl CaCertificate {
         }
     }
 
+    /// Retrieve the private key in der format, if possible
+    pub fn pkey_der(&self) -> Option<Zeroizing<Vec<u8>>> {
+        self.pkey.clone()
+    }
+
+    /// Retrieve the certificate in the native der format
+    pub fn certificate_der(&self) -> Vec<u8> {
+        self.cert.clone()
+    }
+
+    /// Retrieve the certificate in the rcgen Certificate format
     pub fn as_certificate(&self) -> rcgen::Certificate {
         let keypair = if let Some(kp) = &self.pkey {
             rcgen::KeyPair::from_der(kp).unwrap()
