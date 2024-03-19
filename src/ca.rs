@@ -152,7 +152,6 @@ struct PkixAuthorityInfoAccess {
 
 impl PkixAuthorityInfoAccess {
     fn new(urls: Vec<String>) -> Self {
-        println!("The ocsp urls are {:?}", urls);
         let asn = p12::yasna::construct_der(|w| {
             w.write_sequence_of(|w| {
                 for url in urls {
@@ -305,6 +304,19 @@ pub struct Ca {
 }
 
 impl Ca {
+    /// Save the admin certificate to medium
+    async fn save_admin(&mut self, p12: &[u8]) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let path = p.join("admin.p12");
+                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
+                f.write_all(p12).await;
+            }
+        }
+    }
+
     /// Verify a certificate signing request
     async fn verify_request<'a>(
         &mut self,
@@ -677,6 +689,7 @@ impl Ca {
                                     CsrAttribute::build_extended_key_usage(key_usage_oids)
                                         .to_custom_extension(),
                                 );
+
                                 let ocsp_csr = ca.generate_signing_request(
                                     CertificateSigningMethod::Rsa_Sha256,
                                     "ocsp".to_string(),
@@ -689,6 +702,30 @@ impl Ca {
                                 ocsp_cert.medium = ca.medium.clone();
                                 ocsp_cert.save_to_medium().await;
                                 ca.ocsp_signer = Ok(ocsp_cert);
+
+                                let mut key_usage_oids = Vec::new();
+                                key_usage_oids.push(OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned());
+                                let mut extensions = Vec::new();
+                                extensions.push(
+                                    CsrAttribute::build_extended_key_usage(key_usage_oids)
+                                        .to_custom_extension(),
+                                );
+
+                                println!("Generating administrator certificate");
+                                let admin_csr = ca.generate_signing_request(
+                                    CertificateSigningMethod::Rsa_Sha256,
+                                    "admin".to_string(),
+                                    "Administrator".to_string(),
+                                    Vec::new(),
+                                    extensions,
+                                );
+                                let mut admin_cert =
+                                    ca.root_cert.as_ref().unwrap().sign_csr(admin_csr).unwrap();
+                                admin_cert.medium = ca.medium.clone();
+                                admin_cert.save_to_medium().await;
+                                let admin_p12: crate::pkcs12::Pkcs12 =
+                                    admin_cert.try_into().unwrap();
+                                ca.save_admin(&admin_p12.get_pkcs12()).await;
                             }
                         }
                     }
@@ -699,7 +736,7 @@ impl Ca {
     }
 
     /// Return a reference to the root cert
-    fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+    pub fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
         self.root_cert.as_ref()
     }
 

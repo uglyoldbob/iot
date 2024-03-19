@@ -5,14 +5,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use p12::yasna;
-
-use der::Decode;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
-use yasna::ASN1Error;
 
 /// A generic error type
 type Error = Box<dyn std::error::Error + 'static>;
@@ -41,9 +36,7 @@ impl TlsConfig {
 /// Check the program config and create a client verifier struct as specified.
 /// # Arguments
 /// * settings - The program configuration object.
-pub fn load_user_cert_data(
-    settings: &crate::MainConfiguration,
-) -> Option<Arc<dyn ClientCertVerifier>> {
+pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCertStore> {
     if let Some(section) = &settings.client_certs {
         println!("Loading client certificate data");
         let mut rcs = RootCertStore::empty();
@@ -61,14 +54,7 @@ pub fn load_user_cert_data(
                 .unwrap_or_else(|e| panic!("Failed to add client certificate {}: {}", s, e));
         }
 
-        //todo fill out the rcs struct
-        let roots = Arc::new(rcs);
-
-        let client_verifier = WebPkiClientVerifier::builder(roots)
-            .allow_unauthenticated()
-            .build()
-            .unwrap();
-        Some(client_verifier)
+        Some(rcs)
     } else {
         println!("Not loading any client certificate information");
         None
@@ -79,11 +65,12 @@ pub fn load_user_cert_data(
 /// # Arguments
 /// * certfile - The Path for the pkcs12 container
 /// * pass - The password for the container
-/// * user_certs - The struct used to verify client id with tls.
+/// * rcs - The root cert store of client certificate root authorities.
 pub fn load_certificate<P>(
     certfile: P,
     pass: &str,
-    user_certs: Option<Arc<dyn ClientCertVerifier>>,
+    rcs: Option<RootCertStore>,
+    lca: &Arc<futures::lock::Mutex<crate::ca::Ca>>,
 ) -> Result<Arc<ServerConfig>, Error>
 where
     P: AsRef<Path>,
@@ -108,11 +95,30 @@ where
     let sc: tokio_rustls::rustls::ConfigBuilder<ServerConfig, tokio_rustls::rustls::WantsVerifier> =
         ServerConfig::builder();
 
-    let sc = if let Some(certs) = user_certs {
-        sc.with_client_cert_verifier(certs)
+    let mut rcs = if rcs.is_none() {
+        RootCertStore::empty()
     } else {
-        sc.with_no_client_auth()
+        rcs.unwrap()
     };
+
+    let client_cert_der = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let ca = lca.lock().await;
+            let cert = ca.root_ca_cert().unwrap();
+            cert.certificate_der()
+        })
+    });
+    rcs.add(client_cert_der.into());
+
+    //todo fill out the rcs struct
+    let roots = Arc::new(rcs);
+
+    let client_verifier = WebPkiClientVerifier::builder(roots)
+        .allow_unauthenticated()
+        .build()
+        .unwrap();
+
+    let sc = sc.with_client_cert_verifier(client_verifier);
     let sc = sc.with_single_cert(certs, pkey)?;
     Ok(Arc::new(sc))
 }

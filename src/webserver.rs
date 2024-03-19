@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio_rustls::rustls::server::danger::ClientCertVerifier;
+use tokio_rustls::rustls::RootCertStore;
 
 use cookie::Cookie;
 
@@ -654,7 +655,7 @@ pub async fn https_webserver(
     port: u16,
     tls_config: tls::TlsConfig,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
-    client_certs: Option<Arc<dyn ClientCertVerifier>>,
+    client_certs: Option<RootCertStore>,
 ) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -662,6 +663,7 @@ pub async fn https_webserver(
         &tls_config.cert_file,
         &tls_config.key_password,
         client_certs,
+        &hc.ca,
     )
     .map_err(|e| ServiceError::Other(e.to_string()))?;
 
