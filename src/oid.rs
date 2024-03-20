@@ -163,6 +163,9 @@ lazy_static::lazy_static! {
     /// The oid for the pkcs9 local key id
     pub static ref OID_PKCS9_LOCAL_KEY_ID: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 9, 21]);
+    /// The oid for pbe with sha and 40-bit rc2-cbc
+    pub static ref OID_PBE_SHA_RC2_CBC_40: Oid =
+        as_oid(&[1, 2, 840, 113_549, 1, 12, 1, 6]);
     /// The oid for shrouded keybag
     pub static ref OID_SHROUDED_KEY_BAG: Oid =
         as_oid(&[1, 2, 840, 113_549, 1, 12, 10, 1, 2]);

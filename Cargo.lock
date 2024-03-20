@@ -77,9 +77,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "1.1.2"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2969dcb958b36655471fc61f7e416fa76033bdd4bfed0678d8fee1e2d07a1f0"
+checksum = "8e60d3430d3a69478ad0993f19238d2df97c507009a52b3c10addcd7f6bcb916"
 dependencies = [
  "memchr",
 ]
@@ -223,7 +223,7 @@ version = "0.69.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a00dc851838a2120612785d195287475a3ac45514741da670b735818822129a0"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
  "itertools",
@@ -245,9 +245,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.4.2"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
+checksum = "cf4b9d6a944f767f8e5e0db018570623c85f3d925ac718db4e06d0187adb21c1"
 
 [[package]]
 name = "bitvec"
@@ -1047,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "html"
 version = "0.6.3"
-source = "git+https://github.com/uglyoldbob/html#08c4a3655bb04570ef49afdb6a4649c4491d2bab"
+source = "git+https://github.com/uglyoldbob/html#ac25dd9e55b9d9729cdb157690c7c38d867021c8"
 dependencies = [
  "html-sys",
 ]
@@ -1055,7 +1055,7 @@ dependencies = [
 [[package]]
 name = "html-sys"
 version = "0.4.3"
-source = "git+https://github.com/uglyoldbob/html#08c4a3655bb04570ef49afdb6a4649c4491d2bab"
+source = "git+https://github.com/uglyoldbob/html#ac25dd9e55b9d9729cdb157690c7c38d867021c8"
 
 [[package]]
 name = "http"
@@ -1478,7 +1478,7 @@ dependencies = [
  "base64 0.21.7",
  "bigdecimal",
  "bindgen",
- "bitflags 2.4.2",
+ "bitflags 2.5.0",
  "bitvec",
  "byteorder",
  "bytes",
@@ -1654,7 +1654,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 [[package]]
 name = "p12"
 version = "0.6.3"
-source = "git+https://github.com/uglyoldbob/p12.git#71ec035c02c9f1a94d290e9ec993c1696dabbbcf"
+source = "git+https://github.com/uglyoldbob/p12.git#63283370d6472447c970fe95221f035b0558e05a"
 dependencies = [
  "cbc",
  "cipher",
@@ -1662,8 +1662,10 @@ dependencies = [
  "getrandom 0.2.12",
  "hmac",
  "lazy_static",
+ "pkcs5",
  "rc2",
  "sha1",
+ "sha2",
  "yasna 0.5.2 (git+https://github.com/uglyoldbob/yasna.rs)",
 ]
 
@@ -2016,7 +2018,7 @@ dependencies = [
 [[package]]
 name = "rcgen"
 version = "0.12.1"
-source = "git+https://github.com/uglyoldbob/rcgen.git?branch=publickey#7e240437ae3ba91b78b06d30f4e7be8e0c13d720"
+source = "git+https://github.com/uglyoldbob/rcgen.git?branch=publickey#b297cce5643665aa78f68754fa956f9801063313"
 dependencies = [
  "pem 3.0.3",
  "ring 0.17.8",
@@ -2232,11 +2234,11 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.31"
+version = "0.38.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea3e1a662af26cd7a3ba09c0297a31af215563ecf42817c98df621387f4e949"
+checksum = "65e04861e65f21776e67888bfbea442b3642beaa0138fdb1dd7a84a52dffdb89"
 dependencies = [
- "bitflags 2.4.2",
+ "bitflags 2.5.0",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -2804,7 +2806,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.8",
+ "toml_edit 0.22.9",
 ]
 
 [[package]]
@@ -2840,9 +2842,9 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.8"
+version = "0.22.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c12219811e0c1ba077867254e5ad62ee2c9c190b0d957110750ac0cda1ae96cd"
+checksum = "8e40bb779c5187258fd7aad0eb68cb8706a0a81fa712fbea808ab43c4b8374c4"
 dependencies = [
  "indexmap",
  "serde",
@@ -2999,9 +3001,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f00cc9702ca12d3c81455259621e676d0f7251cec66a21e98fe2e9a37db93b2a"
+checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
 
 [[package]]
 name = "version_check"

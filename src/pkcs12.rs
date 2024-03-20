@@ -448,12 +448,27 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
 impl Pkcs12 {
     /// Create a pkcs12 formatted output
     pub fn get_pkcs12(&self, password: &str) -> Vec<u8> {
+        use rand::RngCore;
+        let mut rng = rand::thread_rng();
+        let mut p = p12::Pbkdf2Params {
+            salt: vec![0; 8],
+            iteration_count: 2048,
+            iv: [0; 16],
+        };
+        rng.fill_bytes(&mut p.iv);
+        rng.fill_bytes(&mut p.salt);
+        let p = p12::Pbes2Parameters {
+            parameters: p12::Pbes2KdfParams::Pbkdf2(p),
+        };
+        let algorithm = p12::AlgorithmIdentifier::Pbe2(p);
         let p12 = p12::PFX::new(
             &self.certificate.get_der(),
             &self.pkey.get_der(),
             None,
             password,
             "certname",
+            algorithm,
+            p12::HmacMethod::Sha256,
         )
         .unwrap();
         p12.to_der()
@@ -483,19 +498,44 @@ impl Pkcs12 {
                 if let Ok(bag) = cms::encrypted_data::EncryptedData::from_der(&ob.bag_value) {
                     let algorithm = bag.enc_content_info.content_enc_alg;
                     let bag_data = bag.enc_content_info.encrypted_content.unwrap();
-                    if algorithm.oid == pkcs5::pbes2::PBES2_OID {
+                    let decrypted = if algorithm.oid == pkcs5::pbes2::PBES2_OID {
                         let a = Pkcs5Pbes2::parse_parameters(algorithm.parameters.unwrap().value())
                             .unwrap();
                         let bdv = bag_data.into_bytes();
-                        let decrypted = a.decrypt(&bdv, pass);
-                        let decrypted_oid = bag.enc_content_info.content_type;
-                        if decrypted_oid == OID_PKCS7_DATA_CONTENT_TYPE.to_const() {
-                            let cert = PkiMessage::parse(&decrypted)
-                                .expect("Failed to parse certificate data");
-                            certificate = Some(cert);
-                        }
+                        a.decrypt(&bdv, pass)
+                    } else if algorithm.oid == OID_PBE_SHA_RC2_CBC_40.to_const() {
+                        println!("Algo parameters {:02X?}", algorithm);
+                        let p = yasna::parse_der(algorithm.parameters.unwrap().value(), |r| {
+                            let mut salt = Vec::new();
+                            let mut iter_count = 0;
+                            r.read_multi(|r| {
+                                salt = r.next().read_bytes()?;
+                                iter_count = r.next().read_u16()?;
+                                Ok(())
+                            })?;
+                            let mut salta: [u8; 8] = [0; 8];
+                            salta.copy_from_slice(&salt[0..8]);
+                            Ok(pkcs5::pbes1::Parameters {
+                                salt: salta,
+                                iteration_count: iter_count,
+                            })
+                        })
+                        .unwrap();
+                        let a = pkcs5::pbes1::Algorithm {
+                            encryption: pkcs5::pbes1::EncryptionScheme::PbeWithSha1AndRc2Cbc,
+                            parameters: p,
+                        };
+                        let scheme = pkcs5::EncryptionScheme::Pbes1(a);
+                        let bdv = bag_data.into_bytes();
+                        zeroize::Zeroizing::new(scheme.decrypt(pass, &bdv).unwrap())
                     } else {
                         panic!("Unexpected algorithm {:?}", algorithm.oid);
+                    };
+                    let decrypted_oid = bag.enc_content_info.content_type;
+                    if decrypted_oid == OID_PKCS7_DATA_CONTENT_TYPE.to_const() {
+                        let cert = PkiMessage::parse(&decrypted)
+                            .expect("Failed to parse certificate data");
+                        certificate = Some(cert);
                     }
                 }
             } else if ob.bag_id == OID_PKCS7_DATA_CONTENT_TYPE.to_yasna() {

@@ -954,11 +954,8 @@ impl CaCertificateStorage {
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
-
                 let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
-                todo!("Convert fromm Pkcs12 to CaCertificate");
-                //TODO actually determine the signing method by parsing the public certificate
-                Err(CertificateLoadingError::DoesNotExist)
+                Ok(p12.try_into().unwrap())
             }
         }
     }
@@ -990,6 +987,25 @@ pub struct CaCertificate {
     pkey: Option<Zeroizing<Vec<u8>>>,
     /// The certificate name to use for storage
     name: String,
+}
+
+impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
+    type Error = ();
+    fn try_from(value: crate::pkcs12::Pkcs12) -> Result<Self, Self::Error> {
+        let cert_der = value.certificate.get_der();
+        let x509_cert = {
+            use der::Decode;
+            x509_cert::Certificate::from_der(cert_der).unwrap()
+        };
+        let algorithm = x509_cert.signature_algorithm;
+        Ok(Self {
+            algorithm: algorithm.try_into().unwrap(),
+            medium: CaCertificateStorage::Nowhere,
+            cert: cert_der.to_owned(),
+            pkey: Some(zeroize::Zeroizing::new(value.pkey.get_der().to_owned())),
+            name: "whatever".to_string(),
+        })
+    }
 }
 
 impl CaCertificate {
