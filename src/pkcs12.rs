@@ -37,27 +37,14 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
 use hmac::{Hmac, Mac};
 type HmacSha256 = Hmac<sha2::Sha256>;
 
-fn build_encrypted_content_info(data: &[u8], password: &[u8]) -> ContentInfo {
+fn build_encrypted_content_info(
+    enc_scheme: &pkcs5::EncryptionScheme,
+    data: &[u8],
+    password: &[u8],
+) -> ContentInfo {
     use der::Encode;
     let data_algorithm_parameters = 42;
 
-    let salt: [u8; 8] = rand::random();
-    let iv: [u8; 16] = rand::random();
-    let count = 2048;
-    let prf = pkcs5::pbes2::Pbkdf2Prf::HmacWithSha256;
-
-    let encryption = pkcs5::pbes2::EncryptionScheme::Aes256Cbc { iv: &iv };
-
-    let pbkdf2_params = pkcs5::pbes2::Pbkdf2Params {
-        salt: &salt,
-        iteration_count: count,
-        key_length: None,
-        prf,
-    };
-    let kdf = pkcs5::pbes2::Kdf::Pbkdf2(pbkdf2_params);
-    let enc_parameters = pkcs8::pkcs5::pbes2::Parameters { kdf, encryption };
-
-    let enc_scheme = pkcs5::EncryptionScheme::Pbes2(enc_parameters);
     let encrypted_data = enc_scheme.encrypt(password, data).unwrap();
 
     let data1_parameters = enc_scheme.to_der().unwrap();
@@ -65,7 +52,7 @@ fn build_encrypted_content_info(data: &[u8], password: &[u8]) -> ContentInfo {
 
     let data1_enc_alg = pkcs8::spki::AlgorithmIdentifier {
         oid: PBES2_OID,
-        parameters: Some(der::asn1::Any::new(der::Tag::Sequence, data1_parameters).unwrap()),
+        parameters: Some(der::asn1::Any::encode_from(enc_scheme.pbes2().unwrap()).unwrap()),
     };
     let enc_content_info1 = cms::enveloped_data::EncryptedContentInfo {
         content_type: ID_DATA,
@@ -82,13 +69,55 @@ fn build_encrypted_content_info(data: &[u8], password: &[u8]) -> ContentInfo {
             w.next()
                 .write_oid(&Oid::from_const(ID_ENCRYPTED_DATA).to_yasna());
             w.next().write_tagged(yasna::Tag::context(0), |w| {
-                w.write_bytes(&ci1.to_der().unwrap());
+                w.write_der(&ci1.to_der().unwrap());
             });
         });
     });
-    println!("Der of ci1 is {:02X?}", ci1_der);
     let ci1 = ContentInfo::from_der(&ci1_der).unwrap();
     ci1
+}
+
+fn build_plain_content_info(data: &[u8]) -> ContentInfo {
+    let ci1_der = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_oid(&Oid::from_const(ID_DATA).to_yasna());
+            w.next().write_tagged(yasna::Tag::context(0), |w| {
+                w.write_bytes(data);
+            });
+        });
+    });
+    let ci1 = ContentInfo::from_der(&ci1_der).unwrap();
+    ci1
+}
+
+fn build_shrouded_bag(
+    enc_scheme: &pkcs5::EncryptionScheme,
+    data: &[u8],
+    password: &[u8],
+) -> Vec<u8> {
+    use der::Encode;
+
+    let encrypted_data = enc_scheme.encrypt(password, data).unwrap();
+    let encrypted_key = pkcs8::EncryptedPrivateKeyInfo {
+        encryption_algorithm: enc_scheme.to_owned(),
+        encrypted_data: &encrypted_data,
+    };
+
+    yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_sequence(|w| {
+                w.next()
+                    .write_oid(&Oid::from_const(pkcs12::PKCS_12_PKCS8_KEY_BAG_OID).to_yasna());
+                w.next().write_tagged(yasna::Tag::context(0), |w| {
+                    w.write_der(&encrypted_key.to_der().unwrap());
+                });
+                //TODO optional bag attributes
+                //1.2.840.113549.1.9.21 (local key id)
+                //1.2.840.113549.1.9.20 (friendly name)
+            });
+        });
+    })
+    .to_vec()
 }
 
 fn build_cert_bag(data: &[u8]) -> Vec<u8> {
@@ -115,6 +144,28 @@ fn build_cert_bag(data: &[u8]) -> Vec<u8> {
     .to_vec()
 }
 
+fn build_encryption_scheme<'a>(
+    salt: &'a [u8],
+    iv: &'a [u8; 16],
+    count: u32,
+) -> pkcs5::EncryptionScheme<'a> {
+    let prf = pkcs5::pbes2::Pbkdf2Prf::HmacWithSha256;
+
+    let encryption = pkcs5::pbes2::EncryptionScheme::Aes256Cbc { iv };
+
+    let pbkdf2_params = pkcs5::pbes2::Pbkdf2Params {
+        salt: &salt,
+        iteration_count: count,
+        key_length: None,
+        prf,
+    };
+    let kdf = pkcs5::pbes2::Kdf::Pbkdf2(pbkdf2_params);
+    let enc_parameters = pkcs8::pkcs5::pbes2::Parameters { kdf, encryption };
+
+    let enc_scheme = pkcs5::EncryptionScheme::Pbes2(enc_parameters.clone());
+    enc_scheme
+}
+
 impl Pkcs12 {
     /// Create a pkcs12 formatted output
     pub fn get_pkcs12(&self, password: &str) -> Vec<u8> {
@@ -124,21 +175,27 @@ impl Pkcs12 {
 
         let mut content_info: Vec<ContentInfo> = Vec::new();
 
-        println!("Cert der is {:02X?}", self.cert);
-        println!("Pkey der is {:02X?}", self.pkey);
+        let salt: [u8; 32] = rand::random();
+        let iv: [u8; 16] = rand::random();
+        let count = 2048;
+        let enc_scheme = build_encryption_scheme(&salt, &iv, count);
 
         let d1 = build_cert_bag(&self.cert);
-        let ci1 = build_encrypted_content_info(&d1, password.as_bytes());
+        let ci1 = build_encrypted_content_info(&enc_scheme, &d1, password.as_bytes());
         content_info.push(ci1);
-        let ci2 = build_encrypted_content_info(&self.pkey, password.as_bytes());
+        let shroud_bag = build_shrouded_bag(&enc_scheme, &self.pkey, password.as_bytes());
+        let ci2 = build_plain_content_info(&shroud_bag);
         content_info.push(ci2);
 
-        println!("Der of d1 is {:02X?}", d1);
-
-        let content: Vec<u8> = content_info
-            .iter()
-            .flat_map(|info| info.to_der().unwrap())
-            .collect();
+        let content = yasna::construct_der(|w| {
+            w.write_sequence(|w| {
+                for content in content_info {
+                    let der = content.to_der().unwrap();
+                    w.next().write_der(&der);
+                }
+            });
+        })
+        .to_vec();
         let content_octet = der::asn1::OctetString::new(content).unwrap();
         let content_bytes = content_octet.as_bytes();
         let content = der::asn1::Any::new(der::Tag::OctetString, content_bytes).unwrap();
@@ -199,7 +256,6 @@ impl Pkcs12 {
     /// * data - The contents of the pkcs12 document
     /// * pass - The password protecting the document
     pub fn load_from_data(data: &[u8], pass: &[u8]) -> Self {
-        use der::Decode;
         use der::Encode;
 
         let mut cert = None;
@@ -207,8 +263,6 @@ impl Pkcs12 {
 
         let pfx = pkcs12::pfx::Pfx::from_der(&data).expect("Failed to parse certificate");
         assert_eq!(Version::V3, pfx.version);
-        println!("Auth safe is {:02X?}", pfx.auth_safe);
-        println!("mac data is {:02X?}", pfx.mac_data);
         assert_eq!(ID_DATA, pfx.auth_safe.content_type);
         let auth_safes_os =
             der::asn1::OctetString::from_der(&pfx.auth_safe.content.to_der().unwrap()).unwrap();
@@ -216,16 +270,11 @@ impl Pkcs12 {
             pkcs12::authenticated_safe::AuthenticatedSafe::from_der(auth_safes_os.as_bytes())
                 .unwrap();
 
-        for ci in &auth_safes {
-            println!("Contentinfo is {:?}", ci);
-        }
-
         let auth_safe0 = auth_safes.first().unwrap();
         assert_eq!(ID_ENCRYPTED_DATA, auth_safe0.content_type);
         let enc_data_os = &auth_safe0.content.to_der().unwrap();
         let enc_data =
             cms::encrypted_data::EncryptedData::from_der(enc_data_os.as_slice()).unwrap();
-        println!("Encrypted data is {:02X?}", enc_data);
         assert_eq!(ID_DATA, enc_data.enc_content_info.content_type);
         assert_eq!(PBES2_OID, enc_data.enc_content_info.content_enc_alg.oid);
         let enc_params = enc_data
@@ -238,12 +287,10 @@ impl Pkcs12 {
             .unwrap();
 
         let params = pkcs8::pkcs5::pbes2::Parameters::from_der(&enc_params).unwrap();
-        println!("Enc params are {:02X?}", params);
         let scheme = pkcs5::EncryptionScheme::from(params.clone());
         let ciphertext_os = enc_data.enc_content_info.encrypted_content.clone().unwrap();
         let mut ciphertext = ciphertext_os.as_bytes().to_vec();
         let plaintext = scheme.decrypt_in_place(pass, &mut ciphertext).unwrap();
-        println!("Decrypted data is {:02X?}", plaintext);
         let cert_bags = pkcs12::safe_bag::SafeContents::from_der(plaintext).unwrap();
         for cert_bag in cert_bags {
             match cert_bag.bag_id {
@@ -275,11 +322,6 @@ impl Pkcs12 {
         let auth_safe1 = auth_safes.get(1).unwrap();
         assert_eq!(ID_DATA, auth_safe1.content_type);
 
-        println!(
-            "Second auth safe bag is {:02X?}",
-            &auth_safe1.content.to_der().unwrap()
-        );
-
         let auth_safe1_auth_safes_os =
             der::asn1::OctetString::from_der(&auth_safe1.content.to_der().unwrap()).unwrap();
         let safe_bags =
@@ -295,8 +337,6 @@ impl Pkcs12 {
                         .encryption_algorithm
                         .decrypt(pass, &ciphertext)
                         .unwrap();
-
-                    println!("Decoded second bag is {:02X?}", plaintext);
 
                     pkey = Some(plaintext.to_vec());
                 }
