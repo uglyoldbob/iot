@@ -302,6 +302,8 @@ pub struct Ca {
     root_cert: Result<CaCertificate, CertificateLoadingError>,
     /// Represents the certificate for signing ocsp responses
     ocsp_signer: Result<CaCertificate, CertificateLoadingError>,
+    /// The administrator certificate
+    admin: Result<CaCertificate, CertificateLoadingError>,
 }
 
 impl Ca {
@@ -316,6 +318,21 @@ impl Ca {
                 f.write_all(p12).await;
             }
         }
+    }
+
+    fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
+        let admin = self.get_admin_cert().unwrap();
+        let admin_x509_cert = {
+            use der::Decode;
+            x509_cert::Certificate::from_der(&admin.cert).unwrap()
+        };
+        cert.tbs_certificate.serial_number == admin_x509_cert.tbs_certificate.serial_number
+            && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
+            && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
+    }
+
+    fn get_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.admin.as_ref()
     }
 
     /// Verify a certificate signing request
@@ -572,6 +589,7 @@ impl Ca {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
+            admin: Err(CertificateLoadingError::DoesNotExist),
         }
     }
 
@@ -618,6 +636,8 @@ impl Ca {
         let table = settings.ca.as_ref().unwrap();
 
         ca.load_ocsp_cert(table.get("ocsp-password").unwrap().as_str().unwrap())
+            .await;
+        ca.load_admin_cert(table.get("admin-password").unwrap().as_str().unwrap())
             .await;
         match ca
             .load_root_ca_cert(table.get("root-password").unwrap().as_str().unwrap())
@@ -755,6 +775,7 @@ impl Ca {
                                         table.get("admin-password").unwrap().as_str().unwrap(),
                                     )
                                     .await;
+                                ca.admin = Ok(admin_cert);
                             }
                         }
                     }
@@ -772,6 +793,17 @@ impl Ca {
     /// Return a reference to the ocsp cert
     fn ocsp_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
         self.ocsp_signer.as_ref()
+    }
+
+    /// Load the admin signer certificate, loading if required.
+    async fn load_admin_cert(
+        &mut self,
+        password: &str,
+    ) -> Result<&CaCertificate, &CertificateLoadingError> {
+        if self.admin.is_err() {
+            self.admin = self.medium.load_from_medium("admin", password).await;
+        }
+        self.admin.as_ref()
     }
 
     /// Load the ocsp signer certificate, loading if required.
@@ -1330,21 +1362,21 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
 
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
-    let mut certs = None;
+    let ca = s.ca.lock().await;
+
+    let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
-        certs = Some(cs);
+        for cert in cs {
+            if ca.is_admin(cert) {
+                admin = true;
+            }
+        }
     }
 
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
-        if let Some(cs) = certs {
-            b.text("You have certificate(s)").line_break(|a| a);
-            for cert in cs {
-                b.text(cert.tbs_certificate.subject.to_string())
-                    .line_break(|a| a);
-                b.text(cert.tbs_certificate.serial_number.to_string())
-                    .line_break(|a| a);
-            }
+        if admin {
+            b.text("You are admin").line_break(|a| a);
         }
         b.anchor(|ab| {
             ab.text("Download CA certificate as der");
@@ -1365,13 +1397,15 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
             ab.href(format!("/{}ca/request.rs", s.proxy));
             ab
         });
-        b.line_break(|lb| lb);
-        b.anchor(|ab| {
-            ab.text("List pending requests");
-            ab.href(format!("/{}ca/list.rs", s.proxy));
-            ab
-        });
-        b.line_break(|lb| lb);
+        if admin {
+            b.line_break(|lb| lb);
+            b.anchor(|ab| {
+                ab.text("List pending requests");
+                ab.href(format!("/{}ca/list.rs", s.proxy));
+                ab
+            });
+            b.line_break(|lb| lb);
+        }
         b
     });
     let html = html.build();
@@ -1436,35 +1470,49 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
 async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
+    let mut admin = false;
+    if let Some(cs) = s.user_certs.all_certs() {
+        for cert in cs {
+            if ca.is_admin(cert) {
+                admin = true;
+            }
+        }
+    }
+
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
-    if let Some(id) = s.get.get("id") {
-        let id = str::parse::<usize>(id);
-        if let Ok(id) = id {
-            if let Some(csrr) = ca.get_csr_by_id(id) {
-                let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
-                match &mut a {
-                    Ok(csr) => {
-                        csr.params.not_before = time::OffsetDateTime::now_utc();
-                        csr.params.not_after = csr.params.not_before + time::Duration::days(365);
-                        let mut sn = [0; 20];
-                        for (i, b) in id.to_le_bytes().iter().enumerate() {
-                            sn[i] = *b;
+    if admin {
+        if let Some(id) = s.get.get("id") {
+            let id = str::parse::<usize>(id);
+            if let Ok(id) = id {
+                if let Some(csrr) = ca.get_csr_by_id(id) {
+                    let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
+                    match &mut a {
+                        Ok(csr) => {
+                            csr.params.not_before = time::OffsetDateTime::now_utc();
+                            csr.params.not_after =
+                                csr.params.not_before + time::Duration::days(365);
+                            let mut sn = [0; 20];
+                            for (i, b) in id.to_le_bytes().iter().enumerate() {
+                                sn[i] = *b;
+                            }
+                            let sn = rcgen::SerialNumber::from_slice(&sn);
+                            csr.params.serial_number = Some(sn);
+                            println!("Ready to sign the csr");
+                            let der = csr
+                                .serialize_der_with_signer(
+                                    &ca.root_ca_cert().unwrap().as_certificate(),
+                                )
+                                .unwrap();
+                            println!(
+                                "got a signed der certificate for the user length {}",
+                                der.len()
+                            );
+                            ca.save_user_cert(id, &der).await;
+                            csr_check = Ok(der);
                         }
-                        let sn = rcgen::SerialNumber::from_slice(&sn);
-                        csr.params.serial_number = Some(sn);
-                        println!("Ready to sign the csr");
-                        let der = csr
-                            .serialize_der_with_signer(&ca.root_ca_cert().unwrap().as_certificate())
-                            .unwrap();
-                        println!(
-                            "got a signed der certificate for the user length {}",
-                            der.len()
-                        );
-                        ca.save_user_cert(id, &der).await;
-                        csr_check = Ok(der);
-                    }
-                    Err(e) => {
-                        println!("Error decoding csr to sign: {:?}", e);
+                        Err(e) => {
+                            println!("Error decoding csr to sign: {:?}", e);
+                        }
                     }
                 }
             }
@@ -1509,6 +1557,15 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
 
 async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
+
+    let mut admin = false;
+    if let Some(cs) = s.user_certs.all_certs() {
+        for cert in cs {
+            if ca.is_admin(cert) {
+                admin = true;
+            }
+        }
+    }
 
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
@@ -1572,35 +1629,37 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                 }
             }
         } else {
-            b.text("List all pending requests");
-            b.line_break(|a| a);
-            let mut index_shown = 0;
-            for (csrr, id) in ca.get_csr_iter() {
-                use der::DecodePem;
-                let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                if let Ok(csr) = csr {
-                    if index_shown > 0 {
-                        b.thematic_break(|a| a);
+            if admin {
+                b.text("List all pending requests");
+                b.line_break(|a| a);
+                let mut index_shown = 0;
+                for (csrr, id) in ca.get_csr_iter() {
+                    use der::DecodePem;
+                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                    if let Ok(csr) = csr {
+                        if index_shown > 0 {
+                            b.thematic_break(|a| a);
+                        }
+                        index_shown += 1;
+                        let csr_names: Vec<String> = csr
+                            .info
+                            .subject
+                            .0
+                            .iter()
+                            .map(|n| format!("{}", n))
+                            .collect();
+                        let t = csr_names.join(", ");
+                        b.anchor(|ab| {
+                            ab.text("View this request");
+                            ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
+                            ab
+                        })
+                        .line_break(|a| a);
+                        b.text(t).line_break(|a| a);
+                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                     }
-                    index_shown += 1;
-                    let csr_names: Vec<String> = csr
-                        .info
-                        .subject
-                        .0
-                        .iter()
-                        .map(|n| format!("{}", n))
-                        .collect();
-                    let t = csr_names.join(", ");
-                    b.anchor(|ab| {
-                        ab.text("View this request");
-                        ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
-                        ab
-                    })
-                    .line_break(|a| a);
-                    b.text(t).line_break(|a| a);
-                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                 }
             }
         }
