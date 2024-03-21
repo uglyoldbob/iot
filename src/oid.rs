@@ -3,7 +3,6 @@
 use std::str::FromStr;
 
 use der::Decode;
-use p12::yasna;
 
 /// Represents an object identifier used in ASN.1 syntax
 #[derive(Clone, Debug)]

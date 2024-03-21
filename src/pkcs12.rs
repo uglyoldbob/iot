@@ -1,451 +1,13 @@
 //! Defines how to import and export pkcs12 certificate data
 
 use crate::oid::*;
-use p12::yasna;
-use p12::yasna::ASN1Error;
-
-/// The HMAC method
-#[derive(Debug)]
-#[allow(dead_code)]
-enum HmacMethod {
-    /// Sha1 method
-    Sha1,
-    /// Sha224 method
-    Sha224,
-    /// Sha256 method
-    Sha256,
-    /// Sha384 method
-    Sha384,
-    /// Sha512 method
-    Sha512,
-}
-
-impl HmacMethod {
-    /// Convert to a pkcs5 struct
-    fn to_prf(&self) -> pkcs5::pbes2::Pbkdf2Prf {
-        match self {
-            HmacMethod::Sha1 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha1,
-            HmacMethod::Sha224 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha224,
-            HmacMethod::Sha256 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha256,
-            HmacMethod::Sha384 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha384,
-            HmacMethod::Sha512 => pkcs5::pbes2::Pbkdf2Prf::HmacWithSha512,
-        }
-    }
-
-    /// Convert from oid to Self, if possible
-    fn from_oid(oid: yasna::models::ObjectIdentifier) -> Option<Self> {
-        if oid == OID_HMAC_SHA256.to_yasna() {
-            Some(HmacMethod::Sha256)
-        } else {
-            None
-        }
-    }
-}
-
-/// Represents parameters for the pbkdf2 algorithm
-#[derive(Debug)]
-struct Pbes2Pbkdf2Params {
-    /// The salt of the pbkdf2 algorithm
-    salt: Vec<u8>,
-    /// Number of iterations
-    count: u32,
-    /// Length?
-    length: Option<u16>,
-    /// The hmac method for the pbkdf2
-    method: HmacMethod,
-}
-
-/// The encryption scheme to use for data
-#[derive(Debug)]
-enum EncryptionScheme {
-    /// Aes 256 with an iv
-    Aes256([u8; 16]),
-    /// Unknown encryption scheme
-    Unknown,
-}
-
-impl EncryptionScheme {
-    /// Convert to a pkcs5 struct
-    fn get_pbes2_scheme(&self) -> Option<pkcs5::pbes2::EncryptionScheme<'_>> {
-        match self {
-            EncryptionScheme::Aes256(s) => {
-                let p = pkcs5::pbes2::EncryptionScheme::Aes256Cbc { iv: s };
-                Some(p)
-            }
-            EncryptionScheme::Unknown => None,
-        }
-    }
-}
-
-impl Pbes2Pbkdf2Params {
-    /// Create a blank Self
-    fn new() -> Self {
-        Self {
-            salt: Vec::new(),
-            count: 0,
-            length: None,
-            method: HmacMethod::Sha512,
-        }
-    }
-
-    /// Convert to a pkcs5 struct
-    fn to_pbkdf2_params(&self) -> pkcs5::pbes2::Pbkdf2Params<'_> {
-        pkcs5::pbes2::Pbkdf2Params {
-            salt: &self.salt,
-            iteration_count: self.count,
-            key_length: self.length,
-            prf: self.method.to_prf(),
-        }
-    }
-}
-
-/// The parameters for pbes2 encryption
-#[derive(Debug)]
-enum Pbes2Params {
-    /// The pbkdf2 algorithm is used
-    Pbes2Pbkdf2(Pbes2Pbkdf2Params),
-    /// An unknown algorithm
-    Unknown,
-}
-
-impl Pbes2Params {
-    /// Decrypt the contents of the data
-    /// # Arguments
-    /// * scheme - The encryption scheme used
-    /// * data - The data to deccrypt
-    /// * password - The password the data is protected with
-    fn decrypt(
-        &self,
-        scheme: &EncryptionScheme,
-        data: &[u8],
-        password: &[u8],
-    ) -> zeroize::Zeroizing<Vec<u8>> {
-        match self {
-            Pbes2Params::Pbes2Pbkdf2(p) => {
-                let pbkdf2 = p.to_pbkdf2_params();
-                let parameters = pkcs5::pbes2::Parameters {
-                    kdf: pkcs5::pbes2::Kdf::Pbkdf2(pbkdf2),
-                    encryption: scheme.get_pbes2_scheme().unwrap(),
-                };
-                zeroize::Zeroizing::new(
-                    parameters
-                        .decrypt(password, data)
-                        .expect("Failed to decrypt data")
-                        .to_vec(),
-                )
-            }
-            Pbes2Params::Unknown => {
-                panic!("Cannot decrypt unknown algorithm");
-            }
-        }
-    }
-}
-
-/// Represents data encrypted with pbes2
-#[derive(Debug)]
-struct Pkcs5Pbes2 {
-    /// The pbes2 parameters
-    params: Pbes2Params,
-    /// The encryption scheme used
-    scheme: EncryptionScheme,
-}
-
-impl Pkcs5Pbes2 {
-    /// Decrypt the contents of the data
-    /// # Arguments
-    /// * data - The data to deccrypt
-    /// * password - The password the data is protected with
-    fn decrypt(&self, data: &[u8], password: &[u8]) -> zeroize::Zeroizing<Vec<u8>> {
-        self.params.decrypt(&self.scheme, data, password)
-    }
-
-    /// Parse a Self with the given reader
-    /// # Arguments
-    /// * r - The BERReader to use for parsing into Self
-    fn parse(r: yasna::BERReader) -> Result<Self, ASN1Error> {
-        let mut params: Pbes2Params = Pbes2Params::Unknown;
-        let mut scheme = EncryptionScheme::Unknown;
-        r.read_multi(|r| {
-            r.next().read_sequence(|r| {
-                let oid = r.next().read_oid()?;
-                if oid == OID_PKCS5_PBKDF2.to_yasna() {
-                    let mut lparams = Pbes2Pbkdf2Params::new();
-                    r.next().read_sequence(|r| {
-                        let data = r.next().read_bytes()?;
-                        lparams.salt = data.clone();
-                        let count = r.next().read_u32()?;
-                        lparams.count = count;
-                        r.next().read_sequence(|r| {
-                            let oid = r.next().read_oid()?;
-                            lparams.method = HmacMethod::from_oid(oid).unwrap();
-                            r.next().read_null()?;
-                            Ok(42)
-                        })?;
-                        Ok(42)
-                    })?;
-                    params = Pbes2Params::Pbes2Pbkdf2(lparams);
-                    Ok(42)
-                } else {
-                    panic!("Unknown algorithm: {:?}", oid);
-                }
-            })?;
-            r.next().read_sequence(|r| {
-                let oid = r.next().read_oid()?;
-                let data = r.next().read_bytes()?;
-                if oid == OID_AES_256_CBC.to_yasna() {
-                    let mut d: [u8; 16] = [0; 16];
-                    d.copy_from_slice(&data);
-                    scheme = EncryptionScheme::Aes256(d);
-                }
-                Ok(42)
-            })?;
-            Ok(())
-        })?;
-        Ok(Self { params, scheme })
-    }
-
-    /// Parse some der data to produce a Self
-    /// # Arguments
-    /// * data - The der data to parse
-    fn parse_parameters(data: &[u8]) -> Result<Self, ASN1Error> {
-        yasna::parse_der(data, |r| Self::parse(r))
-    }
-}
-
-/// Represents a pki message containg an x509 certificate
-#[derive(Debug)]
-pub struct PkiMessage {
-    /// The decoded contents of the x509 certificate
-    cert: x509_cert::Certificate,
-    /// The der representation of the x509 certificate
-    der: Vec<u8>,
-}
-
-impl PkiMessage {
-    /// Return the der contents of an x509 certificate
-    pub fn get_der(&self) -> &Vec<u8> {
-        &self.der
-    }
-
-    /// Parse some der data into a Self
-    /// # Arguments
-    /// * data - The der data to parse
-    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
-        let mut der_contents = None;
-        let d = yasna::parse_der(data, |r| {
-            r.read_sequence(|r| {
-                let d = r
-                    .next()
-                    .read_sequence(|r| {
-                        let oid = r.next().read_oid()?;
-                        let cert = if oid == OID_CERT_BAG.to_yasna() {
-                            let certdata = r
-                                .next()
-                                .read_tagged(yasna::Tag::context(0), |r| {
-                                    let bag = p12::CertBag::parse(r)?;
-                                    if let p12::CertBag::X509(x509) = bag {
-                                        use der::Decode;
-                                        der_contents = Some(x509.to_vec());
-                                        let mut reader = der::SliceReader::new(&x509).unwrap();
-                                        let cert = x509_cert::certificate::Certificate::decode(
-                                            &mut reader,
-                                        )
-                                        .expect("Failed to read x509");
-                                        return Ok(cert);
-                                    }
-                                    Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
-                                })
-                                .expect("Failed parse 17");
-                            certdata
-                        } else {
-                            panic!("Unexpected oid for certificate");
-                        };
-                        r.next().read_set_of(|r| {
-                            r.read_sequence(|r| {
-                                let oid = r.next().read_oid()?;
-                                if oid == OID_PKCS9_LOCAL_KEY_ID.to_yasna() {
-                                    r.next().read_set_of(|r| {
-                                        let _d = r.read_bytes()?;
-                                        Ok(())
-                                    })?;
-                                } else if oid == OID_PKCS9_FRIENDLY_NAME.to_yasna() {
-                                    r.next().read_set_of(|r| {
-                                        let _name = r.read_bmp_string()?;
-                                        Ok(())
-                                    })?;
-                                }
-                                Ok(42)
-                            })?;
-                            Ok(())
-                        })?;
-                        Ok(cert)
-                    })
-                    .expect("Failed parse 18");
-                Ok(d)
-            })
-        })?;
-        Ok(Self {
-            cert: d,
-            der: der_contents.expect("No x509 certificate found"),
-        })
-    }
-}
-
-/// Represents an x509 private key
-#[derive(Debug)]
-pub struct X509PrivateKey {
-    /// The der contents of the private key
-    der: Vec<u8>,
-}
-
-impl zeroize::Zeroize for X509PrivateKey {
-    fn zeroize(&mut self) {
-        self.der.zeroize();
-    }
-}
-
-impl X509PrivateKey {
-    /// Return the der contents of the private key
-    pub fn get_der(&self) -> &Vec<u8> {
-        &self.der
-    }
-
-    /// Create a new private key struct, containg the der contents of a private key
-    fn new(data: &[u8]) -> Self {
-        Self { der: data.to_vec() }
-    }
-}
-
-/// Represents an x509 request structure containing an encrypted private key.
-#[derive(Debug)]
-struct X509Request {
-    /// The encrypted private key
-    key: p12::EncryptedPrivateKeyInfo,
-}
-
-impl X509Request {
-    /// Decrypt the contents of the encrypted private key with the specified password
-    /// # Arguments
-    /// * pass - The password protecting the private key.
-    fn decrypt(&self, pass: &[u8]) -> Option<zeroize::Zeroizing<X509PrivateKey>> {
-        match self
-            .key
-            .encryption_algorithm
-            .decrypt_pbe(&self.key.encrypted_data, pass)
-        {
-            Some(d) => {
-                let pkey = X509PrivateKey::new(&d);
-                return Some(zeroize::Zeroizing::new(pkey));
-            }
-            None => match &self.key.encryption_algorithm {
-                p12::AlgorithmIdentifier::Sha1 => todo!(),
-                p12::AlgorithmIdentifier::Aes256Cbc(_iv) => todo!(),
-                p12::AlgorithmIdentifier::Sha256 => todo!(),
-                p12::AlgorithmIdentifier::Pbkdf2(_, _) => todo!(),
-                p12::AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(_) => todo!(),
-                p12::AlgorithmIdentifier::PbeWithSHAAnd3KeyTripleDESCBC(_) => todo!(),
-                p12::AlgorithmIdentifier::Pbe2(params) => todo!(),
-                p12::AlgorithmIdentifier::Pbkdf2Prf(_) => todo!(),
-                p12::AlgorithmIdentifier::OtherAlg(o) => {
-                    if o.algorithm_type == OID_PKCS5_PBES2.to_yasna() {
-                        let data = o.params.as_ref().unwrap();
-                        let p = yasna::parse_der(data, |r| {
-                            r.read_sequence(|r| Pkcs5Pbes2::parse(r.next()))
-                        })
-                        .expect("Failed to decode pbes2");
-                        let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
-                        let pkey = X509PrivateKey::new(&pkey_der);
-                        return Some(zeroize::Zeroizing::new(pkey));
-                    } else {
-                        panic!("Unexpected algorithm type for private key");
-                    }
-                }
-            },
-        }
-    }
-
-    /// Parse the given der data to produce a Self
-    /// # Arguments
-    /// * data - The der data to process
-    fn parse(data: &[u8]) -> Result<Self, ASN1Error> {
-        yasna::parse_der(data, |r| {
-            r.read_sequence(|r| {
-                r.next().read_sequence(|r| {
-                    let oid = r.next().read_oid()?;
-                    println!("x509 request oid is {:?}", oid);
-                    let pkey = if oid == OID_SHROUDED_KEY_BAG.to_yasna() {
-                        let pkey = r.next().read_tagged(yasna::Tag::context(0), |r| {
-                            println!("Attempting to parse encryptedprivatekeyinfo");
-                            p12::EncryptedPrivateKeyInfo::parse(r)
-                        })?;
-                        println!("Read private key");
-                        Ok(Self { key: pkey })
-                    } else {
-                        println!("Error1 with x509Request {:?}", oid);
-                        Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
-                    };
-                    let pkey = pkey?;
-                    println!("Reading more stuff");
-                    let s = r.next().read_set_of(|r| {
-                        println!("Reading more stuff 2");
-                        let s = r.read_sequence(|r| {
-                            let oid = r.next().read_oid().expect("Failed to read oid");
-                            if oid == OID_PKCS9_LOCAL_KEY_ID.to_yasna() {
-                                r.next()
-                                    .read_set(|r| {
-                                        let _d = r
-                                            .next(&[yasna::tags::TAG_OCTETSTRING])?
-                                            .read_bytes()
-                                            .expect("Failed to read local key id");
-                                        Ok(())
-                                    })
-                                    .expect("Failed to read sequence 2");
-                            } else if oid == OID_PKCS9_FRIENDLY_NAME.to_yasna() {
-                                r.next()
-                                    .read_set(|r| {
-                                        let _d = r
-                                            .next(&[yasna::tags::TAG_BMPSTRING])?
-                                            .read_bmp_string()
-                                            .expect("Failed to read friendly name");
-                                        Ok(())
-                                    })
-                                    .expect("Failed to read sequence 3");
-                            } else {
-                                panic!("Unexpected oid in public key info");
-                            }
-                            Ok(())
-                        });
-                        s
-                    });
-                    s?;
-                    Ok(pkey)
-                })
-            })
-        })
-    }
-}
-
-/// Collect and return the list of safe bags from a pkcs12 PFX container
-/// # Arguments
-/// * ec - The PFX container object
-/// * pass - The password for the container
-fn safe_bags(ec: &p12::PFX, pass: &[u8]) -> Result<Vec<p12::SafeBag>, ASN1Error> {
-    let data = ec.auth_safe.data(pass).unwrap();
-    let safe_bags = yasna::parse_ber(&data, |r| r.collect_sequence_of(p12::SafeBag::parse))?;
-
-    let mut result = vec![];
-    for safe_bag in safe_bags.iter() {
-        result.push(safe_bag.to_owned())
-    }
-    Ok(result)
-}
 
 /// A struct for pkcs12 certificates containing a certificate and a private key
 pub struct Pkcs12 {
-    /// The certificate containg the certificate
-    pub certificate: PkiMessage,
-    /// The private key
-    pub pkey: zeroize::Zeroizing<X509PrivateKey>,
+    /// The certificate in der format
+    pub cert: Vec<u8>,
+    /// The private key in der format
+    pub pkey: Vec<u8>,
 }
 
 impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
@@ -453,51 +15,14 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
     fn try_from(value: crate::ca::CaCertificate) -> Result<Self, Self::Error> {
         use der::Decode;
         let cert = value.certificate_der();
-        let pkim = PkiMessage {
-            cert: x509_cert::Certificate::from_der(&cert).map_err(|_| ())?,
-            der: cert,
-        };
-        let pder = value.pkey_der();
-        if pder.is_none() {
-            return Err(());
-        }
-        let pkey = zeroize::Zeroizing::new(X509PrivateKey {
-            der: pder.unwrap().to_vec(),
-        });
-        Ok(Self {
-            certificate: pkim,
-            pkey,
-        })
+        todo!()
     }
 }
 
 impl Pkcs12 {
     /// Create a pkcs12 formatted output
     pub fn get_pkcs12(&self, password: &str) -> Vec<u8> {
-        use rand::RngCore;
-        let mut rng = rand::thread_rng();
-        let mut p = p12::Pbkdf2Params {
-            salt: vec![0; 8],
-            iteration_count: 2048,
-            iv: [0; 16],
-        };
-        rng.fill_bytes(&mut p.iv);
-        rng.fill_bytes(&mut p.salt);
-        let p = p12::Pbes2Parameters {
-            parameters: p12::Pbes2KdfParams::Pbkdf2(p, p12::HmacMethod::Sha256),
-        };
-        let algorithm = p12::AlgorithmIdentifier::Pbe2(p);
-        let p12 = p12::PFX::new(
-            &self.certificate.get_der(),
-            &self.pkey.get_der(),
-            None,
-            password,
-            "certname",
-            algorithm,
-            p12::HmacMethod::Sha256,
-        )
-        .unwrap();
-        p12.to_der()
+        todo!()
     }
 
     /// Load a pkcs12 from the contents of the file specified
@@ -505,79 +30,91 @@ impl Pkcs12 {
     /// * data - The contents of the pkcs12 document
     /// * pass - The password protecting the document
     pub fn load_from_data(data: &[u8], pass: &[u8]) -> Self {
-        let ec = p12::PFX::parse(&data).expect("Failed to parse certificate");
+        use der::Decode;
+        use der::Encode;
 
-        let thing2 = safe_bags(&ec, pass).expect("Problem reading bags");
-
-        let mut certificate = None;
+        let mut cert = None;
         let mut pkey = None;
 
-        for b in thing2.iter() {
-            let mob = if let p12::SafeBagKind::OtherBagKind(o) = &b.bag {
-                Some(o)
-            } else {
-                None
-            };
-            let ob = mob.expect("Expected other bag data");
-            if ob.bag_id == OID_PKCS7_ENCRYPTED_DATA_CONTENT_TYPE.to_yasna() {
-                use der::Decode;
-                if let Ok(bag) = cms::encrypted_data::EncryptedData::from_der(&ob.bag_value) {
-                    let algorithm = bag.enc_content_info.content_enc_alg;
-                    let bag_data = bag.enc_content_info.encrypted_content.unwrap();
-                    let decrypted = if algorithm.oid == pkcs5::pbes2::PBES2_OID {
-                        let a = Pkcs5Pbes2::parse_parameters(algorithm.parameters.unwrap().value())
-                            .unwrap();
-                        let bdv = bag_data.into_bytes();
-                        a.decrypt(&bdv, pass)
-                    } else if algorithm.oid == OID_PBE_SHA_RC2_CBC_40.to_const() {
-                        println!("Algo parameters {:02X?}", algorithm);
-                        let p = yasna::parse_der(algorithm.parameters.unwrap().value(), |r| {
-                            let mut salt = Vec::new();
-                            let mut iter_count = 0;
-                            r.read_multi(|r| {
-                                salt = r.next().read_bytes()?;
-                                iter_count = r.next().read_u16()?;
-                                Ok(())
-                            })?;
-                            let mut salta: [u8; 8] = [0; 8];
-                            salta.copy_from_slice(&salt[0..8]);
-                            Ok(pkcs5::pbes1::Parameters {
-                                salt: salta,
-                                iteration_count: iter_count,
-                            })
-                        })
-                        .unwrap();
-                        let a = pkcs5::pbes1::Algorithm {
-                            encryption: pkcs5::pbes1::EncryptionScheme::PbeWithSha1AndRc2Cbc,
-                            parameters: p,
-                        };
-                        let scheme = pkcs5::EncryptionScheme::Pbes1(a);
-                        let bdv = bag_data.into_bytes();
-                        zeroize::Zeroizing::new(scheme.decrypt(pass, &bdv).unwrap())
-                    } else {
-                        panic!("Unexpected algorithm {:?}", algorithm.oid);
-                    };
-                    let decrypted_oid = bag.enc_content_info.content_type;
-                    if decrypted_oid == OID_PKCS7_DATA_CONTENT_TYPE.to_const() {
-                        let cert = PkiMessage::parse(&decrypted)
-                            .expect("Failed to parse certificate data");
-                        certificate = Some(cert);
-                    }
+        let pfx = pkcs12::pfx::Pfx::from_der(&data).expect("Failed to parse certificate");
+        let auth_safes_os =
+            der::asn1::OctetString::from_der(&pfx.auth_safe.content.to_der().unwrap()).unwrap();
+        let auth_safes =
+            pkcs12::authenticated_safe::AuthenticatedSafe::from_der(auth_safes_os.as_bytes())
+                .unwrap();
+
+        let auth_safe0 = auth_safes.first().unwrap();
+        let enc_data_os = &auth_safe0.content.to_der().unwrap();
+        let enc_data =
+            cms::encrypted_data::EncryptedData::from_der(enc_data_os.as_slice()).unwrap();
+        let enc_params = enc_data
+            .enc_content_info
+            .content_enc_alg
+            .parameters
+            .as_ref()
+            .unwrap()
+            .to_der()
+            .unwrap();
+
+        let params = pkcs8::pkcs5::pbes2::Parameters::from_der(&enc_params).unwrap();
+        let scheme = pkcs5::EncryptionScheme::from(params.clone());
+        let ciphertext_os = enc_data.enc_content_info.encrypted_content.clone().unwrap();
+        let mut ciphertext = ciphertext_os.as_bytes().to_vec();
+        let plaintext = scheme.decrypt_in_place("", &mut ciphertext).unwrap();
+        let cert_bags = pkcs12::safe_bag::SafeContents::from_der(plaintext).unwrap();
+        for cert_bag in cert_bags {
+            match cert_bag.bag_id {
+                pkcs12::PKCS_12_CERT_BAG_OID => {
+                    let cs: der::asn1::ContextSpecific<pkcs12::cert_type::CertBag> =
+                        der::asn1::ContextSpecific::from_der(&cert_bag.bag_value).unwrap();
+                    let cb = cs.value;
+                    let cert_der = cb.cert_value.as_bytes();
+                    cert = Some(cert_der.to_vec());
                 }
-            } else if ob.bag_id == OID_PKCS7_DATA_CONTENT_TYPE.to_yasna() {
-                let bag_data = yasna::parse_der(&ob.bag_value, |r| r.read_bytes())
-                    .expect("Failed to read bag data");
-                println!("Bag data is {:02X?}", bag_data);
-                let req = X509Request::parse(&bag_data).expect("Failed to read request");
-                let p = req.decrypt(pass).expect("Failed to decrypt private key");
-                pkey = Some(p);
-            } else {
-                todo!("Handle bag {:X?}", ob.bag_id);
-            }
+                _ => panic!(),
+            };
         }
 
-        let certificate = certificate.expect("No certificate loaded for https");
-        let pkey = pkey.expect("No private key loaded for https");
-        Self { certificate, pkey }
+        let k = params.kdf.to_der().unwrap();
+        let kdf_alg_info = pkcs8::spki::AlgorithmIdentifierOwned::from_der(&k).unwrap();
+        assert_eq!(pkcs5::pbes2::PBKDF2_OID, kdf_alg_info.oid);
+        let k_params = kdf_alg_info.parameters.unwrap().to_der().unwrap();
+
+        let pbkdf2_params = pkcs12::pbe_params::Pbkdf2Params::from_der(&k_params).unwrap();
+
+        let e = params.encryption.to_der().unwrap();
+        let enc_alg_info = pkcs8::spki::AlgorithmIdentifierOwned::from_der(&e).unwrap();
+
+        // Process second auth safe (from offset 984)
+        let auth_safe1 = auth_safes.get(1).unwrap();
+
+        let auth_safe1_auth_safes_os =
+            der::asn1::OctetString::from_der(&auth_safe1.content.to_der().unwrap()).unwrap();
+        let safe_bags =
+            pkcs12::safe_bag::SafeContents::from_der(auth_safe1_auth_safes_os.as_bytes()).unwrap();
+        for safe_bag in safe_bags {
+            match safe_bag.bag_id {
+                pkcs12::PKCS_12_PKCS8_KEY_BAG_OID => {
+                    let cs: der::asn1::ContextSpecific<pkcs8::EncryptedPrivateKeyInfo> =
+                        der::asn1::ContextSpecific::from_der(&safe_bag.bag_value).unwrap();
+                    let mut ciphertext = cs.value.encrypted_data.to_vec();
+                    let plaintext = cs
+                        .value
+                        .encryption_algorithm
+                        .decrypt_in_place(pass, &mut ciphertext)
+                        .unwrap();
+                    pkey = Some(plaintext.to_vec());
+                }
+                _ => panic!(),
+            };
+        }
+
+        // process mac data
+        let mac_data = pfx.mac_data.unwrap();
+
+        Self {
+            cert: cert.unwrap(),
+            pkey: pkey.unwrap(),
+        }
     }
 }

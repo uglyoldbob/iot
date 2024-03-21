@@ -15,6 +15,7 @@ oid = "0.2.1"
 pem = "3.0.3"
 pin-project-lite = "0.2.13"
 pkcs5 = "0.7.1"
+pkcs12 = "0.1.0"
 rand = "0.8.5"
 regex = "1.10.3"
 ring = "0.17.8"
@@ -28,6 +29,7 @@ tokio-rustls = "0.25.0"
 toml = "0.8.11"
 url_encoded_data = "0.6.1"
 x509-cert = "0.2.5"
+yasna = "0.5.2"
 zeroize = "1.7.0"
 
 [dependencies.cookie]
@@ -53,9 +55,6 @@ features = ["default-rustls"]
 
 [dependencies.ocsp]
 git = "https://github.com/uglyoldbob/ocsp-rs"
-
-[dependencies.p12]
-git = "https://github.com/uglyoldbob/p12.git"
 
 [dependencies.pkcs8]
 version = "0.10.2"

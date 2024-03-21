@@ -674,15 +674,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "des"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffdd80ce8ce993de27e9f063a444a4d53ce8e8db4c1f00cc03af5ad5a9867a1e"
-dependencies = [
- "cipher",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1621,7 +1612,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-futures",
- "yasna 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "yasna",
 ]
 
 [[package]]
@@ -1650,24 +1641,6 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
-
-[[package]]
-name = "p12"
-version = "0.6.3"
-source = "git+https://github.com/uglyoldbob/p12.git#63283370d6472447c970fe95221f035b0558e05a"
-dependencies = [
- "cbc",
- "cipher",
- "des",
- "getrandom 0.2.12",
- "hmac",
- "lazy_static",
- "pkcs5",
- "rc2",
- "sha1",
- "sha2",
- "yasna 0.5.2 (git+https://github.com/uglyoldbob/yasna.rs)",
-]
 
 [[package]]
 name = "parking_lot"
@@ -1789,6 +1762,20 @@ dependencies = [
  "der",
  "pkcs8",
  "spki",
+]
+
+[[package]]
+name = "pkcs12"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "695b3df3d3cc1015f12d70235e35b6b79befc5fa7a9b95b951eab1dd07c9efc2"
+dependencies = [
+ "cms",
+ "const-oid",
+ "der",
+ "spki",
+ "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
@@ -2007,15 +1994,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rc2"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62c64daa8e9438b84aaae55010a93f396f8e60e3911590fcba770d04643fc1dd"
-dependencies = [
- "cipher",
-]
-
-[[package]]
 name = "rcgen"
 version = "0.12.1"
 source = "git+https://github.com/uglyoldbob/rcgen.git?branch=publickey#b297cce5643665aa78f68754fa956f9801063313"
@@ -2024,7 +2002,7 @@ dependencies = [
  "ring 0.17.8",
  "time",
  "x509-parser",
- "yasna 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "yasna",
 ]
 
 [[package]]
@@ -2170,9 +2148,9 @@ dependencies = [
  "mysql",
  "ocsp",
  "oid",
- "p12",
  "pem 3.0.3",
  "pin-project-lite",
+ "pkcs12",
  "pkcs5",
  "pkcs8",
  "rand 0.8.5",
@@ -2192,6 +2170,7 @@ dependencies = [
  "toml",
  "url_encoded_data",
  "x509-cert",
+ "yasna",
  "zeroize",
 ]
 
@@ -3343,11 +3322,6 @@ checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
 dependencies = [
  "time",
 ]
-
-[[package]]
-name = "yasna"
-version = "0.5.2"
-source = "git+https://github.com/uglyoldbob/yasna.rs#478e46ee642df8abc39d8938d64a2ce57103df4e"
 
 [[package]]
 name = "zerocopy"

@@ -58,7 +58,7 @@ impl CsrAttribute {
         match self {
             CsrAttribute::ExtendedKeyUsage(oids) => {
                 let oid = &OID_EXTENDED_KEY_USAGE.components();
-                let content = p12::yasna::construct_der(|w| {
+                let content = yasna::construct_der(|w| {
                     w.write_sequence_of(|w| {
                         for o in oids {
                             w.next().write_oid(&o.to_yasna());
@@ -152,13 +152,13 @@ struct PkixAuthorityInfoAccess {
 
 impl PkixAuthorityInfoAccess {
     fn new(urls: Vec<String>) -> Self {
-        let asn = p12::yasna::construct_der(|w| {
+        let asn = yasna::construct_der(|w| {
             w.write_sequence_of(|w| {
                 for url in urls {
                     w.next().write_sequence(|w| {
                         w.next().write_oid(&OID_OCSP.to_yasna());
-                        let d = p12::yasna::models::TaggedDerValue::from_tag_and_bytes(
-                            p12::yasna::Tag::context(6),
+                        let d = yasna::models::TaggedDerValue::from_tag_and_bytes(
+                            yasna::Tag::context(6),
                             url.as_bytes().to_vec(),
                         );
                         w.next().write_tagged_der(&d);
@@ -330,7 +330,7 @@ impl Ca {
         let p = &pubkey.subject_public_key;
         let pder = p.to_der().unwrap();
 
-        let pkey = p12::yasna::parse_der(&pder, |r| {
+        let pkey = yasna::parse_der(&pder, |r| {
             let (data, _size) = r.read_bitvec_bytes()?;
             Ok(data)
         })
@@ -861,7 +861,7 @@ impl Ca {
         certid: &ocsp::common::asn1::CertId,
     ) -> ocsp::response::CertStatus {
         let oid_der = certid.hash_algo.to_der_raw().unwrap();
-        let oid: p12::yasna::models::ObjectIdentifier = p12::yasna::decode_der(&oid_der).unwrap();
+        let oid: yasna::models::ObjectIdentifier = yasna::decode_der(&oid_der).unwrap();
 
         let mut revoke_reason = None;
         let mut status = ocsp::response::CertStatusCode::Unknown;
@@ -992,7 +992,7 @@ pub struct CaCertificate {
 impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
     type Error = ();
     fn try_from(value: crate::pkcs12::Pkcs12) -> Result<Self, Self::Error> {
-        let cert_der = value.certificate.get_der();
+        let cert_der = &value.cert;
         let x509_cert = {
             use der::Decode;
             x509_cert::Certificate::from_der(cert_der).unwrap()
@@ -1002,7 +1002,7 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
             algorithm: algorithm.try_into().unwrap(),
             medium: CaCertificateStorage::Nowhere,
             cert: cert_der.to_owned(),
-            pkey: Some(zeroize::Zeroizing::new(value.pkey.get_der().to_owned())),
+            pkey: Some(zeroize::Zeroizing::new(value.pkey.to_owned())),
             name: "whatever".to_string(),
         })
     }
@@ -1945,7 +1945,7 @@ async fn build_ocsp_response(
         let data = ocsp::common::ocsp::OcspExt::Nonce { nonce: n }
             .to_der()
             .unwrap();
-        let datas = p12::yasna::construct_der(|w| {
+        let datas = yasna::construct_der(|w| {
             w.write_sequence(|w| {
                 w.next().write_der(&data);
             });

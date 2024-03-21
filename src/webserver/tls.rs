@@ -81,9 +81,9 @@ where
 
     let pkcs12 = crate::pkcs12::Pkcs12::load_from_data(&certbytes, pass.as_bytes());
 
-    let cert_der = pkcs12.certificate.get_der();
+    let cert_der = pkcs12.cert;
 
-    let pkey_der = pkcs12.pkey.get_der();
+    let pkey_der = pkcs12.pkey;
 
     let pkey = PrivatePkcs8KeyDer::from(pkey_der.to_owned());
     let pkey = PrivateKeyDer::Pkcs8(pkey);
