@@ -111,6 +111,21 @@ fn build_shrouded_bag(
                 w.next().write_tagged(yasna::Tag::context(0), |w| {
                     w.write_der(&encrypted_key.to_der().unwrap());
                 });
+                w.next().write_set(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
+                        let stuff: [u8; 20] = [42; 20];
+                        w.next().write_set(|w| {
+                            w.next().write_bytes(&stuff);
+                        });
+                    });
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&OID_PKCS9_FRIENDLY_NAME.to_yasna());
+                        w.next().write_set(|w| {
+                            w.next().write_bmp_string("'spiderman'");
+                        });
+                    });
+                });
                 //TODO optional bag attributes
                 //1.2.840.113549.1.9.21 (local key id)
                 //1.2.840.113549.1.9.20 (friendly name)
@@ -134,6 +149,21 @@ fn build_cert_bag(data: &[u8]) -> Vec<u8> {
                     .write_oid(&Oid::from_const(pkcs12::PKCS_12_CERT_BAG_OID).to_yasna());
                 w.next().write_tagged(yasna::Tag::context(0), |w| {
                     w.write_der(&cert_der);
+                });
+                w.next().write_set(|w| {
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
+                        let stuff: [u8; 20] = [42; 20];
+                        w.next().write_set(|w| {
+                            w.next().write_bytes(&stuff);
+                        });
+                    });
+                    w.next().write_sequence(|w| {
+                        w.next().write_oid(&OID_PKCS9_FRIENDLY_NAME.to_yasna());
+                        w.next().write_set(|w| {
+                            w.next().write_bmp_string("'spiderman'");
+                        });
+                    });
                 });
                 //TODO optional bag attributes
                 //1.2.840.113549.1.9.21 (local key id)
@@ -205,7 +235,7 @@ impl Pkcs12 {
             content,
         };
 
-        let mac_salt: [u8; 32] = rand::random();
+        let mac_salt: [u8; 8] = rand::random();
         let mac_key = pkcs12::kdf::derive_key_utf8::<sha2::Sha256>(
             password,
             &mac_salt,
