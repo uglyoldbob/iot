@@ -2,6 +2,11 @@
 
 use crate::oid::*;
 
+use const_oid::db::rfc5911::{ID_DATA, ID_ENCRYPTED_DATA};
+use const_oid::db::rfc5912::ID_SHA_256;
+use pkcs12::pfx::Version;
+use pkcs8::pkcs5::pbes2::{AES_256_CBC_OID, HMAC_WITH_SHA256_OID, PBES2_OID, PBKDF2_OID};
+
 /// A struct for pkcs12 certificates containing a certificate and a private key
 pub struct Pkcs12 {
     /// The certificate in der format
@@ -37,6 +42,8 @@ impl Pkcs12 {
         let mut pkey = None;
 
         let pfx = pkcs12::pfx::Pfx::from_der(&data).expect("Failed to parse certificate");
+        assert_eq!(Version::V3, pfx.version);
+        assert_eq!(ID_DATA, pfx.auth_safe.content_type);
         let auth_safes_os =
             der::asn1::OctetString::from_der(&pfx.auth_safe.content.to_der().unwrap()).unwrap();
         let auth_safes =
@@ -44,9 +51,12 @@ impl Pkcs12 {
                 .unwrap();
 
         let auth_safe0 = auth_safes.first().unwrap();
+        assert_eq!(ID_ENCRYPTED_DATA, auth_safe0.content_type);
         let enc_data_os = &auth_safe0.content.to_der().unwrap();
         let enc_data =
             cms::encrypted_data::EncryptedData::from_der(enc_data_os.as_slice()).unwrap();
+        assert_eq!(ID_DATA, enc_data.enc_content_info.content_type);
+        assert_eq!(PBES2_OID, enc_data.enc_content_info.content_enc_alg.oid);
         let enc_params = enc_data
             .enc_content_info
             .content_enc_alg
@@ -81,12 +91,16 @@ impl Pkcs12 {
         let k_params = kdf_alg_info.parameters.unwrap().to_der().unwrap();
 
         let pbkdf2_params = pkcs12::pbe_params::Pbkdf2Params::from_der(&k_params).unwrap();
+        assert_eq!(2048, pbkdf2_params.iteration_count);
+        assert_eq!(HMAC_WITH_SHA256_OID, pbkdf2_params.prf.oid);
 
         let e = params.encryption.to_der().unwrap();
         let enc_alg_info = pkcs8::spki::AlgorithmIdentifierOwned::from_der(&e).unwrap();
+        assert_eq!(AES_256_CBC_OID, enc_alg_info.oid);
 
         // Process second auth safe (from offset 984)
         let auth_safe1 = auth_safes.get(1).unwrap();
+        assert_eq!(ID_DATA, auth_safe1.content_type);
 
         let auth_safe1_auth_safes_os =
             der::asn1::OctetString::from_der(&auth_safe1.content.to_der().unwrap()).unwrap();
@@ -111,6 +125,8 @@ impl Pkcs12 {
 
         // process mac data
         let mac_data = pfx.mac_data.unwrap();
+        assert_eq!(ID_SHA_256, mac_data.mac.algorithm.oid);
+        assert_eq!(2048, mac_data.iterations);
 
         Self {
             cert: cert.unwrap(),
