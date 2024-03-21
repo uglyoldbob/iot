@@ -393,6 +393,7 @@ impl Ca {
         common_name: String,
         names: Vec<String>,
         extensions: Vec<rcgen::CustomExtension>,
+        id: usize,
     ) -> CaCertificateToBeSigned {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names);
@@ -409,6 +410,13 @@ impl Ca {
         params.not_before = time::OffsetDateTime::now_utc();
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
+
+        let mut sn = [0; 20];
+        for (i, b) in id.to_le_bytes().iter().enumerate() {
+            sn[i] = *b;
+        }
+        let sn = rcgen::SerialNumber::from_slice(&sn);
+        params.serial_number = Some(sn);
 
         let mut data: Vec<u8> = Vec::new();
         let csr = rcgen::CertificateSigningRequest { params, public_key };
@@ -702,12 +710,14 @@ impl Ca {
                                         .to_custom_extension(),
                                 );
 
+                                let id = ca.get_new_request_id().await.unwrap();
                                 let ocsp_csr = ca.generate_signing_request(
                                     CertificateSigningMethod::Rsa_Sha256,
                                     "ocsp".to_string(),
                                     "OCSP Responder".to_string(),
                                     ocsp_names,
                                     extensions,
+                                    id,
                                 );
                                 let mut ocsp_cert =
                                     ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr).unwrap();
@@ -728,12 +738,14 @@ impl Ca {
                                 );
 
                                 println!("Generating administrator certificate");
+                                let id = ca.get_new_request_id().await.unwrap();
                                 let admin_csr = ca.generate_signing_request(
                                     CertificateSigningMethod::Rsa_Sha256,
                                     "admin".to_string(),
                                     "Administrator".to_string(),
                                     Vec::new(),
                                     extensions,
+                                    id,
                                 );
                                 let mut admin_cert =
                                     ca.root_cert.as_ref().unwrap().sign_csr(admin_csr).unwrap();
@@ -1318,8 +1330,22 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
 
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
+    let mut certs = None;
+    if let Some(cs) = s.user_certs.all_certs() {
+        certs = Some(cs);
+    }
+
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
+        if let Some(cs) = certs {
+            b.text("You have certificate(s)").line_break(|a| a);
+            for cert in cs {
+                b.text(cert.tbs_certificate.subject.to_string())
+                    .line_break(|a| a);
+                b.text(cert.tbs_certificate.serial_number.to_string())
+                    .line_break(|a| a);
+            }
+        }
         b.anchor(|ab| {
             ab.text("Download CA certificate as der");
             ab.href(format!("/{}ca/get_ca.rs?type=der", s.proxy));
