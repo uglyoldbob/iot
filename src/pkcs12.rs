@@ -328,20 +328,40 @@ impl X509Request {
     /// # Arguments
     /// * pass - The password protecting the private key.
     fn decrypt(&self, pass: &[u8]) -> Option<zeroize::Zeroizing<X509PrivateKey>> {
-        if let p12::AlgorithmIdentifier::OtherAlg(o) = &self.key.encryption_algorithm {
-            if o.algorithm_type == OID_PKCS5_PBES2.to_yasna() {
-                let data = o.params.as_ref().unwrap();
-                let p =
-                    yasna::parse_der(data, |r| r.read_sequence(|r| Pkcs5Pbes2::parse(r.next())))
-                        .expect("Failed to decode pbes2");
-                let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
-                let pkey = X509PrivateKey::new(&pkey_der);
+        match self
+            .key
+            .encryption_algorithm
+            .decrypt_pbe(&self.key.encrypted_data, pass)
+        {
+            Some(d) => {
+                let pkey = X509PrivateKey::new(&d);
                 return Some(zeroize::Zeroizing::new(pkey));
-            } else {
-                panic!("Unexpected algorithm type for private key");
             }
+            None => match &self.key.encryption_algorithm {
+                p12::AlgorithmIdentifier::Sha1 => todo!(),
+                p12::AlgorithmIdentifier::Aes256Cbc(_iv) => todo!(),
+                p12::AlgorithmIdentifier::Sha256 => todo!(),
+                p12::AlgorithmIdentifier::Pbkdf2(_, _) => todo!(),
+                p12::AlgorithmIdentifier::PbewithSHAAnd40BitRC2CBC(_) => todo!(),
+                p12::AlgorithmIdentifier::PbeWithSHAAnd3KeyTripleDESCBC(_) => todo!(),
+                p12::AlgorithmIdentifier::Pbe2(params) => todo!(),
+                p12::AlgorithmIdentifier::Pbkdf2Prf(_) => todo!(),
+                p12::AlgorithmIdentifier::OtherAlg(o) => {
+                    if o.algorithm_type == OID_PKCS5_PBES2.to_yasna() {
+                        let data = o.params.as_ref().unwrap();
+                        let p = yasna::parse_der(data, |r| {
+                            r.read_sequence(|r| Pkcs5Pbes2::parse(r.next()))
+                        })
+                        .expect("Failed to decode pbes2");
+                        let pkey_der = p.decrypt(&self.key.encrypted_data, pass);
+                        let pkey = X509PrivateKey::new(&pkey_der);
+                        return Some(zeroize::Zeroizing::new(pkey));
+                    } else {
+                        panic!("Unexpected algorithm type for private key");
+                    }
+                }
+            },
         }
-        None
     }
 
     /// Parse the given der data to produce a Self
@@ -352,16 +372,22 @@ impl X509Request {
             r.read_sequence(|r| {
                 r.next().read_sequence(|r| {
                     let oid = r.next().read_oid()?;
+                    println!("x509 request oid is {:?}", oid);
                     let pkey = if oid == OID_SHROUDED_KEY_BAG.to_yasna() {
                         let pkey = r.next().read_tagged(yasna::Tag::context(0), |r| {
+                            println!("Attempting to parse encryptedprivatekeyinfo");
                             p12::EncryptedPrivateKeyInfo::parse(r)
                         })?;
+                        println!("Read private key");
                         Ok(Self { key: pkey })
                     } else {
+                        println!("Error1 with x509Request {:?}", oid);
                         Err(ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
                     };
                     let pkey = pkey?;
+                    println!("Reading more stuff");
                     let s = r.next().read_set_of(|r| {
+                        println!("Reading more stuff 2");
                         let s = r.read_sequence(|r| {
                             let oid = r.next().read_oid().expect("Failed to read oid");
                             if oid == OID_PKCS9_LOCAL_KEY_ID.to_yasna() {
@@ -458,7 +484,7 @@ impl Pkcs12 {
         rng.fill_bytes(&mut p.iv);
         rng.fill_bytes(&mut p.salt);
         let p = p12::Pbes2Parameters {
-            parameters: p12::Pbes2KdfParams::Pbkdf2(p),
+            parameters: p12::Pbes2KdfParams::Pbkdf2(p, p12::HmacMethod::Sha256),
         };
         let algorithm = p12::AlgorithmIdentifier::Pbe2(p);
         let p12 = p12::PFX::new(
@@ -541,6 +567,7 @@ impl Pkcs12 {
             } else if ob.bag_id == OID_PKCS7_DATA_CONTENT_TYPE.to_yasna() {
                 let bag_data = yasna::parse_der(&ob.bag_value, |r| r.read_bytes())
                     .expect("Failed to read bag data");
+                println!("Bag data is {:02X?}", bag_data);
                 let req = X509Request::parse(&bag_data).expect("Failed to read request");
                 let p = req.decrypt(pass).expect("Failed to decrypt private key");
                 pkey = Some(p);
