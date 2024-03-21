@@ -83,7 +83,7 @@ where
 
     let cert_der = pkcs12.cert;
 
-    let pkey_der = pkcs12.pkey;
+    let pkey_der: &Vec<u8> = pkcs12.pkey.as_ref();
 
     let pkey = PrivatePkcs8KeyDer::from(pkey_der.to_owned());
     let pkey = PrivateKeyDer::Pkcs8(pkey);

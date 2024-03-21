@@ -1002,7 +1002,7 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
             algorithm: algorithm.try_into().unwrap(),
             medium: CaCertificateStorage::Nowhere,
             cert: cert_der.to_owned(),
-            pkey: Some(zeroize::Zeroizing::new(value.pkey.to_owned())),
+            pkey: Some(value.pkey),
             name: "whatever".to_string(),
         })
     }
