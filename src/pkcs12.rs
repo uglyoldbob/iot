@@ -8,8 +8,58 @@ use const_oid::db::rfc5912::ID_SHA_256;
 use der::Decode;
 use pkcs12::mac_data::MacData;
 use pkcs12::pfx::Version;
-use pkcs8::pkcs5::pbes2::{AES_256_CBC_OID, HMAC_WITH_SHA256_OID, PBES2_OID, PBKDF2_OID};
-use sha256::Sha256Digest;
+use pkcs8::pkcs5::pbes2::{AES_256_CBC_OID, HMAC_WITH_SHA256_OID, PBES2_OID};
+
+/// A bag attribute
+#[derive(Debug, Clone)]
+pub enum BagAttribute {
+    /// The local key id
+    LocalKeyId(Vec<u8>),
+    /// The firendly name
+    FriendlyName(String),
+}
+
+impl TryFrom<&x509_cert::attr::Attribute> for BagAttribute {
+    type Error = ();
+    fn try_from(value: &x509_cert::attr::Attribute) -> Result<Self, Self::Error> {
+        if value.oid == OID_PKCS9_LOCAL_KEY_ID.to_const() {
+            let id = &value.values.as_slice()[0];
+            let val: der::asn1::OctetString = id.decode_as().unwrap();
+            return Ok(Self::LocalKeyId(val.as_bytes().to_vec()));
+        }
+        if value.oid == OID_PKCS9_FRIENDLY_NAME.to_const() {
+            let id = &value.values.as_slice()[0];
+            let bmp: der::asn1::BmpString = id.decode_as().unwrap();
+            let s = std::str::from_utf8(bmp.as_ref()).unwrap();
+            return Ok(Self::FriendlyName(s.to_string()));
+        }
+        panic!("Unsupported bag attribute {:?}", value.oid);
+    }
+}
+
+impl BagAttribute {
+    fn to_der(&self) -> Vec<u8> {
+        yasna::construct_der(|w| match self {
+            BagAttribute::LocalKeyId(id) => {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
+                    w.next().write_set(|w| {
+                        w.next().write_bytes(&id);
+                    });
+                });
+            }
+            BagAttribute::FriendlyName(name) => {
+                w.write_sequence(|w| {
+                    w.next().write_oid(&OID_PKCS9_FRIENDLY_NAME.to_yasna());
+                    w.next().write_set(|w| {
+                        w.next().write_bmp_string(name);
+                    });
+                });
+            }
+        })
+        .to_vec()
+    }
+}
 
 /// A struct for pkcs12 certificates containing a certificate and a private key
 pub struct Pkcs12 {
@@ -17,6 +67,8 @@ pub struct Pkcs12 {
     pub cert: Vec<u8>,
     /// The private key in der format
     pub pkey: zeroize::Zeroizing<Vec<u8>>,
+    /// The extra attributes for the certificate
+    pub attributes: Vec<BagAttribute>,
 }
 
 impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
@@ -30,6 +82,7 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
         Ok(Self {
             cert,
             pkey: pkey.unwrap(),
+            attributes: value.get_attributes(),
         })
     }
 }
@@ -94,6 +147,7 @@ fn build_shrouded_bag(
     enc_scheme: &pkcs5::EncryptionScheme,
     data: &[u8],
     password: &[u8],
+    attributes: &[BagAttribute],
 ) -> Vec<u8> {
     use der::Encode;
 
@@ -112,30 +166,17 @@ fn build_shrouded_bag(
                     w.write_der(&encrypted_key.to_der().unwrap());
                 });
                 w.next().write_set(|w| {
-                    w.next().write_sequence(|w| {
-                        w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
-                        let stuff: [u8; 20] = [42; 20];
-                        w.next().write_set(|w| {
-                            w.next().write_bytes(&stuff);
-                        });
-                    });
-                    w.next().write_sequence(|w| {
-                        w.next().write_oid(&OID_PKCS9_FRIENDLY_NAME.to_yasna());
-                        w.next().write_set(|w| {
-                            w.next().write_bmp_string("'spiderman'");
-                        });
-                    });
+                    for a in attributes {
+                        w.next().write_der(&a.to_der());
+                    }
                 });
-                //TODO optional bag attributes
-                //1.2.840.113549.1.9.21 (local key id)
-                //1.2.840.113549.1.9.20 (friendly name)
             });
         });
     })
     .to_vec()
 }
 
-fn build_cert_bag(data: &[u8]) -> Vec<u8> {
+fn build_cert_bag(data: &[u8], attributes: &[BagAttribute]) -> Vec<u8> {
     use der::Encode;
     let certbag = pkcs12::cert_type::CertBag {
         cert_id: pkcs12::PKCS_12_X509_CERT_OID,
@@ -151,23 +192,10 @@ fn build_cert_bag(data: &[u8]) -> Vec<u8> {
                     w.write_der(&cert_der);
                 });
                 w.next().write_set(|w| {
-                    w.next().write_sequence(|w| {
-                        w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
-                        let stuff: [u8; 20] = [42; 20];
-                        w.next().write_set(|w| {
-                            w.next().write_bytes(&stuff);
-                        });
-                    });
-                    w.next().write_sequence(|w| {
-                        w.next().write_oid(&OID_PKCS9_FRIENDLY_NAME.to_yasna());
-                        w.next().write_set(|w| {
-                            w.next().write_bmp_string("'spiderman'");
-                        });
-                    });
+                    for a in attributes {
+                        w.next().write_der(&a.to_der());
+                    }
                 });
-                //TODO optional bag attributes
-                //1.2.840.113549.1.9.21 (local key id)
-                //1.2.840.113549.1.9.20 (friendly name)
             });
         });
     })
@@ -210,10 +238,15 @@ impl Pkcs12 {
         let count = 2048;
         let enc_scheme = build_encryption_scheme(&salt, &iv, count);
 
-        let d1 = build_cert_bag(&self.cert);
+        let d1 = build_cert_bag(&self.cert, &self.attributes);
         let ci1 = build_encrypted_content_info(&enc_scheme, &d1, password.as_bytes());
         content_info.push(ci1);
-        let shroud_bag = build_shrouded_bag(&enc_scheme, &self.pkey, password.as_bytes());
+        let shroud_bag = build_shrouded_bag(
+            &enc_scheme,
+            &self.pkey,
+            password.as_bytes(),
+            &self.attributes,
+        );
         let ci2 = build_plain_content_info(&shroud_bag);
         content_info.push(ci2);
 
@@ -290,6 +323,7 @@ impl Pkcs12 {
 
         let mut cert = None;
         let mut pkey = None;
+        let mut attributes = Vec::new();
 
         let pfx = pkcs12::pfx::Pfx::from_der(&data).expect("Failed to parse certificate");
         assert_eq!(Version::V3, pfx.version);
@@ -367,8 +401,11 @@ impl Pkcs12 {
                         .encryption_algorithm
                         .decrypt(pass, &ciphertext)
                         .unwrap();
-
                     pkey = Some(plaintext.to_vec());
+                    let attr = safe_bag.bag_attributes.as_ref().unwrap();
+                    let attrs: Vec<BagAttribute> =
+                        attr.iter().map(|a| a.try_into().unwrap()).collect();
+                    attributes = attrs;
                 }
                 _ => panic!(),
             };
@@ -382,6 +419,7 @@ impl Pkcs12 {
         Self {
             cert: cert.unwrap(),
             pkey: zeroize::Zeroizing::new(pkey.unwrap()),
+            attributes,
         }
     }
 }

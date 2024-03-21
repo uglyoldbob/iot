@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use hyper::header::HeaderValue;
 use zeroize::Zeroizing;
 
+use crate::pkcs12::BagAttribute;
 use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
@@ -987,6 +988,8 @@ pub struct CaCertificate {
     pkey: Option<Zeroizing<Vec<u8>>>,
     /// The certificate name to use for storage
     name: String,
+    /// The extra attributes for the certificate
+    attributes: Vec<crate::pkcs12::BagAttribute>,
 }
 
 impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
@@ -997,13 +1000,21 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
             use der::Decode;
             x509_cert::Certificate::from_der(cert_der).unwrap()
         };
+        let mut name = "whatever".to_string();
+        for a in &value.attributes {
+            if let BagAttribute::FriendlyName(n) = a {
+                name = n.to_owned();
+                break;
+            }
+        }
         let algorithm = x509_cert.signature_algorithm;
         Ok(Self {
             algorithm: algorithm.try_into().unwrap(),
             medium: CaCertificateStorage::Nowhere,
             cert: cert_der.to_owned(),
             pkey: Some(value.pkey),
-            name: "whatever".to_string(),
+            name: name,
+            attributes: value.attributes.clone(),
         })
     }
 }
@@ -1022,8 +1033,20 @@ impl CaCertificate {
             medium,
             cert: der.to_vec(),
             pkey,
-            name,
+            name: name.clone(),
+            attributes: vec![
+                BagAttribute::LocalKeyId(vec![42; 16]), //TODO
+                BagAttribute::FriendlyName(name),
+            ],
         }
+    }
+
+    pub fn get_attributes(&self) -> Vec<crate::pkcs12::BagAttribute> {
+        self.attributes.clone()
+    }
+
+    pub fn get_name(&self) -> String {
+        self.name.to_owned()
     }
 
     /// Retrieve the private key in der format, if possible
@@ -1072,7 +1095,11 @@ impl CaCertificate {
             medium: CaCertificateStorage::Nowhere,
             cert,
             pkey: csr.pkey,
-            name: csr.name,
+            name: csr.name.clone(),
+            attributes: vec![
+                BagAttribute::LocalKeyId(vec![42; 16]), //TODO
+                BagAttribute::FriendlyName(csr.name),
+            ],
         })
     }
 

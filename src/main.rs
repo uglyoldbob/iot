@@ -331,15 +331,6 @@ async fn main() {
 
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
-    {
-        let tls_pass = settings.https.get("certpass").unwrap().as_str().unwrap();
-        let tls_cert = settings.https.get("certificate").unwrap().as_str().unwrap();
-        let mut certbytes = vec![];
-        let mut certf = std::fs::File::open(tls_cert).unwrap();
-        std::io::Read::read_to_end(&mut certf, &mut certbytes).unwrap();
-        let pkcs12 = crate::pkcs12::Pkcs12::load_from_data(&certbytes, tls_pass.as_bytes());
-    }
-
     let ca = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async { ca::Ca::load_and_init(&settings).await })
     });
