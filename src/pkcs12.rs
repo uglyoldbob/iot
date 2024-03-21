@@ -91,11 +91,6 @@ fn build_encrypted_content_info(data: &[u8], password: &[u8]) -> ContentInfo {
     ci1
 }
 
-fn build_regular_data(data: &[u8]) -> ContentInfo {
-    let ci1 = ContentInfo::from_der(data).unwrap();
-    ci1
-}
-
 fn build_cert_bag(data: &[u8]) -> Vec<u8> {
     use der::Encode;
     let certbag = pkcs12::cert_type::CertBag {
@@ -133,13 +128,12 @@ impl Pkcs12 {
         println!("Pkey der is {:02X?}", self.pkey);
 
         let d1 = build_cert_bag(&self.cert);
-
-        println!("Der of d1 is {:02X?}", d1);
-
         let ci1 = build_encrypted_content_info(&d1, password.as_bytes());
         content_info.push(ci1);
-        let ci2 = build_regular_data(&[1, 2, 3, 4]);
+        let ci2 = build_encrypted_content_info(&self.pkey, password.as_bytes());
         content_info.push(ci2);
+
+        println!("Der of d1 is {:02X?}", d1);
 
         let content: Vec<u8> = content_info
             .iter()
