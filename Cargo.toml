@@ -84,3 +84,10 @@ features = ["rustls"]
 version = "1.36.0"
 features = ["full"]
 
+[[bin]]
+name = "rust-iot"
+path = "src/main.rs"
+
+[[bin]]
+name = "rust-iot-construct"
+path = "src/construct.rs"
