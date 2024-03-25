@@ -104,7 +104,7 @@ impl Ca {
 
                                 let id = ca.get_new_request_id().await.unwrap();
                                 let ocsp_csr = ca.generate_signing_request(
-                                    CertificateSigningMethod::Rsa_Sha256,
+                                    CertificateSigningMethod::RsaSha256,
                                     "ocsp".to_string(),
                                     "OCSP Responder".to_string(),
                                     ocsp_names,
@@ -132,7 +132,7 @@ impl Ca {
                                 println!("Generating administrator certificate");
                                 let id = ca.get_new_request_id().await.unwrap();
                                 let admin_csr = ca.generate_signing_request(
-                                    CertificateSigningMethod::Rsa_Sha256,
+                                    CertificateSigningMethod::RsaSha256,
                                     "admin".to_string(),
                                     "Administrator".to_string(),
                                     Vec::new(),

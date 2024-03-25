@@ -45,9 +45,9 @@ pub enum CertificateLoadingError {
 #[derive(Debug, Clone)]
 pub enum CertificateSigningMethod {
     /// An rsa certificate with sha1
-    Rsa_Sha1,
+    RsaSha1,
     /// An rsa certificate rsa with sha256
-    Rsa_Sha256,
+    RsaSha256,
     /// Ecdsa
     Ecdsa,
 }
@@ -55,7 +55,7 @@ pub enum CertificateSigningMethod {
 impl CertificateSigningMethod {
     fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
         match self {
-            Self::Rsa_Sha1 | Self::Rsa_Sha256 => {
+            Self::RsaSha1 | Self::RsaSha256 => {
                 use pkcs8::EncodePrivateKey;
                 let mut rng = rand::thread_rng();
                 let bits = 4096;
@@ -82,9 +82,9 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
     fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
         let oid = value.oid;
         if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
-            Ok(Self::Rsa_Sha256)
+            Ok(Self::RsaSha256)
         } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
-            Ok(Self::Rsa_Sha1)
+            Ok(Self::RsaSha1)
         } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
             Ok(Self::Ecdsa)
         } else {
@@ -97,8 +97,8 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
 impl CertificateSigningMethod {
     fn oid(&self) -> crate::oid::Oid {
         match self {
-            Self::Rsa_Sha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
-            Self::Rsa_Sha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
+            Self::RsaSha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
+            Self::RsaSha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
             Self::Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
     }
@@ -307,10 +307,10 @@ impl CaCertificate {
                     todo!("Sign with external method")
                 }
             }
-            CertificateSigningMethod::Rsa_Sha1 => {
+            CertificateSigningMethod::RsaSha1 => {
                 todo!("Sign with rsa");
             }
-            CertificateSigningMethod::Rsa_Sha256 => {
+            CertificateSigningMethod::RsaSha256 => {
                 if let Some(pkey) = &self.pkey {
                     let rng = &ring::rand::SystemRandom::new();
                     let key = ring::signature::RsaKeyPair::from_pkcs8(&pkey).unwrap();
@@ -759,12 +759,8 @@ impl Ca {
                         url.push_str(&format!(":{}", p));
                     }
 
-                    let proxy = settings
-                        .general
-                        .get("proxy")
-                        .map(|e| e.to_owned())
-                        .unwrap_or(toml::Value::String("".to_string()));
-                    url.push_str(proxy.as_str().unwrap());
+                    let proxy = &settings.general.proxy;
+                    url.push_str(proxy.as_str());
                     url.push_str("/ca/ocsp");
                     urls.push(url);
                 }
@@ -783,7 +779,7 @@ impl Ca {
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
-            CaCertificateStorage::FilesystemDer(p) => MaybeError::None,
+            CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
         }
     }
 
@@ -1037,7 +1033,7 @@ impl<'a> PublicKey<'a> {
     /// * key - The der bytes of the public key. For RSA this is a sequence of two integers.
     fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
         match algorithm {
-            CertificateSigningMethod::Rsa_Sha1 => Self {
+            CertificateSigningMethod::RsaSha1 => Self {
                 key: ring::signature::UnparsedPublicKey::new(
                     &ring::signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
                     key,
@@ -1046,7 +1042,7 @@ impl<'a> PublicKey<'a> {
             CertificateSigningMethod::Ecdsa => {
                 todo!();
             }
-            CertificateSigningMethod::Rsa_Sha256 => Self {
+            CertificateSigningMethod::RsaSha256 => Self {
                 key: ring::signature::UnparsedPublicKey::new(
                     &ring::signature::RSA_PKCS1_2048_8192_SHA256,
                     key,

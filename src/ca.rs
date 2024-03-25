@@ -1,11 +1,7 @@
 //! Handles certificate authority functionality
 
-use std::path::PathBuf;
-
 use hyper::header::HeaderValue;
-use zeroize::Zeroizing;
 
-use crate::pkcs12::BagAttribute;
 use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;

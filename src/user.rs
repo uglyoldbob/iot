@@ -134,10 +134,10 @@ pub fn try_user_login(conn: &mut mysql::PooledConn, user: String, pass: String) 
 
 /// Used to initalize the administrator login for the system using the credentials specified in the config file.
 pub fn set_admin_login(conn: &mut mysql::PooledConn, settings: &crate::MainConfiguration) {
-    let scrypt_password = settings.admin.get("pass").unwrap().as_str().unwrap();
-    let scrypt_r: u32 = settings.admin.get("r").unwrap().as_integer().unwrap() as u32;
-    let scrypt_n: u8 = settings.admin.get("n").unwrap().as_integer().unwrap() as u8;
-    let scrypt_p: u32 = settings.admin.get("p").unwrap().as_integer().unwrap() as u32;
+    let scrypt_password = settings.admin.pass.to_owned();
+    let scrypt_r = settings.admin.r;
+    let scrypt_n = settings.admin.n;
+    let scrypt_p = settings.admin.p;
     let scrypt_params: scrypt::Params =
         scrypt::Params::new(scrypt_n, scrypt_r, scrypt_p, 64).unwrap();
     let scrypt_out: String;

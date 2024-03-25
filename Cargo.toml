@@ -8,6 +8,7 @@ edition = "2021"
 cms = "0.2.3"
 const-oid = "0.9.6"
 der = "0.7.8"
+directories = "5.0.1"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
@@ -32,6 +33,10 @@ url_encoded_data = "0.6.1"
 x509-cert = "0.2.5"
 yasna = "0.5.2"
 zeroize = "1.7.0"
+
+[dependencies.clap]
+version = "4.5.3"
+features = ["derive"]
 
 [dependencies.cookie]
 version = "0.18.0"

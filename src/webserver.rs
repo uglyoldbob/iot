@@ -10,7 +10,6 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_rustls::rustls::server::danger::ClientCertVerifier;
 use tokio_rustls::rustls::RootCertStore;
 
 use cookie::Cookie;

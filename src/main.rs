@@ -300,13 +300,7 @@ async fn main() {
 
     let mut hc = HttpContext {
         dirmap: router,
-        root: settings
-            .general
-            .get("static_content")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_string(),
+        root: settings.general.static_content.to_owned(),
         proxy: "".to_string(),
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
@@ -320,24 +314,8 @@ async fn main() {
         user::set_admin_login(mysql_conn_s, &settings);
     }
 
-    hc.proxy = settings
-        .general
-        .get("proxy")
-        .unwrap_or(&toml::Value::String("".to_string()))
-        .as_str()
-        .unwrap()
-        .to_string();
-    hc.cookiename = format!(
-        "{}/{}",
-        &hc.proxy,
-        settings
-            .general
-            .get("cookie")
-            .unwrap_or(&toml::Value::String("rustcookie".to_string()))
-            .as_str()
-            .unwrap()
-            .to_string()
-    );
+    hc.proxy = settings.general.proxy.to_owned();
+    hc.cookiename = format!("/{}{}", &hc.proxy, settings.general.cookie);
 
     if hc.proxy != *"" {
         println!("Using {} as the proxy path", &hc.proxy);
