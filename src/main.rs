@@ -8,6 +8,7 @@
 #![recursion_limit = "512"]
 
 mod ca;
+mod prompt;
 
 use std::fs;
 use std::sync::Arc;
