@@ -870,11 +870,8 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
 
     let mut ocsp_requirements = OcspRequirements::new();
     let ocsp_response = if let Some(ocsp) = ocsp_request {
-        let ocsp_table = s.settings.ca.as_ref().unwrap().get("ocsp").unwrap();
-        if let toml::Value::Table(t) = ocsp_table {
-            let require_signature = matches!(t.get("signature").unwrap().as_str().unwrap(), "yes");
-            ocsp_requirements.signature = require_signature;
-        }
+        let config = s.settings.ca.as_ref().unwrap();
+        ocsp_requirements.signature = config.ocsp_signature;
 
         if ocsp_requirements.signature {
             match ocsp.optional_signature {

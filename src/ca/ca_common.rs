@@ -4,6 +4,21 @@ use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
 
+/// The items used to configure a ca
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct CaConfiguration {
+    pub path: Option<PathBuf>,
+    pub generate: bool,
+    pub san: Vec<String>,
+    pub common_name: String,
+    pub days: u32,
+    pub chain_length: u8,
+    pub admin_password: String,
+    pub ocsp_password: String,
+    pub root_password: String,
+    pub ocsp_signature: bool,
+}
+
 pub struct PkixAuthorityInfoAccess {
     pub der: Vec<u8>,
 }
@@ -345,12 +360,9 @@ impl Ca {
 
         let table = settings.ca.as_ref().unwrap();
 
-        ca.load_ocsp_cert(table.get("ocsp-password").unwrap().as_str().unwrap())
-            .await;
-        ca.load_admin_cert(table.get("admin-password").unwrap().as_str().unwrap())
-            .await;
-        ca.load_root_ca_cert(table.get("root-password").unwrap().as_str().unwrap())
-            .await;
+        ca.load_ocsp_cert(&table.ocsp_password).await;
+        ca.load_admin_cert(&table.admin_password).await;
+        ca.load_root_ca_cert(&table.root_password).await;
         ca
     }
 
@@ -655,10 +667,8 @@ impl Ca {
     /// Create a Self from the application configuration
     fn from_config(settings: &crate::MainConfiguration) -> Self {
         let medium = if let Some(section) = &settings.ca {
-            if section.contains_key("path") {
-                CaCertificateStorage::FilesystemDer(
-                    section.get("path").unwrap().as_str().unwrap().into(),
-                )
+            if let Some(path) = &section.path {
+                CaCertificateStorage::FilesystemDer(path.to_owned())
             } else {
                 CaCertificateStorage::Nowhere
             }
@@ -724,46 +734,44 @@ impl Ca {
         let mut urls = Vec::new();
 
         if let Some(table) = &settings.ca {
-            if let Some(sans) = table.get("san").unwrap().as_array() {
-                for san in sans {
-                    let san: &str = san.as_str().unwrap();
+            for san in &table.san {
+                let san: &str = san.as_str();
 
-                    let mut url = String::new();
-                    let mut port_override = None;
-                    if matches!(
-                        settings.https.get("enabled").unwrap().as_str().unwrap(),
-                        "yes"
-                    ) {
-                        let default_port = 443;
-                        let p = settings.get_https_port();
-                        if p != default_port {
-                            port_override = Some(p);
-                        }
-                        url.push_str("https://");
-                    } else if matches!(
-                        settings.http.get("enabled").unwrap().as_str().unwrap(),
-                        "yes"
-                    ) {
-                        let default_port = 80;
-                        let p = settings.get_http_port();
-                        if p != default_port {
-                            port_override = Some(p);
-                        }
-                        url.push_str("http://");
-                    } else {
-                        panic!("Cannot build ocsp responder url");
+                let mut url = String::new();
+                let mut port_override = None;
+                if matches!(
+                    settings.https.get("enabled").unwrap().as_str().unwrap(),
+                    "yes"
+                ) {
+                    let default_port = 443;
+                    let p = settings.get_https_port();
+                    if p != default_port {
+                        port_override = Some(p);
                     }
-
-                    url.push_str(san);
-                    if let Some(p) = port_override {
-                        url.push_str(&format!(":{}", p));
+                    url.push_str("https://");
+                } else if matches!(
+                    settings.http.get("enabled").unwrap().as_str().unwrap(),
+                    "yes"
+                ) {
+                    let default_port = 80;
+                    let p = settings.get_http_port();
+                    if p != default_port {
+                        port_override = Some(p);
                     }
-
-                    let proxy = &settings.general.proxy;
-                    url.push_str(proxy.as_str());
-                    url.push_str("/ca/ocsp");
-                    urls.push(url);
+                    url.push_str("http://");
+                } else {
+                    panic!("Cannot build ocsp responder url");
                 }
+
+                url.push_str(san);
+                if let Some(p) = port_override {
+                    url.push_str(&format!(":{}", p));
+                }
+
+                let proxy = &settings.general.proxy;
+                url.push_str(proxy.as_str());
+                url.push_str("/ca/ocsp");
+                urls.push(url);
             }
         }
 

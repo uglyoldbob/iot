@@ -56,7 +56,7 @@ pub struct MainConfiguration {
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
     /// The table for ca settings
-    pub ca: Option<toml::Table>,
+    pub ca: Option<crate::ca::CaConfiguration>,
 }
 
 impl MainConfiguration {
