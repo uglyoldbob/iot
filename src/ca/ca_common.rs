@@ -739,20 +739,14 @@ impl Ca {
 
                 let mut url = String::new();
                 let mut port_override = None;
-                if matches!(
-                    settings.https.get("enabled").unwrap().as_str().unwrap(),
-                    "yes"
-                ) {
+                if settings.https.enabled {
                     let default_port = 443;
                     let p = settings.get_https_port();
                     if p != default_port {
                         port_override = Some(p);
                     }
                     url.push_str("https://");
-                } else if matches!(
-                    settings.http.get("enabled").unwrap().as_str().unwrap(),
-                    "yes"
-                ) {
+                } else if settings.http.enabled {
                     let default_port = 80;
                     let p = settings.get_http_port();
                     if p != default_port {

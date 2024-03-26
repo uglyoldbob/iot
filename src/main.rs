@@ -325,14 +325,8 @@ async fn main() {
 
     //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
-    let http_enable = matches!(
-        settings.http.get("enabled").unwrap().as_str().unwrap(),
-        "yes"
-    );
-    let https_enable = matches!(
-        settings.https.get("enabled").unwrap().as_str().unwrap(),
-        "yes"
-    );
+    let http_enable = settings.http.enabled;
+    let https_enable = settings.https.enabled;
 
     let hc = Arc::new(hc);
 
@@ -355,8 +349,8 @@ async fn main() {
         let https_port = settings.get_https_port();
         println!("Listening https on port {}", https_port);
 
-        let tls_pass = settings.https.get("certpass").unwrap().as_str().unwrap();
-        let tls_cert = settings.https.get("certificate").unwrap().as_str().unwrap();
+        let tls_pass = settings.https.certpass.to_owned();
+        let tls_cert = settings.https.certificate.to_owned();
         let tls = TlsConfig::new(tls_cert, tls_pass);
 
         let hc_https = hc.clone();

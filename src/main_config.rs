@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// The main configuration for the application
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {
@@ -36,6 +38,42 @@ impl AdminSettings {
     }
 }
 
+/// The http configuration for the application
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct HttpSettings {
+    pub enabled: bool,
+    pub port: u16,
+}
+
+impl HttpSettings {
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            port: 3,
+        }
+    }
+}
+
+/// The https configuration for the application
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct HttpsSettings {
+    pub enabled: bool,
+    pub certificate: PathBuf,
+    pub certpass: String,
+    pub port: u16,
+}
+
+impl HttpsSettings {
+    fn new() -> Self {
+        Self {
+            enabled: false,
+            certificate: PathBuf::new(),
+            certpass: "".into(),
+            port: 4,
+        }
+    }
+}
+
 /// The main configuration of the application
 #[derive(serde::Deserialize)]
 pub struct MainConfigurationAnswers {}
@@ -48,9 +86,9 @@ pub struct MainConfiguration {
     /// Admin user settings
     pub admin: AdminSettings,
     /// Settings for the http server
-    pub http: toml::Table,
+    pub http: HttpSettings,
     /// Settings for the https server
-    pub https: toml::Table,
+    pub https: HttpsSettings,
     /// Settings for the database
     pub database: toml::Table,
     /// Settings for client certificates
@@ -65,8 +103,8 @@ impl MainConfiguration {
         Self {
             general: GeneralSettings::new(),
             admin: AdminSettings::new(),
-            http: toml::Table::new(),
-            https: toml::Table::new(),
+            http: HttpSettings::new(),
+            https: HttpsSettings::new(),
             database: toml::Table::new(),
             client_certs: None,
             ca: None,
@@ -81,19 +119,11 @@ impl MainConfiguration {
 
     /// Return the port number for the http server
     pub fn get_http_port(&self) -> u16 {
-        self.http
-            .get("port")
-            .unwrap_or(&toml::Value::Integer(3000))
-            .as_integer()
-            .unwrap_or(3000) as u16
+        self.http.port
     }
 
     /// Return the port number for the https server
     pub fn get_https_port(&self) -> u16 {
-        self.https
-            .get("port")
-            .unwrap_or(&toml::Value::Integer(3001))
-            .as_integer()
-            .unwrap_or(3001) as u16
+        self.https.port
     }
 }
