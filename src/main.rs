@@ -257,32 +257,13 @@ async fn main() {
 
     let settings = Arc::new(settings);
 
-    let mysql_pw = settings
-        .database
-        .get("password")
-        .map(|a| a.to_owned())
-        .unwrap_or(toml::Value::String("invalid".to_string()));
-    let mysql_user = settings
-        .database
-        .get("username")
-        .map(|a| a.to_owned())
-        .unwrap_or(toml::Value::String("invalid".to_string()));
-    let mysql_dbname = settings
-        .database
-        .get("name")
-        .map(|a| a.to_owned())
-        .unwrap_or(toml::Value::String("invalid".to_string()));
-    let mysql_url = settings
-        .database
-        .get("url")
-        .map(|a| a.to_owned())
-        .unwrap_or(toml::Value::String("invalid".to_string()));
+    let mysql_pw = &settings.database.password;
+    let mysql_user = &settings.database.username;
+    let mysql_dbname = &settings.database.name;
+    let mysql_url = &settings.database.url;
     let mysql_conn_s = format!(
         "mysql://{}:{}@{}/{}",
-        mysql_user.as_str().unwrap(),
-        mysql_pw.as_str().unwrap(),
-        mysql_url.as_str().unwrap(),
-        mysql_dbname.as_str().unwrap()
+        mysql_user, mysql_pw, mysql_url, mysql_dbname,
     );
     let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
     let mysql_temp = mysql::Pool::new(mysql_opt);

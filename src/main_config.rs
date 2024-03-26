@@ -74,6 +74,26 @@ impl HttpsSettings {
     }
 }
 
+/// The database configuration for the application
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DatabaseSettings {
+    pub username: String,
+    pub password: String,
+    pub name: String,
+    pub url: String,
+}
+
+impl DatabaseSettings {
+    fn new() -> Self {
+        Self {
+            username: "".into(),
+            password: "".into(),
+            name: "".into(),
+            url: "".into(),
+        }
+    }
+}
+
 /// The main configuration of the application
 #[derive(serde::Deserialize)]
 pub struct MainConfigurationAnswers {}
@@ -90,7 +110,7 @@ pub struct MainConfiguration {
     /// Settings for the https server
     pub https: HttpsSettings,
     /// Settings for the database
-    pub database: toml::Table,
+    pub database: DatabaseSettings,
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
     /// The table for ca settings
@@ -105,7 +125,7 @@ impl MainConfiguration {
             admin: AdminSettings::new(),
             http: HttpSettings::new(),
             https: HttpsSettings::new(),
-            database: toml::Table::new(),
+            database: DatabaseSettings::new(),
             client_certs: None,
             ca: None,
         }
