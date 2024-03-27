@@ -5,6 +5,7 @@ struct TestMe {
     bob: u8,
     jim: Option<u8>,
     asdf: TestMe2,
+    path: std::path::PathBuf,
 }
 
 #[derive(Debug, prompt::Prompting)]

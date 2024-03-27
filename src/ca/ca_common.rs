@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 use crate::{oid::*, pkcs12::BagAttribute};
 
 /// The items used to configure a ca
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
     pub path: Option<PathBuf>,
     pub generate: bool,

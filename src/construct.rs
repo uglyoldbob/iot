@@ -7,7 +7,8 @@ pub mod pkcs12;
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
-use std::{io::Write, path::PathBuf};
+use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
 
 use crate::main_config::MainConfigurationAnswers;
 
@@ -20,6 +21,7 @@ struct Args {
     config: Option<String>,
 
     /// A configuration file with the answers already filled out
+    #[arg(short, long)]
     answers: Option<PathBuf>,
 }
 
@@ -39,9 +41,10 @@ async fn main() {
 
     let mut config = main_config::MainConfiguration::new();
     if let Some(answers) = &args.answers {
+        println!("Expect to read answers from {}", answers.to_str().unwrap());
         let answers_file = tokio::fs::read_to_string(answers)
             .await
-            .expect("Expected some answers where specified");
+            .expect("Expected some answers were specified");
         let answers: MainConfigurationAnswers =
             toml::from_str(&answers_file).expect("Failed to parse configuration");
         config.provide_answers(&answers)
@@ -50,8 +53,11 @@ async fn main() {
     }
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
-    let mut f = std::fs::File::create(config_path.join("config.toml")).unwrap();
+    let mut f = tokio::fs::File::create(config_path.join("config.toml"))
+        .await
+        .unwrap();
     f.write_all(config_data.as_bytes())
+        .await
         .expect("Failed to write configuration file");
     ca::Ca::init(&config).await;
 }

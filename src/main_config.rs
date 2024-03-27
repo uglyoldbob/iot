@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
+use prompt::Prompting;
+
 /// The main configuration for the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {
     pub cookie: String,
     pub proxy: String,
@@ -19,7 +21,7 @@ impl GeneralSettings {
 }
 
 /// The admin configuration for the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct AdminSettings {
     pub pass: String,
     pub n: u8,
@@ -39,7 +41,7 @@ impl AdminSettings {
 }
 
 /// The http configuration for the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct HttpSettings {
     pub enabled: bool,
     pub port: u16,
@@ -55,7 +57,7 @@ impl HttpSettings {
 }
 
 /// The https configuration for the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct HttpsSettings {
     pub enabled: bool,
     pub certificate: PathBuf,
@@ -75,7 +77,7 @@ impl HttpsSettings {
 }
 
 /// The database configuration for the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: String,
@@ -95,8 +97,21 @@ impl DatabaseSettings {
 }
 
 /// The main configuration of the application
-#[derive(serde::Deserialize)]
-pub struct MainConfigurationAnswers {}
+#[derive(prompt::Prompting, serde::Deserialize)]
+pub struct MainConfigurationAnswers {
+    /// General settings
+    pub general: GeneralSettings,
+    /// Admin user settings
+    pub admin: AdminSettings,
+    /// Settings for the http server
+    pub http: HttpSettings,
+    /// Settings for the https server
+    pub https: HttpsSettings,
+    /// Settings for the database
+    pub database: DatabaseSettings,
+    /// The table for ca settings
+    pub ca: Option<crate::ca::CaConfiguration>,
+}
 
 /// The main configuration of the application
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -131,11 +146,25 @@ impl MainConfiguration {
         }
     }
 
+    fn process_answers(&mut self, answers: &MainConfigurationAnswers) {
+        self.general = answers.general.clone();
+        self.admin = answers.admin.clone();
+        self.http = answers.http.clone();
+        self.https = answers.https.clone();
+        self.database = answers.database.clone();
+        self.ca = answers.ca.clone();
+    }
+
     /// Fill out the configuration by asking the user for input, using standard input and output
-    pub fn prompt_for_answers(&mut self) {}
+    pub fn prompt_for_answers(&mut self) {
+        let a: MainConfigurationAnswers = MainConfigurationAnswers::prompt(None).unwrap();
+        self.process_answers(&a);
+    }
 
     /// Fill out this configuration file with answers from the specified answer configuration
-    pub fn provide_answers(&mut self, answers: &MainConfigurationAnswers) {}
+    pub fn provide_answers(&mut self, answers: &MainConfigurationAnswers) {
+        self.process_answers(answers);
+    }
 
     /// Return the port number for the http server
     pub fn get_http_port(&self) -> u16 {
