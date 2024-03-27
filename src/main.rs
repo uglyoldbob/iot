@@ -236,8 +236,28 @@ async fn test_func3(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+use clap::Parser;
+/// Arguments for creating an iot instance
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The config path to override the default with
+    #[arg(short, long)]
+    config: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
+    let args = Args::parse();
+    let dirs = directories::ProjectDirs::from("com", "UglyOldBob", "Iot").unwrap();
+    let config_path = if let Some(p) = args.config {
+        std::path::PathBuf::from(p)
+    } else {
+        dirs.config_dir().to_path_buf()
+    }.join("config.toml");
+
+    println!("Load config from {:?}", config_path);
+
     let mut router = webserver::WebRouter::new();
     router.register("/asdf", test_func);
     router.register("/groot", test_func2);
@@ -247,7 +267,7 @@ async fn main() {
     router.register("/main.rs", main_page);
     ca::ca_register(&mut router);
 
-    let settings_file = fs::read_to_string("./settings.ini");
+    let settings_file = tokio::fs::read_to_string(config_path).await;
     let settings_con = match settings_file {
         Ok(con) => con,
         Err(_) => "".to_string(),
