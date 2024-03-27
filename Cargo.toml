@@ -70,6 +70,9 @@ features = ["encryption", "pem", "std"]
 version = "0.1.0"
 features = ["kdf"]
 
+[dependencies.prompt]
+path = "/home/thomas/prompt/prompt"
+
 [dependencies.rcgen]
 version = "0.12.1"
 git = "https://github.com/uglyoldbob/rcgen.git"
@@ -96,3 +99,7 @@ path = "src/main.rs"
 [[bin]]
 name = "rust-iot-construct"
 path = "src/construct.rs"
+
+[[bin]]
+name = "test"
+path = "src/test.rs"
