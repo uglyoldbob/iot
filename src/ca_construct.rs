@@ -6,49 +6,6 @@ pub use ca_common::*;
 use zeroize::Zeroizing;
 
 impl Ca {
-    /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
-        let mut urls = Vec::new();
-
-        if let Some(table) = &settings.ca {
-            for san in &table.san {
-                let san: &str = san.as_str();
-
-                let mut url = String::new();
-                let mut port_override = None;
-                if settings.https.enabled {
-                    let default_port = 443;
-                    let p = settings.get_https_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("https://");
-                } else if settings.http.enabled {
-                    let default_port = 80;
-                    let p = settings.get_http_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("http://");
-                } else {
-                    panic!("Cannot build ocsp responder url");
-                }
-
-                url.push_str(san);
-                if let Some(p) = port_override {
-                    url.push_str(&format!(":{}", p));
-                }
-
-                let proxy = &settings.general.proxy;
-                url.push_str(proxy.as_str());
-                url.push_str("/ca/ocsp");
-                urls.push(url);
-            }
-        }
-
-        urls
-    }
-
     /// Initialize the request id system
     pub async fn init_request_id(&mut self) {
         match &self.medium {
@@ -106,13 +63,6 @@ impl Ca {
                                 rcgen::BasicConstraints::Constrained(chain_length);
                             certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
 
-                            let pkix = PkixAuthorityInfoAccess::new(Self::get_ocsp_urls(settings));
-                            let ocsp_data = pkix.der;
-                            let ocsp = rcgen::CustomExtension::from_oid_content(
-                                &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
-                                ocsp_data,
-                            );
-                            certparams.custom_extensions.push(ocsp);
                             let cert = rcgen::Certificate::from_params(certparams).unwrap();
                             let cert_der = cert.serialize_der().unwrap();
                             let key_der = cert.get_key_pair().serialize_der();
@@ -128,7 +78,6 @@ impl Ca {
                             ca.root_cert = Ok(cacert);
                             ca.init_request_id().await;
                             println!("Generating OCSP responder certificate");
-                            let ocsp_names = Self::get_ocsp_urls(settings);
                             let mut key_usage_oids = Vec::new();
                             key_usage_oids.push(OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned());
                             let mut extensions = Vec::new();
@@ -142,12 +91,12 @@ impl Ca {
                                 CertificateSigningMethod::RsaSha256,
                                 "ocsp".to_string(),
                                 "OCSP Responder".to_string(),
-                                ocsp_names,
+                                ca.ocsp_urls.to_owned(),
                                 extensions,
                                 id,
                             );
                             let mut ocsp_cert =
-                                ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr).unwrap();
+                                ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr, &ca).unwrap();
                             ocsp_cert.medium = ca.medium.clone();
                             ocsp_cert.save_to_medium(&table.ocsp_password).await;
                             ca.ocsp_signer = Ok(ocsp_cert);
@@ -171,7 +120,7 @@ impl Ca {
                                 id,
                             );
                             let mut admin_cert =
-                                ca.root_cert.as_ref().unwrap().sign_csr(admin_csr).unwrap();
+                                ca.root_cert.as_ref().unwrap().sign_csr(admin_csr, &ca).unwrap();
                             admin_cert.medium = ca.medium.clone();
                             admin_cert.save_to_medium(&table.admin_password).await;
                             ca.admin = Ok(admin_cert);

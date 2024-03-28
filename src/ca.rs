@@ -226,11 +226,17 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
             ab.href(format!("/{}ca/request.rs", s.proxy));
             ab
         });
+        b.line_break(|lb| lb);
         if admin {
-            b.line_break(|lb| lb);
             b.anchor(|ab| {
                 ab.text("List pending requests");
                 ab.href(format!("/{}ca/list.rs", s.proxy));
+                ab
+            });
+            b.line_break(|lb| lb);
+            b.anchor(|ab| {
+                ab.text("List all certificates");
+                ab.href(format!("/{}ca/view_all_certs.rs", s.proxy));
                 ab
             });
             b.line_break(|lb| lb);
@@ -499,6 +505,61 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
+    let ca = s.ca.lock().await;
+
+    let mut admin = false;
+    if let Some(cs) = s.user_certs.all_certs() {
+        for cert in cs {
+            if ca.is_admin(cert) {
+                admin = true;
+            }
+        }
+    }
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, &s)
+            .script(|sb| {
+                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb
+            })
+            .script(|sb| {
+                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb
+            })
+    })
+    .body(|b| {
+        if admin {
+            b.heading_1(|h| h.text("Current Certificates")).line_break(|a|a);
+            for c in ca.get_cert_iter() {
+                b.thematic_break(|a| a);
+                b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer)).line_break(|a|a);
+                b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number)).line_break(|a|a);
+                b.text(format!("Subject: {}", c.0.tbs_certificate.subject)).line_break(|a|a);
+            }
+        }
+        b.thematic_break(|a| a);
+        b.anchor(|ab| {
+            ab.text("Back to main page");
+            ab.href(format!("/{}ca", s.proxy));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+
     webserver::WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie,
@@ -935,6 +996,7 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca/", ca_main_page);
     router.register("/ca/get_ca.rs", ca_get_cert);
     router.register("/ca/view_cert.rs", ca_view_user_cert);
+    router.register("/ca/view_all_certs.rs", ca_view_all_certs);
     router.register("/ca/get_cert.rs", ca_get_user_cert);
     router.register("/ca/ocsp", ca_ocsp_responder);
     router.register("/ca/request.rs", ca_request);

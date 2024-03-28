@@ -61,6 +61,19 @@ impl Ca {
         Err(())
     }
 
+    /// Get an iterator for the valid certificates of a ca
+    pub fn get_cert_iter(&self) -> CaCertIter {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => CaCertIter::Nowhere,
+            CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("certs");
+                std::fs::create_dir_all(&pb).unwrap();
+                let pf = std::fs::read_dir(&pb).unwrap();
+                CaCertIter::FilesystemDer(pf)
+            }
+        }
+    }
+
     /// Get an iterator for the csr of a ca
     pub fn get_csr_iter(&self) -> CaCsrIter {
         match &self.medium {
@@ -212,6 +225,42 @@ impl Ca {
                     cf.write_all(csr_doc.as_bytes()).await.unwrap();
                 }
                 newid
+            }
+        }
+    }
+}
+
+pub enum CaCertIter {
+    Nowhere,
+    FilesystemDer(std::fs::ReadDir),
+}
+
+impl Iterator for CaCertIter {
+    type Item = (x509_cert::Certificate, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use der::Decode;
+        match self {
+            CaCertIter::Nowhere => None,
+            CaCertIter::FilesystemDer(rd) => {
+                let n = rd.next();
+                let a = n.map(|rde| {
+                    rde.map(|de| {
+                        use std::io::Read;
+                        let path = de.path();
+                        let fname = path.file_stem().unwrap();
+                        let fnint: usize = fname.to_str().unwrap().parse().unwrap();
+                        let mut f = std::fs::File::open(path).ok().unwrap();
+                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
+                        f.read_to_end(&mut cert).unwrap();
+                        (
+                            x509_cert::Certificate::from_der(&cert).unwrap(),
+                            fnint,
+                        )
+                    })
+                    .unwrap()
+                });
+                a
             }
         }
     }

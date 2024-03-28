@@ -265,7 +265,16 @@ impl CaCertificate {
     }
 
     /// Sign a csr with the certificate, if possible
-    pub fn sign_csr(&self, csr: CaCertificateToBeSigned) -> Option<CaCertificate> {
+    pub fn sign_csr(&self, mut csr: CaCertificateToBeSigned, ca: &Ca) -> Option<CaCertificate> {
+        let the_csr = &mut csr.csr;
+        let pkix = PkixAuthorityInfoAccess::new(ca.ocsp_urls.to_owned());
+        let ocsp_data = pkix.der;
+        let ocsp = rcgen::CustomExtension::from_oid_content(
+            &OID_PKIX_AUTHORITY_INFO_ACCESS.components(),
+            ocsp_data,
+        );
+        the_csr.params.custom_extensions.push(ocsp);
+
         let cert = csr
             .csr
             .serialize_der_with_signer(&self.as_certificate())
@@ -326,9 +335,54 @@ pub struct Ca {
     pub ocsp_signer: Result<CaCertificate, CertificateLoadingError>,
     /// The administrator certificate
     pub admin: Result<CaCertificate, CertificateLoadingError>,
+    /// The urls for the ca
+    pub ocsp_urls: Vec<String>,
 }
 
 impl Ca {
+    /// Returns the ocsp url, based on the application settings, preferring https over http
+    fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
+        let mut urls = Vec::new();
+
+        if let Some(table) = &settings.ca {
+            for san in &table.san {
+                let san: &str = san.as_str();
+
+                let mut url = String::new();
+                let mut port_override = None;
+                if settings.https.enabled {
+                    let default_port = 443;
+                    let p = settings.get_https_port();
+                    if p != default_port {
+                        port_override = Some(p);
+                    }
+                    url.push_str("https://");
+                } else if settings.http.enabled {
+                    let default_port = 80;
+                    let p = settings.get_http_port();
+                    if p != default_port {
+                        port_override = Some(p);
+                    }
+                    url.push_str("http://");
+                } else {
+                    panic!("Cannot build ocsp responder url");
+                }
+
+                url.push_str(san);
+                if let Some(p) = port_override {
+                    url.push_str(&format!(":{}", p));
+                }
+
+                let proxy = &settings.general.proxy;
+                url.push_str(proxy.as_str());
+                url.push_str("/ca/ocsp");
+                urls.push(url);
+            }
+        }
+
+        urls
+    }
+
     /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
     /// # Arguments
     /// * serial - The serial number of the certificate
@@ -403,6 +457,7 @@ impl Ca {
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
+            ocsp_urls: Self::get_ocsp_urls(settings),
         }
     }
 
