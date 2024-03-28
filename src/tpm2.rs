@@ -1,7 +1,7 @@
 //! Code related to the optional tpm2 hardware module
 
 use ring::aead::{Aad, BoundKey, NonceSequence};
-use tss_esapi::structures::CreatePrimaryKeyResult;
+use tss_esapi::structures::{CreatePrimaryKeyResult, Private, Public, SensitiveData};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct AeadEncryptedData {
@@ -10,14 +10,14 @@ struct AeadEncryptedData {
     data: Vec<u8>,
 }
 
-pub fn encrypt(data: &[u8], password: &str) -> Vec<u8> {
+pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
     let salt: [u8; 8] = rand::random();
     let mut keydata = [0; 32];
     ring::pbkdf2::derive(
         ring::pbkdf2::PBKDF2_HMAC_SHA256,
         std::num::NonZeroU32::new(2048).unwrap(),
         &salt,
-        password.as_bytes(),
+        password,
         &mut keydata,
     );
 
@@ -40,7 +40,7 @@ pub fn encrypt(data: &[u8], password: &str) -> Vec<u8> {
     bincode::serialize(&stuff).unwrap().to_vec()
 }
 
-pub fn decrypt(edata: Vec<u8>, password: &str) -> Vec<u8> {
+pub fn decrypt(edata: Vec<u8>, password: &[u8]) -> Vec<u8> {
     let edata: AeadEncryptedData = bincode::deserialize(&edata).unwrap();
 
     let mut keydata = [0; 32];
@@ -48,7 +48,7 @@ pub fn decrypt(edata: Vec<u8>, password: &str) -> Vec<u8> {
         ring::pbkdf2::PBKDF2_HMAC_SHA256,
         std::num::NonZeroU32::new(2048).unwrap(),
         &edata.salt,
-        password.as_bytes(),
+        password,
         &mut keydata,
     );
     let key = ring::aead::UnboundKey::new(&ring::aead::CHACHA20_POLY1305, &keydata).unwrap();
@@ -62,6 +62,74 @@ pub fn decrypt(edata: Vec<u8>, password: &str) -> Vec<u8> {
         )
         .unwrap()
         .to_vec()
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct Password {
+    salt: [u8; 16],
+    iterations: std::num::NonZeroU32,
+    data: Vec<u8>,
+}
+
+impl Password {
+    pub fn build(password: &[u8], iterations: std::num::NonZeroU32) -> Self {
+        let salt: [u8; 16] = rand::random();
+        let mut pw = Vec::new();
+        ring::pbkdf2::derive(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            iterations,
+            &salt,
+            password,
+            &mut pw,
+        );
+        Self {
+            salt,
+            iterations,
+            data: pw,
+        }
+    }
+
+    pub fn verify(&self, password: &[u8]) -> bool {
+        let salt = &self.salt;
+        match ring::pbkdf2::verify(
+            ring::pbkdf2::PBKDF2_HMAC_SHA256,
+            self.iterations,
+            salt,
+            password,
+            &self.data,
+        ) {
+            Ok(()) => true,
+            _ => false,
+        }
+    }
+
+    pub fn data(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    pub fn rebuild(data: &[u8]) -> Self {
+        bincode::deserialize(data).unwrap()
+    }
+
+    pub fn password(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct TpmBlob {
+    data: Vec<u8>,
+    public: Public,
+}
+
+impl TpmBlob {
+    pub fn data(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    pub fn rebuild(data: &[u8]) -> Self {
+        bincode::deserialize(data).unwrap()
+    }
 }
 
 pub struct Tpm2 {
@@ -122,122 +190,83 @@ impl Tpm2 {
         Self { context, pkr }
     }
 
-    pub fn decrypt(
-        &mut self,
-        edata: &[u8],
-        private: tss_esapi::structures::Private,
-        public: tss_esapi::structures::Public,
-    ) -> Result<Vec<u8>, ()> {
-        let edata = tss_esapi::structures::PublicKeyRsa::try_from(edata.to_vec()).unwrap();
-        let pdata = self
+    pub fn decrypt(&mut self, blob: TpmBlob) -> Result<Vec<u8>, ()> {
+        let edata = &blob.data;
+        let enc_private = Private::from_bytes(edata).unwrap();
+        let unsealed = self
             .context
             .execute_with_nullauth_session(|ctx| {
-                let rsa_priv_key = ctx
-                    .load(self.pkr.key_handle, private.clone(), public.clone())
+                // When we wish to unseal the data, we must load this object like any other meeting
+                // any policy or authValue requirements.
+                let sealed_data_object = ctx
+                    .load(self.pkr.key_handle, enc_private, blob.public)
                     .unwrap();
-
-                ctx.rsa_decrypt(
-                    rsa_priv_key,
-                    edata,
-                    tss_esapi::structures::RsaDecryptionScheme::Oaep(
-                        tss_esapi::structures::HashScheme::new(
-                            tss_esapi::interface_types::algorithm::HashingAlgorithm::Sha1,
-                        ),
-                    ),
-                    tss_esapi::structures::Data::default(),
-                )
+                ctx.unseal(sealed_data_object.into())
             })
             .unwrap();
-        Ok(pdata.to_vec())
+        Ok(unsealed.to_vec())
     }
 
-    pub fn make_rsa(
-        &mut self,
-    ) -> Result<
-        (
-            tss_esapi::structures::Private,
-            tss_esapi::structures::Public,
-        ),
-        (),
-    > {
+    /// Ecnrypt some data
+    pub fn encrypt(&mut self, data: &[u8]) -> Result<TpmBlob, ()> {
+        // A sealed data object is a specialised form of a HMAC key. There are strict requirements for
+        // the object attributes and algorithms to signal to the TPM that this is a sealed data object.
         let object_attributes = tss_esapi::attributes::ObjectAttributesBuilder::new()
             .with_fixed_tpm(true)
             .with_fixed_parent(true)
-            .with_st_clear(false)
-            .with_sensitive_data_origin(true)
+            .with_st_clear(true)
+            // To access the sealed data we require user auth or policy. In this example we
+            // set a null authValue.
             .with_user_with_auth(true)
-            // We need a key that can decrypt values - we don't need to worry
-            // about signatures.
-            .with_decrypt(true)
-            // Note that we don't set the key as restricted.
+            // Must be clear (not set). This is because the sensitive data is
+            // input from an external source.
+            // .with_sensitive_data_origin(true)
+            // For sealed data, none of sign, decrypt or restricted can be set. This indicates
+            // the created object is a sealed data object.
+            // .with_decrypt(false)
+            // .with_restricted(false)
+            // .with_sign_encrypt(false)
             .build()
             .expect("Failed to build object attributes");
 
-        let rsa_params = tss_esapi::structures::PublicRsaParametersBuilder::new()
-            // The value for scheme may have requirements set by a combination of the
-            // sign, decrypt, and restricted flags. For an unrestricted signing and
-            // decryption key then scheme must be NULL. For an unrestricted decryption key,
-            // NULL, OAEP or RSAES are valid for use.
-            .with_scheme(tss_esapi::structures::RsaScheme::Null)
-            .with_key_bits(tss_esapi::interface_types::key_bits::RsaKeyBits::Rsa2048)
-            .with_exponent(tss_esapi::structures::RsaExponent::default())
-            .with_is_decryption_key(true)
-            // We don't require signatures, but some users may.
-            // .with_is_signing_key(true)
-            .with_restricted(false)
-            .build()
-            .expect("Failed to build rsa parameters");
-
         let key_pub = tss_esapi::structures::PublicBuilder::new()
-            .with_public_algorithm(tss_esapi::interface_types::algorithm::PublicAlgorithm::Rsa)
+            // A sealed data object is an HMAC key with a NULL hash scheme.
+            .with_public_algorithm(
+                tss_esapi::interface_types::algorithm::PublicAlgorithm::KeyedHash,
+            )
             .with_name_hashing_algorithm(
                 tss_esapi::interface_types::algorithm::HashingAlgorithm::Sha256,
             )
             .with_object_attributes(object_attributes)
-            .with_rsa_parameters(rsa_params)
-            .with_rsa_unique_identifier(tss_esapi::structures::PublicKeyRsa::default())
+            .with_keyed_hash_parameters(tss_esapi::structures::PublicKeyedHashParameters::new(
+                tss_esapi::structures::KeyedHashScheme::Null,
+            ))
+            .with_keyed_hash_unique_identifier(tss_esapi::structures::Digest::default())
             .build()
             .unwrap();
+
+        let sensitive_data = SensitiveData::from_bytes(data).unwrap();
 
         let (enc_private, public) = self
             .context
             .execute_with_nullauth_session(|ctx| {
-                ctx.create(self.pkr.key_handle, key_pub, None, None, None, None)
-                    .map(|key| (key.out_private, key.out_public))
-            })
-            .unwrap();
-        Ok((enc_private, public))
-    }
-
-    /// Ecnrypt some data
-    pub fn encrypt(
-        &mut self,
-        data: &[u8],
-        public: tss_esapi::structures::Public,
-    ) -> Result<Vec<u8>, ()> {
-        let pdata = tss_esapi::structures::PublicKeyRsa::try_from(data.to_vec()).unwrap();
-        let edata = self
-            .context
-            .execute_with_nullauth_session(|ctx| {
-                let rsa_pub_key = ctx
-                    .load_external_public(
-                        public.clone(),
-                        tss_esapi::interface_types::reserved_handles::Hierarchy::Null,
-                    )
-                    .unwrap();
-
-                ctx.rsa_encrypt(
-                    rsa_pub_key,
-                    pdata.clone(),
-                    tss_esapi::structures::RsaDecryptionScheme::Oaep(
-                        tss_esapi::structures::HashScheme::new(
-                            tss_esapi::interface_types::algorithm::HashingAlgorithm::Sha1,
-                        ),
-                    ),
-                    tss_esapi::structures::Data::default(),
+                // Create the sealed data object. The encrypted private component is now encrypted and
+                // contains our data. Like any other TPM object, to load this we require the public
+                // component as well. Both should be persisted for future use.
+                ctx.create(
+                    self.pkr.key_handle,
+                    key_pub,
+                    None,
+                    Some(sensitive_data),
+                    None,
+                    None,
                 )
+                .map(|key| (key.out_private, key.out_public))
             })
             .unwrap();
-        Ok(edata.to_vec())
+        Ok(TpmBlob {
+            data: enc_private.to_vec(),
+            public,
+        })
     }
 }

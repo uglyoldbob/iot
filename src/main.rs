@@ -12,6 +12,7 @@ mod ca;
 mod tpm2;
 
 use std::fs;
+use std::io::Write;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -24,6 +25,7 @@ mod main_config;
 pub mod oid;
 pub mod pkcs12;
 pub use main_config::MainConfiguration;
+use prompt::Prompting;
 use tokio::io::AsyncReadExt;
 
 use crate::webserver::tls::*;
@@ -279,24 +281,34 @@ async fn main() {
     let settings: MainConfiguration;
     #[cfg(feature = "tpm2")]
     {
-        let mut epassword = Vec::new();
+        let mut password: String;
+        loop {
+            print!("Please enter a password:");
+            std::io::stdout().flush().unwrap();
+            password = String::prompt(None).unwrap();
+            if !password.is_empty() {
+                break;
+            }
+        }
+
+        let mut tpm_data = Vec::new();
         let mut f = tokio::fs::File::open(config_path.join("password.bin"))
             .await
             .unwrap();
-        f.read_to_end(&mut epassword).await.unwrap();
+        f.read_to_end(&mut tpm_data).await.unwrap();
 
         let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
-        let (private, public) = tpm2.make_rsa().unwrap();
 
-        let plain_password = tpm2.decrypt(&epassword, private, public).unwrap();
-        println!(
-            "The plain password is {}",
-            std::str::from_utf8(&plain_password).unwrap()
-        );
+        let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
 
-        let pdata = tpm2::decrypt(settings_con, std::str::from_utf8(&plain_password).unwrap());
-        println!("Config is {}", std::str::from_utf8(&pdata).unwrap());
-        settings = toml::from_str(std::str::from_utf8(&pdata).unwrap())
+        let epdata = tpm2.decrypt(tpm_data).unwrap();
+        let protected_password = tpm2::Password::rebuild(&epdata);
+
+        let password_combined = [password.as_bytes(), protected_password.password()].concat();
+
+        let pconfig = tpm2::decrypt(settings_con, &password_combined);
+
+        settings = toml::from_str(std::str::from_utf8(&pconfig).unwrap())
             .expect("Failed to parse configuration");
     }
     #[cfg(not(feature = "tpm2"))]

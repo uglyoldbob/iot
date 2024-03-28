@@ -11,7 +11,7 @@ pub use main_config::MainConfiguration;
 use clap::Parser;
 use prompt::Prompting;
 use ring::aead::BoundKey;
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 use tokio::io::AsyncWriteExt;
 
 use crate::main_config::MainConfigurationAnswers;
@@ -64,26 +64,36 @@ async fn main() {
 
     #[cfg(feature = "tpm2")]
     {
-        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
-        let (_private, public) = tpm2.make_rsa().unwrap();
         let mut password: String;
         loop {
-            println!("Please enter a password:");
+            print!("Please enter a password:");
+            std::io::stdout().flush().unwrap();
             password = String::prompt(None).unwrap();
             if !password.is_empty() {
                 break;
             }
         }
 
-        let econfig = tpm2::encrypt(config_data.as_bytes(), &password);
-        let edata = tpm2.encrypt(password.as_bytes(), public).unwrap();
+        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+
+        let password2: [u8; 32] = rand::random();
+
+        let protected_password =
+            tpm2::Password::build(&password2, std::num::NonZeroU32::new(2048).unwrap());
+
+        let password_combined = [password.as_bytes(), protected_password.password()].concat();
+
+        let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), &password_combined);
+
+        let epdata = protected_password.data();
+        let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
         let mut f2 = tokio::fs::File::create(config_path.join("password.bin"))
             .await
             .unwrap();
-        f2.write_all(&edata)
+        f2.write_all(&tpmblob.data())
             .await
-            .expect("Failed to write ecrypted password");
+            .expect("Failed to write protected password");
 
         f.write_all(&econfig)
             .await
