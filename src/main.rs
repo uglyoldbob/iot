@@ -8,6 +8,8 @@
 #![recursion_limit = "512"]
 
 mod ca;
+#[cfg(feature = "tpm2")]
+mod tpm2;
 
 use std::fs;
 use std::sync::Arc;
@@ -22,6 +24,7 @@ mod main_config;
 pub mod oid;
 pub mod pkcs12;
 pub use main_config::MainConfiguration;
+use tokio::io::AsyncReadExt;
 
 use crate::webserver::tls::*;
 use crate::webserver::*;
@@ -254,7 +257,7 @@ async fn main() {
         std::path::PathBuf::from(p)
     } else {
         dirs.config_dir().to_path_buf()
-    }.join("config.toml");
+    };
 
     println!("Load config from {:?}", config_path);
 
@@ -267,13 +270,39 @@ async fn main() {
     router.register("/main.rs", main_page);
     ca::ca_register(&mut router);
 
-    let settings_file = tokio::fs::read_to_string(config_path).await;
-    let settings_con = match settings_file {
-        Ok(con) => con,
-        Err(_) => "".to_string(),
-    };
-    let settings: MainConfiguration =
-        toml::from_str(&settings_con).expect("Failed to parse configuration");
+    let mut settings_con = Vec::new();
+    let mut f = tokio::fs::File::open(config_path.join("config.toml"))
+        .await
+        .unwrap();
+    f.read_to_end(&mut settings_con).await.unwrap();
+
+    let settings: MainConfiguration;
+    #[cfg(feature = "tpm2")]
+    {
+        let mut epassword = Vec::new();
+        let mut f = tokio::fs::File::open(config_path.join("password.bin"))
+            .await
+            .unwrap();
+        f.read_to_end(&mut epassword).await.unwrap();
+
+        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+        let (private, public) = tpm2.make_rsa().unwrap();
+
+        let plain_password = tpm2.decrypt(&epassword, private, public).unwrap();
+        println!(
+            "The plain password is {}",
+            std::str::from_utf8(&plain_password).unwrap()
+        );
+
+        let pdata = tpm2::decrypt(settings_con, std::str::from_utf8(&plain_password).unwrap());
+        println!("Config is {}", std::str::from_utf8(&pdata).unwrap());
+        settings = toml::from_str(std::str::from_utf8(&pdata).unwrap())
+            .expect("Failed to parse configuration");
+    }
+    #[cfg(not(feature = "tpm2"))]
+    {
+        settings = toml::from_str(&settings_con).expect("Failed to parse configuration");
+    }
 
     let settings = Arc::new(settings);
 

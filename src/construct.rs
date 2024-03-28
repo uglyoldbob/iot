@@ -3,10 +3,14 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
+#[cfg(feature = "tpm2")]
+mod tpm2;
 
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
+use prompt::Prompting;
+use ring::aead::BoundKey;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 
@@ -53,11 +57,43 @@ async fn main() {
     }
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
+
     let mut f = tokio::fs::File::create(config_path.join("config.toml"))
         .await
         .unwrap();
-    f.write_all(config_data.as_bytes())
-        .await
-        .expect("Failed to write configuration file");
+
+    #[cfg(feature = "tpm2")]
+    {
+        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+        let (_private, public) = tpm2.make_rsa().unwrap();
+        let mut password: String;
+        loop {
+            println!("Please enter a password:");
+            password = String::prompt(None).unwrap();
+            if !password.is_empty() {
+                break;
+            }
+        }
+
+        let econfig = tpm2::encrypt(config_data.as_bytes(), &password);
+        let edata = tpm2.encrypt(password.as_bytes(), public).unwrap();
+
+        let mut f2 = tokio::fs::File::create(config_path.join("password.bin"))
+            .await
+            .unwrap();
+        f2.write_all(&edata)
+            .await
+            .expect("Failed to write ecrypted password");
+
+        f.write_all(&econfig)
+            .await
+            .expect("Failed to write encrypted configuration file");
+    }
+    #[cfg(not(feature = "tpm2"))]
+    {
+        f.write_all(config_data.as_bytes())
+            .await
+            .expect("Failed to write configuration file");
+    }
     ca::Ca::init(&config).await;
 }
