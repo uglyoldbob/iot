@@ -11,9 +11,15 @@
             "cargo": {
                 "args": [
                     "build",
-                ]
+                    "--bin",
+                    "rust-iot"
+                ],
+                "filter": {
+                    "name": "rust-iot",
+                    "kind": "bin"
+                }
             },
-            "args": [],
+            "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         }
     ]

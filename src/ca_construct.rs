@@ -95,8 +95,12 @@ impl Ca {
                                 extensions,
                                 id,
                             );
-                            let mut ocsp_cert =
-                                ca.root_cert.as_ref().unwrap().sign_csr(ocsp_csr, &ca).unwrap();
+                            let mut ocsp_cert = ca
+                                .root_cert
+                                .as_ref()
+                                .unwrap()
+                                .sign_csr(ocsp_csr, &ca)
+                                .unwrap();
                             ocsp_cert.medium = ca.medium.clone();
                             ocsp_cert.save_to_medium(&table.ocsp_password).await;
                             ca.ocsp_signer = Ok(ocsp_cert);
@@ -119,8 +123,12 @@ impl Ca {
                                 extensions,
                                 id,
                             );
-                            let mut admin_cert =
-                                ca.root_cert.as_ref().unwrap().sign_csr(admin_csr, &ca).unwrap();
+                            let mut admin_cert = ca
+                                .root_cert
+                                .as_ref()
+                                .unwrap()
+                                .sign_csr(admin_csr, &ca)
+                                .unwrap();
                             admin_cert.medium = ca.medium.clone();
                             admin_cert.save_to_medium(&table.admin_password).await;
                             ca.admin = Ok(admin_cert);
