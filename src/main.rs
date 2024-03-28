@@ -11,7 +11,6 @@ mod ca;
 #[cfg(feature = "tpm2")]
 mod tpm2;
 
-use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -81,7 +80,7 @@ async fn test_func(s: WebPageContext) -> webserver::WebResponse {
 /// The page for /main.rs
 async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
     let mut c: String = "".to_string();
-    let mut logincookie = s.logincookie;
+    let logincookie = s.logincookie;
 
     let mut logged_in = false;
     let mut username: String = "".to_string();
@@ -143,7 +142,7 @@ You are logged in
     }
     //    s.ourcookie = None;
     let response = hyper::Response::new("dummy");
-    let (mut response, _dummybody) = response.into_parts();
+    let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(c));
     hyper::http::Response::from_parts(response, body);
 

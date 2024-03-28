@@ -6,8 +6,8 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
-mod ca_common;
-pub use ca_common::*;
+pub mod ca_usage;
+pub use ca_usage::*;
 
 async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
@@ -593,7 +593,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                     println!("Error reading certificate {:?}", e);
                 }
             }
-        } else if let Some(csr) = csr {
+        } else if csr.is_some() {
             b.text(format!(
                 "Your request is pending at {}",
                 time::OffsetDateTime::now_utc()
@@ -882,7 +882,7 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
                 Some(s) => {
                     println!("Signature is {:?}", s);
                     todo!("Verify signature");
-                    build_ocsp_response(&mut ca, ocsp).await
+                    //build_ocsp_response(&mut ca, ocsp).await
                 }
             }
         } else {

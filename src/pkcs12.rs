@@ -96,11 +96,9 @@ fn build_encrypted_content_info(
     password: &[u8],
 ) -> ContentInfo {
     use der::Encode;
-    let data_algorithm_parameters = 42;
 
     let encrypted_data = enc_scheme.encrypt(password, data).unwrap();
 
-    let data1_parameters = enc_scheme.to_der().unwrap();
     let encrypted1 = der::asn1::OctetString::new(encrypted_data).unwrap();
 
     let data1_enc_alg = pkcs8::spki::AlgorithmIdentifier {
@@ -395,7 +393,7 @@ impl Pkcs12 {
                 pkcs12::PKCS_12_PKCS8_KEY_BAG_OID => {
                     let cs: der::asn1::ContextSpecific<pkcs8::EncryptedPrivateKeyInfo> =
                         der::asn1::ContextSpecific::from_der(&safe_bag.bag_value).unwrap();
-                    let mut ciphertext = cs.value.encrypted_data.to_vec();
+                    let ciphertext = cs.value.encrypted_data.to_vec();
                     let plaintext = cs
                         .value
                         .encryption_algorithm

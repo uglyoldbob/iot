@@ -108,7 +108,7 @@ where
             cert.certificate_der()
         })
     });
-    rcs.add(client_cert_der.into());
+    rcs.add(client_cert_der.into()).unwrap();
 
     //todo fill out the rcs struct
     let roots = Arc::new(rcs);

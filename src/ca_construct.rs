@@ -6,6 +6,62 @@ pub use ca_common::*;
 use zeroize::Zeroizing;
 
 impl Ca {
+    /// Returns the ocsp url, based on the application settings, preferring https over http
+    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
+        let mut urls = Vec::new();
+
+        if let Some(table) = &settings.ca {
+            for san in &table.san {
+                let san: &str = san.as_str();
+
+                let mut url = String::new();
+                let mut port_override = None;
+                if settings.https.enabled {
+                    let default_port = 443;
+                    let p = settings.get_https_port();
+                    if p != default_port {
+                        port_override = Some(p);
+                    }
+                    url.push_str("https://");
+                } else if settings.http.enabled {
+                    let default_port = 80;
+                    let p = settings.get_http_port();
+                    if p != default_port {
+                        port_override = Some(p);
+                    }
+                    url.push_str("http://");
+                } else {
+                    panic!("Cannot build ocsp responder url");
+                }
+
+                url.push_str(san);
+                if let Some(p) = port_override {
+                    url.push_str(&format!(":{}", p));
+                }
+
+                let proxy = &settings.general.proxy;
+                url.push_str(proxy.as_str());
+                url.push_str("/ca/ocsp");
+                urls.push(url);
+            }
+        }
+
+        urls
+    }
+
+    /// Initialize the request id system
+    pub async fn init_request_id(&mut self) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let pb = p.join("certs.txt");
+                let mut cf = tokio::fs::File::create(pb).await.unwrap();
+                cf.write(b"1").await.unwrap();
+            }
+        }
+    }
+
     pub async fn init(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::load(settings).await;
 
@@ -125,5 +181,79 @@ impl Ca {
             }
         }
         ca
+    }
+
+    /// Generate a signing request
+    /// # Arguments
+    /// * t - The signing method for the certificate that will eventually be created
+    /// * name - The storage name of the certificate
+    /// * common_name - The commonName field for the subject of the certificate
+    /// * names - Subject alternate names for the certificate
+    /// * extension - The list of extensions to use for the certificate
+    pub fn generate_signing_request(
+        &mut self,
+        t: CertificateSigningMethod,
+        name: String,
+        common_name: String,
+        names: Vec<String>,
+        extensions: Vec<rcgen::CustomExtension>,
+        id: usize,
+    ) -> CaCertificateToBeSigned {
+        let mut extensions = extensions.clone();
+        let mut params = rcgen::CertificateParams::new(names);
+        let (keypair, pkey) = t.generate_keypair().unwrap();
+        let public_key = keypair.public_key();
+        params.key_pair = Some(keypair);
+        params.alg =
+            rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components())
+                .unwrap();
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, common_name);
+        params.not_before = time::OffsetDateTime::now_utc();
+        params.not_after = params.not_before + time::Duration::days(365);
+        params.custom_extensions.append(&mut extensions);
+
+        let mut sn = [0; 20];
+        for (i, b) in id.to_le_bytes().iter().enumerate() {
+            sn[i] = *b;
+        }
+        let sn = rcgen::SerialNumber::from_slice(&sn);
+        params.serial_number = Some(sn);
+
+        let csr = rcgen::CertificateSigningRequest { params, public_key };
+        CaCertificateToBeSigned {
+            algorithm: t,
+            medium: self.medium.clone(),
+            csr,
+            pkey,
+            name,
+        }
+    }
+}
+
+impl CertificateSigningMethod {
+    fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
+        match self {
+            Self::RsaSha1 | Self::RsaSha256 => {
+                use pkcs8::EncodePrivateKey;
+                let mut rng = rand::thread_rng();
+                let bits = 4096;
+                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
+                let private_key_der = private_key.to_pkcs8_der().unwrap();
+                let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
+                let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
+                Some((key_pair, Some(pkey)))
+            }
+            Self::Ecdsa => {
+                let alg = rcgen::SignatureAlgorithm::from_oid(
+                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
+                )
+                .unwrap();
+                let keypair = rcgen::KeyPair::generate(alg).ok()?;
+                Some((keypair, None))
+            }
+        }
     }
 }

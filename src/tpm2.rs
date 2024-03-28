@@ -1,6 +1,6 @@
 //! Code related to the optional tpm2 hardware module
 
-use ring::aead::{Aad, BoundKey, NonceSequence};
+use ring::aead::Aad;
 use tss_esapi::structures::{CreatePrimaryKeyResult, Private, Public, SensitiveData};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -10,6 +10,7 @@ struct AeadEncryptedData {
     data: Vec<u8>,
 }
 
+#[allow(dead_code)]
 pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
     let salt: [u8; 8] = rand::random();
     let mut keydata = [0; 32];
@@ -23,7 +24,7 @@ pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
 
     let nonce: [u8; 12] = rand::random();
     let key = ring::aead::UnboundKey::new(&ring::aead::CHACHA20_POLY1305, &keydata).unwrap();
-    let mut seal_key = ring::aead::LessSafeKey::new(key);
+    let seal_key = ring::aead::LessSafeKey::new(key);
     let mut in_out = data.to_owned();
     seal_key
         .seal_in_place_append_tag(
@@ -40,6 +41,7 @@ pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
     bincode::serialize(&stuff).unwrap().to_vec()
 }
 
+#[allow(dead_code)]
 pub fn decrypt(edata: Vec<u8>, password: &[u8]) -> Vec<u8> {
     let edata: AeadEncryptedData = bincode::deserialize(&edata).unwrap();
 
@@ -72,6 +74,7 @@ pub struct Password {
 }
 
 impl Password {
+    #[allow(dead_code)]
     pub fn build(password: &[u8], iterations: std::num::NonZeroU32) -> Self {
         let salt: [u8; 16] = rand::random();
         let mut pw = Vec::new();
@@ -89,6 +92,7 @@ impl Password {
         }
     }
 
+    #[allow(dead_code)]
     pub fn verify(&self, password: &[u8]) -> bool {
         let salt = &self.salt;
         match ring::pbkdf2::verify(
@@ -103,10 +107,12 @@ impl Password {
         }
     }
 
+    #[allow(dead_code)]
     pub fn data(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn rebuild(data: &[u8]) -> Self {
         bincode::deserialize(data).unwrap()
     }
@@ -123,10 +129,12 @@ pub struct TpmBlob {
 }
 
 impl TpmBlob {
+    #[allow(dead_code)]
     pub fn data(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn rebuild(data: &[u8]) -> Self {
         bincode::deserialize(data).unwrap()
     }
@@ -190,6 +198,7 @@ impl Tpm2 {
         Self { context, pkr }
     }
 
+    #[allow(dead_code)]
     pub fn decrypt(&mut self, blob: TpmBlob) -> Result<Vec<u8>, ()> {
         let edata = &blob.data;
         let enc_private = Private::from_bytes(edata).unwrap();
@@ -207,6 +216,7 @@ impl Tpm2 {
         Ok(unsealed.to_vec())
     }
 
+    #[allow(dead_code)]
     /// Ecnrypt some data
     pub fn encrypt(&mut self, data: &[u8]) -> Result<TpmBlob, ()> {
         // A sealed data object is a specialised form of a HMAC key. There are strict requirements for

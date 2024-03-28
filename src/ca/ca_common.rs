@@ -67,31 +67,6 @@ pub enum CertificateSigningMethod {
     Ecdsa,
 }
 
-impl CertificateSigningMethod {
-    fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
-        match self {
-            Self::RsaSha1 | Self::RsaSha256 => {
-                use pkcs8::EncodePrivateKey;
-                let mut rng = rand::thread_rng();
-                let bits = 4096;
-                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
-                let private_key_der = private_key.to_pkcs8_der().unwrap();
-                let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
-                let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
-                Some((key_pair, Some(pkey)))
-            }
-            Self::Ecdsa => {
-                let alg = rcgen::SignatureAlgorithm::from_oid(
-                    &OID_ECDSA_P256_SHA256_SIGNING.components(),
-                )
-                .unwrap();
-                let keypair = rcgen::KeyPair::generate(alg).ok()?;
-                Some((keypair, None))
-            }
-        }
-    }
-}
-
 impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
     type Error = ();
     fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
@@ -130,15 +105,15 @@ pub enum CaCertificateStorage {
 
 pub struct CaCertificateToBeSigned {
     /// The algorithm used for the ceertificate
-    algorithm: CertificateSigningMethod,
+    pub algorithm: CertificateSigningMethod,
     /// Where the certificate is stored
-    medium: CaCertificateStorage,
+    pub medium: CaCertificateStorage,
     /// The certificate signing request
-    csr: rcgen::CertificateSigningRequest,
+    pub csr: rcgen::CertificateSigningRequest,
     /// The optional private key in der format
-    pkey: Option<Zeroizing<Vec<u8>>>,
+    pub pkey: Option<Zeroizing<Vec<u8>>>,
     /// The certificate name to use for storage
-    name: String,
+    pub name: String,
 }
 
 impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
@@ -177,11 +152,11 @@ impl CaCertificateStorage {
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
-                tokio::fs::create_dir_all(&p).await;
+                tokio::fs::create_dir_all(&p).await.unwrap();
                 use tokio::io::AsyncWriteExt;
                 let cp = p.join(format!("{}_cert.p12", name));
                 let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                cf.write_all(&p12_der).await;
+                cf.write_all(&p12_der).await.unwrap();
             }
         }
     }
@@ -271,7 +246,7 @@ impl CaCertificate {
         } else {
             panic!("No keypair - need to implement RemoteKeyPair trait");
         };
-        let mut p = rcgen::CertificateParams::from_ca_cert_der(&self.cert, keypair).unwrap();
+        let p = rcgen::CertificateParams::from_ca_cert_der(&self.cert, keypair).unwrap();
         rcgen::Certificate::from_params(p).unwrap()
     }
 
@@ -354,15 +329,28 @@ pub struct Ca {
 }
 
 impl Ca {
+    /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
+    /// # Arguments
+    /// * serial - The serial number of the certificate
+    async fn get_cert_by_serial(
+        &self,
+        _serial: &[u8],
+    ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => MaybeError::None,
+            CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
+        }
+    }
+
     /// Load ca stuff
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::from_config(settings);
 
         let table = settings.ca.as_ref().unwrap();
 
-        ca.load_ocsp_cert(&table.ocsp_password).await;
-        ca.load_admin_cert(&table.admin_password).await;
-        ca.load_root_ca_cert(&table.root_password).await;
+        ca.load_ocsp_cert(&table.ocsp_password).await.unwrap();
+        ca.load_admin_cert(&table.admin_password).await.unwrap();
+        ca.load_root_ca_cert(&table.root_password).await.unwrap();
         ca
     }
 
@@ -399,271 +387,6 @@ impl Ca {
         self.ocsp_signer.as_ref()
     }
 
-    /// Save the admin certificate to medium
-    async fn save_admin(&mut self, p12: &[u8]) {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let path = p.join("admin.p12");
-                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
-                f.write_all(p12).await;
-            }
-        }
-    }
-
-    pub fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
-        let admin = self.get_admin_cert().unwrap();
-        let admin_x509_cert = {
-            use der::Decode;
-            x509_cert::Certificate::from_der(&admin.cert).unwrap()
-        };
-        cert.tbs_certificate.serial_number == admin_x509_cert.tbs_certificate.serial_number
-            && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
-            && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
-    }
-
-    fn get_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.admin.as_ref()
-    }
-
-    /// Verify a certificate signing request
-    pub async fn verify_request<'a>(
-        &mut self,
-        csr: &'a x509_cert::request::CertReq,
-    ) -> Result<&'a x509_cert::request::CertReq, ()> {
-        use der::Encode;
-        let info = csr.info.to_der().unwrap();
-        let pubkey = &csr.info.public_key;
-        let signature = &csr.signature;
-
-        let p = &pubkey.subject_public_key;
-        let pder = p.to_der().unwrap();
-
-        let pkey = yasna::parse_der(&pder, |r| {
-            let (data, _size) = r.read_bitvec_bytes()?;
-            Ok(data)
-        })
-        .unwrap();
-
-        if let Ok(algo) = csr.algorithm.to_owned().try_into() {
-            println!("Checking csr with algo {:?}", algo);
-            let csr_cert = PublicKey::create_with(algo, &pkey);
-            println!("Cert is {:?}", csr_cert);
-            csr_cert
-                .verify(&info, signature.as_bytes().unwrap())
-                .map_err(|_| ())?;
-            //TODO perform more validation of the csr
-            return Ok(csr);
-        }
-        Err(())
-    }
-
-    /// Get an iterator for the csr of a ca
-    pub fn get_csr_iter(&self) -> CaCsrIter {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => CaCsrIter::Nowhere,
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                std::fs::create_dir_all(&pb);
-                let pf = std::fs::read_dir(&pb).unwrap();
-                CaCsrIter::FilesystemDer(pf)
-            }
-        }
-    }
-
-    /// Retrieve the specified index of user certificate
-    pub async fn get_user_cert(&self, id: usize) -> Option<Vec<u8>> {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let pb = p.join("certs");
-                let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::open(path).await.ok()?;
-                let mut contents = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut contents).await;
-                Some(contents)
-            }
-        }
-    }
-
-    /// Generate a signing request
-    /// # Arguments
-    /// * t - The signing method for the certificate that will eventually be created
-    /// * name - The storage name of the certificate
-    /// * common_name - The commonName field for the subject of the certificate
-    /// * names - Subject alternate names for the certificate
-    /// * extension - The list of extensions to use for the certificate
-    pub fn generate_signing_request(
-        &mut self,
-        t: CertificateSigningMethod,
-        name: String,
-        common_name: String,
-        names: Vec<String>,
-        extensions: Vec<rcgen::CustomExtension>,
-        id: usize,
-    ) -> CaCertificateToBeSigned {
-        let mut extensions = extensions.clone();
-        let mut params = rcgen::CertificateParams::new(names);
-        let (keypair, pkey) = t.generate_keypair().unwrap();
-        let public_key = keypair.public_key();
-        params.key_pair = Some(keypair);
-        params.alg =
-            rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components())
-                .unwrap();
-        params.distinguished_name = rcgen::DistinguishedName::new();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, common_name);
-        params.not_before = time::OffsetDateTime::now_utc();
-        params.not_after = params.not_before + time::Duration::days(365);
-        params.custom_extensions.append(&mut extensions);
-
-        let mut sn = [0; 20];
-        for (i, b) in id.to_le_bytes().iter().enumerate() {
-            sn[i] = *b;
-        }
-        let sn = rcgen::SerialNumber::from_slice(&sn);
-        params.serial_number = Some(sn);
-
-        let mut data: Vec<u8> = Vec::new();
-        let csr = rcgen::CertificateSigningRequest { params, public_key };
-        CaCertificateToBeSigned {
-            algorithm: t,
-            medium: self.medium.clone(),
-            csr,
-            pkey,
-            name,
-        }
-    }
-
-    /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let oldname = p.join("csr").join(format!("{}.toml", id));
-                let newpath = p.join("csr-done");
-                tokio::fs::create_dir_all(&newpath).await;
-                let newname = newpath.join(format!("{}.toml", id));
-                tokio::fs::rename(oldname, newname).await;
-                let pb = p.join("certs");
-                tokio::fs::create_dir_all(&pb).await;
-                let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
-                f.write_all(cert_der).await;
-            }
-        }
-    }
-
-    /// Retrieve the reason the csr was rejected
-    pub async fn get_rejection_reason_by_id(&self, id: usize) -> Option<String> {
-        let rejection: Option<CsrRejection> = match &self.medium {
-            CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let pb = p.join("csr-reject");
-                let path = pb.join(format!("{}.toml", id));
-                let mut f = tokio::fs::File::open(path).await.ok()?;
-                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut cert).await.ok().unwrap();
-                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
-            }
-        };
-        rejection.map(|r| r.rejection)
-    }
-
-    /// Reject an existing certificate signing request by id.
-    pub async fn reject_csr_by_id(
-        &mut self,
-        id: usize,
-        reason: &String,
-    ) -> Result<(), CertificateSigningError> {
-        let csr = self.get_csr_by_id(id);
-        if csr.is_none() {
-            return Err(CertificateSigningError::CsrDoesNotExist);
-        }
-        let csr = csr.unwrap();
-        let reject = CsrRejection::from_csr_with_reason(csr, reason);
-        self.store_rejection(&reject).await?;
-        self.delete_request_by_id(id).await?;
-        Ok(())
-    }
-
-    /// Store a rejection struct
-    async fn store_rejection(
-        &mut self,
-        reject: &CsrRejection,
-    ) -> Result<(), CertificateSigningError> {
-        use tokio::io::AsyncWriteExt;
-        match &self.medium {
-            CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr-reject");
-                tokio::fs::create_dir_all(&pb).await;
-                let newid = self.get_new_request_id().await;
-                if let Some(newid) = newid {
-                    let cp = pb.join(format!("{}.toml", newid));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    let csr_doc = toml::to_string(reject).unwrap();
-                    cf.write_all(csr_doc.as_bytes()).await;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    async fn delete_request_by_id(&mut self, id: usize) -> Result<(), CertificateSigningError> {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                let cp = pb.join(format!("{}.toml", id));
-                tokio::fs::remove_file(cp)
-                    .await
-                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
-                Ok(())
-            }
-        }
-    }
-
-    /// Retrieve a certificate signing request by id, if it exists
-    pub fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use std::io::Read;
-                let pb = p.join("csr");
-                let path = pb.join(format!("{}.toml", id));
-                let mut f = std::fs::File::open(path).ok()?;
-                let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                f.read_to_end(&mut cert).ok().unwrap();
-                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
-            }
-        }
-    }
-
-    pub async fn save_csr(&mut self, csr: &CsrRequest) -> Option<usize> {
-        use tokio::io::AsyncWriteExt;
-        match &self.medium {
-            CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                tokio::fs::create_dir_all(&pb).await;
-                let newid = self.get_new_request_id().await;
-                if let Some(newid) = newid {
-                    let cp = pb.join(format!("{}.toml", newid));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    let csr_doc = toml::to_string(csr).unwrap();
-                    cf.write_all(csr_doc.as_bytes()).await;
-                }
-                newid
-            }
-        }
-    }
-
     /// Create a Self from the application configuration
     fn from_config(settings: &crate::MainConfiguration) -> Self {
         let medium = if let Some(section) = &settings.ca {
@@ -683,19 +406,6 @@ impl Ca {
         }
     }
 
-    /// Initialize the request id system
-    pub async fn init_request_id(&mut self) {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let pb = p.join("certs.txt");
-                let mut cf = tokio::fs::File::create(pb).await.unwrap();
-                cf.write(b"1").await;
-            }
-        }
-    }
-
     /// Get a new request id, if possible
     pub async fn get_new_request_id(&mut self) -> Option<usize> {
         match &self.medium {
@@ -705,83 +415,17 @@ impl Ca {
                 let pb = p.join("certs.txt");
                 let mut contents = Vec::new();
                 let mut cf = tokio::fs::File::open(&pb).await.unwrap();
-                cf.read_to_end(&mut contents).await;
+                cf.read_to_end(&mut contents).await.unwrap();
                 if let Ok(cid) = str::parse(std::str::from_utf8(&contents).unwrap()) {
                     use tokio::io::AsyncWriteExt;
                     let new_id = cid + 1;
                     let mut cf = tokio::fs::File::create(pb).await.unwrap();
-                    cf.write(format!("{}", new_id).as_bytes()).await;
+                    cf.write(format!("{}", new_id).as_bytes()).await.unwrap();
                     Some(cid)
                 } else {
                     None
                 }
             }
-        }
-    }
-
-    /// Return a reference to the root cert
-    pub fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.root_cert.as_ref()
-    }
-
-    /// Return a reference to the ocsp cert
-    pub fn ocsp_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.ocsp_signer.as_ref()
-    }
-
-    /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
-        let mut urls = Vec::new();
-
-        if let Some(table) = &settings.ca {
-            for san in &table.san {
-                let san: &str = san.as_str();
-
-                let mut url = String::new();
-                let mut port_override = None;
-                if settings.https.enabled {
-                    let default_port = 443;
-                    let p = settings.get_https_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("https://");
-                } else if settings.http.enabled {
-                    let default_port = 80;
-                    let p = settings.get_http_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("http://");
-                } else {
-                    panic!("Cannot build ocsp responder url");
-                }
-
-                url.push_str(san);
-                if let Some(p) = port_override {
-                    url.push_str(&format!(":{}", p));
-                }
-
-                let proxy = &settings.general.proxy;
-                url.push_str(proxy.as_str());
-                url.push_str("/ca/ocsp");
-                urls.push(url);
-            }
-        }
-
-        urls
-    }
-
-    /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
-    /// # Arguments
-    /// * serial - The serial number of the certificate
-    async fn get_cert_by_serial(
-        &self,
-        _serial: &[u8],
-    ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => MaybeError::None,
-            CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
         }
     }
 
@@ -946,7 +590,7 @@ impl CertAttribute {
 
 /// Contains a user signing request for a certificate
 #[derive(serde::Deserialize, serde::Serialize)]
-struct CsrRejection {
+pub struct CsrRejection {
     /// The actual certificate request in pem format
     cert: String,
     /// The name of the person issuing the request
@@ -956,11 +600,11 @@ struct CsrRejection {
     /// The phone number of the person issuing the request
     phone: String,
     /// The reason for rejection
-    rejection: String,
+    pub rejection: String,
 }
 
 impl CsrRejection {
-    fn from_csr_with_reason(csr: CsrRequest, reason: &String) -> Self {
+    pub fn from_csr_with_reason(csr: CsrRequest, reason: &String) -> Self {
         Self {
             cert: csr.cert,
             name: csr.name,
@@ -1007,7 +651,7 @@ impl HashType {
 }
 
 /// Represents a type that can be good, an error, or non-existent.
-enum MaybeError<T, E> {
+pub enum MaybeError<T, E> {
     Ok(T),
     Err(E),
     None,
@@ -1019,77 +663,6 @@ impl From<std::io::Error> for CertificateLoadingError {
             std::io::ErrorKind::NotFound => CertificateLoadingError::DoesNotExist,
             std::io::ErrorKind::PermissionDenied => CertificateLoadingError::CantOpen,
             _ => CertificateLoadingError::OtherIo(value),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct PublicKey<'a> {
-    key: ring::signature::UnparsedPublicKey<&'a [u8]>,
-}
-
-impl<'a> PublicKey<'a> {
-    /// Create the public key with the specified algorithm.
-    /// # Arguments
-    /// * algorithm - The signing algorithm for the public key
-    /// * key - The der bytes of the public key. For RSA this is a sequence of two integers.
-    fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
-        match algorithm {
-            CertificateSigningMethod::RsaSha1 => Self {
-                key: ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
-                    key,
-                ),
-            },
-            CertificateSigningMethod::Ecdsa => {
-                todo!();
-            }
-            CertificateSigningMethod::RsaSha256 => Self {
-                key: ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
-                    key,
-                ),
-            },
-        }
-    }
-
-    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
-        self.key.verify(data, signature).map_err(|_| ())
-    }
-}
-
-/// An iterator over the csr of a certificate authority
-pub enum CaCsrIter {
-    Nowhere,
-    FilesystemDer(std::fs::ReadDir),
-}
-
-impl Iterator for CaCsrIter {
-    type Item = (CsrRequest, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CaCsrIter::Nowhere => None,
-            CaCsrIter::FilesystemDer(rd) => {
-                let n = rd.next();
-                let a = n.map(|rde| {
-                    rde.map(|de| {
-                        use std::io::Read;
-                        let path = de.path();
-                        let fname = path.file_stem().unwrap();
-                        let fnint: usize = fname.to_str().unwrap().parse().unwrap();
-                        let mut f = std::fs::File::open(path).ok().unwrap();
-                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                        f.read_to_end(&mut cert).unwrap();
-                        (
-                            toml::from_str(std::str::from_utf8(&cert).unwrap()).unwrap(),
-                            fnint,
-                        )
-                    })
-                    .unwrap()
-                });
-                a
-            }
         }
     }
 }

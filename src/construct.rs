@@ -10,7 +10,6 @@ pub use main_config::MainConfiguration;
 
 use clap::Parser;
 use prompt::Prompting;
-use ring::aead::BoundKey;
 use std::{io::Write, path::PathBuf};
 use tokio::io::AsyncWriteExt;
 
@@ -41,7 +40,7 @@ async fn main() {
     };
 
     println!("The path for the iot instance config is {:?}", config_path);
-    tokio::fs::create_dir_all(&config_path).await;
+    tokio::fs::create_dir_all(&config_path).await.unwrap();
 
     let mut config = main_config::MainConfiguration::new();
     if let Some(answers) = &args.answers {

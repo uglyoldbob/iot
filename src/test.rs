@@ -2,6 +2,7 @@ use prompt::Prompting;
 
 mod tpm2;
 
+#[allow(dead_code)]
 #[derive(Debug, prompt::Prompting)]
 struct TestMe {
     bob: u8,
@@ -10,6 +11,7 @@ struct TestMe {
     path: std::path::PathBuf,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, prompt::Prompting)]
 struct TestMe2 {
     size: u8,
@@ -36,8 +38,8 @@ async fn main() {
             }
         }
 
-        let mut config: Vec<u8>;
-        let mut tpm_data: tpm2::TpmBlob;
+        let config: Vec<u8>;
+        let tpm_data: tpm2::TpmBlob;
         {
             let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
 
