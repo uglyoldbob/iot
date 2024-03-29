@@ -115,6 +115,15 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
                         .input(|i| i.type_("password").id("password"))
                         .line_break(|a|a);
                     f.heading_1(|h| {
+                        h.text("Certificate Usage").line_break(|a|a)
+                    });
+                    f.input(|i| { i.type_("checkbox").id("usage-client").name("usage-client").value("client") });
+                    f.label(|l| l.for_("usage-client").text("Client certification")).line_break(|a|a);
+                    f.input(|i| { i.type_("checkbox").id("usage-code").name("usage-code").value("code") });
+                    f.label(|l| l.for_("usage-code").text("Code signing")).line_break(|a|a);
+                    f.input(|i| { i.type_("checkbox").id("usage-server").name("usage-server").value("server") });
+                    f.label(|l| l.for_("usage-server").text("Server certification")).line_break(|a|a);
+                    f.heading_1(|h| {
                         h.text("Certificate Information").line_break(|a|a)
                     });
                     f.text("Certificate Name")
