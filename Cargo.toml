@@ -112,3 +112,7 @@ path = "src/construct.rs"
 [[bin]]
 name = "test"
 path = "src/test.rs"
+
+[[bin]]
+name = "test2"
+path = "src/test2.rs"

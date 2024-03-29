@@ -52,6 +52,7 @@ impl Ca {
             println!("Checking csr with algo {:?}", algo);
             let csr_cert = InternalPublicKey::create_with(algo, &pkey);
             println!("Cert is {:?}", csr_cert);
+            println!("info {:02X?}", info);
             csr_cert
                 .verify(&info, signature.as_bytes().unwrap())
                 .map_err(|_| {

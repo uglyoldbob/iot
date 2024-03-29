@@ -13,20 +13,20 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
     let mut valid_csr = false;
+    let mut mycsr_pem = None;
     let mut id = None;
 
     let f = s.post.form();
     if let Some(form) = f {
         use der::DecodePem;
         if let Some(pem) = form.get_first("csr") {
+            mycsr_pem = Some(pem.to_owned());
             let cert = x509_cert::request::CertReq::from_pem(pem);
             if let Ok(csr) = cert {
                 valid_csr = ca.verify_request(&csr).await.is_ok();
                 if valid_csr {
-                    use der::EncodePem;
-                    let pem = csr.to_pem(pkcs8::LineEnding::CRLF).unwrap();
                     let csrr = CsrRequest {
-                        cert: pem,
+                        cert: pem.to_string(),
                         name: form.get_first("name").unwrap().to_string(),
                         email: form.get_first("email").unwrap().to_string(),
                         phone: form.get_first("phone").unwrap().to_string(),
@@ -50,6 +50,9 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
         } else {
             b.text("Your request was considered invalid")
                 .line_break(|f| f);
+            if let Some(pem) = mycsr_pem {
+                b.preformatted_text(|c| c.text(pem)).line_break(|a| a);
+            }
         }
         b
     });
