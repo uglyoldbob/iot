@@ -145,20 +145,30 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, name: &str, cert: CaCertificate, password: &str) {
-        let p12: crate::pkcs12::Pkcs12 = cert.try_into().unwrap();
-        let p12_der = &p12.get_pkcs12(password);
+    pub async fn save_to_medium(
+        &self,
+        name: &str,
+        id: usize,
+        ca: &mut Ca,
+        cert: CaCertificate,
+        password: &str,
+    ) {
+        if cert.pkey.is_some() {
+            let p12: crate::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
+            let p12_der = &p12.get_pkcs12(password);
 
-        match self {
-            CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                tokio::fs::create_dir_all(&p).await.unwrap();
-                use tokio::io::AsyncWriteExt;
-                let cp = p.join(format!("{}_cert.p12", name));
-                let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                cf.write_all(&p12_der).await.unwrap();
+            match self {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::FilesystemDer(p) => {
+                    tokio::fs::create_dir_all(&p).await.unwrap();
+                    use tokio::io::AsyncWriteExt;
+                    let cp = p.join(format!("{}_cert.p12", name));
+                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                    cf.write_all(&p12_der).await.unwrap();
+                }
             }
         }
+        ca.save_user_cert(id, &cert.cert).await;
     }
 
     /// Load a certificate from the storage medium
@@ -251,9 +261,9 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, password: &str) {
+    pub async fn save_to_medium(&self, id: usize, ca: &mut Ca, password: &str) {
         self.medium
-            .save_to_medium(&self.name, self.to_owned(), password)
+            .save_to_medium(&self.name, id, ca, self.to_owned(), password)
             .await;
     }
 
@@ -340,6 +350,35 @@ pub struct Ca {
 }
 
 impl Ca {
+    /// Marks the specified csr as done
+    pub async fn mark_csr_done(&mut self, id: usize) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                let oldname = p.join("csr").join(format!("{}.toml", id));
+                let newpath = p.join("csr-done");
+                tokio::fs::create_dir_all(&newpath).await.unwrap();
+                let newname = newpath.join(format!("{}.toml", id));
+                tokio::fs::rename(oldname, newname).await.unwrap();
+            }
+        }
+    }
+
+    /// Save the user cert of the specified index to storage
+    pub async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::FilesystemDer(p) => {
+                use tokio::io::AsyncWriteExt;
+                let pb = p.join("certs");
+                tokio::fs::create_dir_all(&pb).await.unwrap();
+                let path = pb.join(format!("{}.der", id));
+                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
+                f.write_all(cert_der).await.unwrap();
+            }
+        }
+    }
+
     /// Returns the ocsp url, based on the application settings, preferring https over http
     fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
         let mut urls = Vec::new();
@@ -402,9 +441,10 @@ impl Ca {
 
         let table = settings.ca.as_ref().unwrap();
 
-        ca.load_ocsp_cert(&table.ocsp_password).await.unwrap();
-        ca.load_admin_cert(&table.admin_password).await.unwrap();
-        ca.load_root_ca_cert(&table.root_password).await.unwrap();
+        // These will error when the ca needs to be built
+        let _ = ca.load_ocsp_cert(&table.ocsp_password).await;
+        let _ = ca.load_admin_cert(&table.admin_password).await;
+        let _ = ca.load_root_ca_cert(&table.root_password).await;
         ca
     }
 

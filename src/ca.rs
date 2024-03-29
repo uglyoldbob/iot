@@ -342,6 +342,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                                 "got a signed der certificate for the user length {}",
                                 der.len()
                             );
+                            ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der).await;
                             csr_check = Ok(der);
                         }
@@ -540,12 +541,22 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     })
     .body(|b| {
         if admin {
-            b.heading_1(|h| h.text("Current Certificates")).line_break(|a|a);
+            b.heading_1(|h| h.text("Current Certificates"))
+                .line_break(|a| a);
             for c in ca.get_cert_iter() {
                 b.thematic_break(|a| a);
-                b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer)).line_break(|a|a);
-                b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number)).line_break(|a|a);
-                b.text(format!("Subject: {}", c.0.tbs_certificate.subject)).line_break(|a|a);
+                b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
+                    .line_break(|a| a);
+                b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
+                    .line_break(|a| a);
+                b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
+                    .line_break(|a| a);
+                b.anchor(|ab| {
+                    ab.text("View details");
+                    ab.href(format!("/{}ca/view_cert.rs?id={}", s.proxy, c.1));
+                    ab
+                });
+                b.line_break(|lb| lb);
             }
         }
         b.thematic_break(|a| a);
@@ -569,6 +580,15 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
 /// Runs the page for fetching the user certificate for the certificate authority being run
 async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
+
+    let mut admin = false;
+    if let Some(cs) = s.user_certs.all_certs() {
+        for cert in cs {
+            if ca.is_admin(cert) {
+                admin = true;
+            }
+        }
+    }
 
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
@@ -620,6 +640,14 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                         .collect();
                     let t = csr_names.join(", ");
                     b.text(t).line_break(|a| a);
+                    if admin {
+                        b.text(format!(
+                            "Valid from {} to {}",
+                            cert.tbs_certificate.validity.not_before,
+                            cert.tbs_certificate.validity.not_after
+                        ))
+                        .line_break(|a| a);
+                    }
                     if let Some(extensions) = &cert.tbs_certificate.extensions {
                         for e in extensions {
                             let ca = CertAttribute::with_oid_and_data(
@@ -631,7 +659,8 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                     }
                     b.button(|b| b.text("Build certificate").onclick("build_cert()"));
                     b.form(|form| {
-                        form.input(|i| i.type_("file").id("file-selector"));
+                        form.input(|i| i.type_("file").id("file-selector"))
+                            .line_break(|a| a);
                         form.text("Password for private key").line_break(|a| a);
                         form.input(|i| i.type_("password").id("password"));
                         form.line_break(|a| a);

@@ -74,7 +74,9 @@ impl Ca {
                                 Some(Zeroizing::from(key_der)),
                                 "root".to_string(),
                             );
-                            cacert.save_to_medium(&table.root_password).await;
+                            cacert
+                                .save_to_medium(0, &mut ca, &table.root_password)
+                                .await;
                             ca.root_cert = Ok(cacert);
                             ca.init_request_id().await;
                             println!("Generating OCSP responder certificate");
@@ -102,7 +104,9 @@ impl Ca {
                                 .sign_csr(ocsp_csr, &ca)
                                 .unwrap();
                             ocsp_cert.medium = ca.medium.clone();
-                            ocsp_cert.save_to_medium(&table.ocsp_password).await;
+                            ocsp_cert
+                                .save_to_medium(id, &mut ca, &table.ocsp_password)
+                                .await;
                             ca.ocsp_signer = Ok(ocsp_cert);
 
                             let mut key_usage_oids = Vec::new();
@@ -130,7 +134,9 @@ impl Ca {
                                 .sign_csr(admin_csr, &ca)
                                 .unwrap();
                             admin_cert.medium = ca.medium.clone();
-                            admin_cert.save_to_medium(&table.admin_password).await;
+                            admin_cert
+                                .save_to_medium(id, &mut ca, &table.admin_password)
+                                .await;
                             ca.admin = Ok(admin_cert);
                         }
                     }

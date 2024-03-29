@@ -54,7 +54,10 @@ impl Ca {
             println!("Cert is {:?}", csr_cert);
             csr_cert
                 .verify(&info, signature.as_bytes().unwrap())
-                .map_err(|_| ())?;
+                .map_err(|_| {
+                    println!("Error verifying the signature on the csr 1");
+                    ()
+                })?;
             //TODO perform more validation of the csr
             return Ok(csr);
         }
@@ -99,26 +102,6 @@ impl Ca {
                 let mut contents = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut contents).await.unwrap();
                 Some(contents)
-            }
-        }
-    }
-
-    /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let oldname = p.join("csr").join(format!("{}.toml", id));
-                let newpath = p.join("csr-done");
-                tokio::fs::create_dir_all(&newpath).await.unwrap();
-                let newname = newpath.join(format!("{}.toml", id));
-                tokio::fs::rename(oldname, newname).await.unwrap();
-                let pb = p.join("certs");
-                tokio::fs::create_dir_all(&pb).await.unwrap();
-                let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
-                f.write_all(cert_der).await.unwrap();
             }
         }
     }
@@ -253,10 +236,7 @@ impl Iterator for CaCertIter {
                         let mut f = std::fs::File::open(path).ok().unwrap();
                         let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
                         f.read_to_end(&mut cert).unwrap();
-                        (
-                            x509_cert::Certificate::from_der(&cert).unwrap(),
-                            fnint,
-                        )
+                        (x509_cert::Certificate::from_der(&cert).unwrap(), fnint)
                     })
                     .unwrap()
                 });
@@ -333,6 +313,9 @@ impl<'a> InternalPublicKey<'a> {
     }
 
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
-        self.key.verify(data, signature).map_err(|_| ())
+        self.key.verify(data, signature).map_err(|e| {
+            println!("Error verifying signature 2 {:?}", e);
+            ()
+        })
     }
 }
