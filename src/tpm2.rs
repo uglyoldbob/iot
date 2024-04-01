@@ -1,6 +1,8 @@
 //! Code related to the optional tpm2 hardware module
 
 use ring::aead::Aad;
+
+#[cfg(feature = "tpm2")]
 use tss_esapi::structures::{CreatePrimaryKeyResult, Private, Public, SensitiveData};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -8,6 +10,12 @@ struct AeadEncryptedData {
     salt: [u8; 8],
     nonce: [u8; 12],
     data: Vec<u8>,
+}
+
+/// Retrieve the default path for the tpm2 device node
+#[cfg(all(feature = "tpm2", target_os = "linux"))]
+pub fn tpm2_path() -> &'static str {
+    "/dev/tpmrm0"
 }
 
 #[allow(dead_code)]
@@ -122,12 +130,14 @@ impl Password {
     }
 }
 
+#[cfg(feature = "tpm2")]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct TpmBlob {
     data: Vec<u8>,
     public: Public,
 }
 
+#[cfg(feature = "tpm2")]
 impl TpmBlob {
     #[allow(dead_code)]
     pub fn data(&self) -> Vec<u8> {
@@ -140,11 +150,13 @@ impl TpmBlob {
     }
 }
 
+#[cfg(feature = "tpm2")]
 pub struct Tpm2 {
     context: tss_esapi::Context,
     pkr: CreatePrimaryKeyResult,
 }
 
+#[cfg(feature = "tpm2")]
 impl Tpm2 {
     /// Contruct a new tpm, using the specified node to commmunicate to the tpm hardware
     pub fn new(node: &str) -> Self {

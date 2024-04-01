@@ -41,7 +41,7 @@ async fn main() {
         let config: Vec<u8>;
         let tpm_data: tpm2::TpmBlob;
         {
-            let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
             let password2: [u8; 32] = rand::random();
 
@@ -56,7 +56,7 @@ async fn main() {
             tpm_data = tpm2.encrypt(&epdata).unwrap();
         }
         {
-            let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
             let epdata = tpm2.decrypt(tpm_data).unwrap();
             let protected_password = tpm2::Password::rebuild(&epdata);
 

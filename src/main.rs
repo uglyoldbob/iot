@@ -8,7 +8,6 @@
 #![recursion_limit = "512"]
 
 mod ca;
-#[cfg(feature = "tpm2")]
 mod tpm2;
 
 use std::io::Write;
@@ -278,25 +277,26 @@ async fn main() {
     f.read_to_end(&mut settings_con).await.unwrap();
 
     let settings: MainConfiguration;
+
+    let mut password: String;
+    loop {
+        print!("Please enter a password:");
+        std::io::stdout().flush().unwrap();
+        password = String::prompt(None).unwrap();
+        if !password.is_empty() {
+            break;
+        }
+    }
+
     #[cfg(feature = "tpm2")]
     {
-        let mut password: String;
-        loop {
-            print!("Please enter a password:");
-            std::io::stdout().flush().unwrap();
-            password = String::prompt(None).unwrap();
-            if !password.is_empty() {
-                break;
-            }
-        }
-
         let mut tpm_data = Vec::new();
         let mut f = tokio::fs::File::open(config_path.join("password.bin"))
             .await
             .unwrap();
         f.read_to_end(&mut tpm_data).await.unwrap();
 
-        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+        let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
         let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
 
@@ -312,7 +312,10 @@ async fn main() {
     }
     #[cfg(not(feature = "tpm2"))]
     {
-        settings = toml::from_str(&settings_con).expect("Failed to parse configuration");
+        let password_combined = password.as_bytes();
+        let pconfig = tpm2::decrypt(settings_con, &password_combined);
+        settings = toml::from_str(std::str::from_utf8(&pconfig).unwrap())
+            .expect("Failed to parse configuration");
     }
 
     let settings = Arc::new(settings);

@@ -3,7 +3,6 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
-#[cfg(feature = "tpm2")]
 mod tpm2;
 
 pub use main_config::MainConfiguration;
@@ -61,19 +60,19 @@ async fn main() {
         .await
         .unwrap();
 
+    let mut password: String;
+    loop {
+        print!("Please enter a password:");
+        std::io::stdout().flush().unwrap();
+        password = String::prompt(None).unwrap();
+        if !password.is_empty() {
+            break;
+        }
+    }
+
     #[cfg(feature = "tpm2")]
     {
-        let mut password: String;
-        loop {
-            print!("Please enter a password:");
-            std::io::stdout().flush().unwrap();
-            password = String::prompt(None).unwrap();
-            if !password.is_empty() {
-                break;
-            }
-        }
-
-        let mut tpm2 = tpm2::Tpm2::new("/dev/tpmrm0");
+        let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
         let password2: [u8; 32] = rand::random();
 
@@ -100,7 +99,10 @@ async fn main() {
     }
     #[cfg(not(feature = "tpm2"))]
     {
-        f.write_all(config_data.as_bytes())
+        let password_combined = password.as_bytes();
+        let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), &password_combined);
+
+        f.write_all(&econfig)
             .await
             .expect("Failed to write configuration file");
     }

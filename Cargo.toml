@@ -72,7 +72,7 @@ version = "0.1.0"
 features = ["kdf"]
 
 [dependencies.prompt]
-path = "/home/thomas/prompt/prompt"
+git = "https://github.com/uglyoldbob/prompt.git"
 
 [dependencies.rcgen]
 version = "0.12.1"
@@ -95,11 +95,12 @@ features = ["full"]
 
 [dependencies.tss-esapi]
 git = "https://github.com/uglyoldbob/rust-tss-esapi.git"
+optional = true
 features = ["bundled"]
 
 [features]
-default = [ "tpm2" ]
-tpm2 = []
+default = []
+tpm2 = [ "dep:tss-esapi" ]
 
 [[bin]]
 name = "rust-iot"

@@ -482,7 +482,7 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    fn from_config(settings: &crate::MainConfiguration) -> Self {
+    pub fn from_config(settings: &crate::MainConfiguration) -> Self {
         let medium = if let Some(section) = &settings.ca {
             if let Some(path) = &section.path {
                 CaCertificateStorage::FilesystemDer(path.to_owned())

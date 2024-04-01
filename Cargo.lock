@@ -2146,6 +2146,7 @@ dependencies = [
 [[package]]
 name = "prompt"
 version = "0.0.1"
+source = "git+https://github.com/uglyoldbob/prompt.git#535ec2d1d35f8bcf1847818e76762ca954056cf7"
 dependencies = [
  "prompt_derive",
 ]
@@ -2153,6 +2154,7 @@ dependencies = [
 [[package]]
 name = "prompt_derive"
 version = "0.0.1"
+source = "git+https://github.com/uglyoldbob/prompt.git#535ec2d1d35f8bcf1847818e76762ca954056cf7"
 dependencies = [
  "proc-macro2",
  "quote",
