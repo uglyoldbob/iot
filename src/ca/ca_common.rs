@@ -800,7 +800,7 @@ impl CsrRejection {
 }
 
 /// Contains a user signing request for a certificate
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct CsrRequest {
     /// The actual certificate request in pem format
     pub cert: String,

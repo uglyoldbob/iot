@@ -1,6 +1,7 @@
 #[path = "ca_common.rs"]
 mod ca_common;
 
+use async_sqlite::rusqlite::ToSql;
 pub use ca_common::*;
 
 impl Ca {
@@ -217,12 +218,12 @@ impl Ca {
 
     pub async fn save_csr(&mut self, csr: &CsrRequest) -> Option<usize> {
         use tokio::io::AsyncWriteExt;
+        let newid = self.get_new_request_id().await;
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
                 let pb = p.join("csr");
                 tokio::fs::create_dir_all(&pb).await.unwrap();
-                let newid = self.get_new_request_id().await;
                 if let Some(newid) = newid {
                     let cp = pb.join(format!("{}.toml", newid));
                     let mut cf = tokio::fs::File::create(cp).await.unwrap();
@@ -232,7 +233,21 @@ impl Ca {
                 newid
             }
             CaCertificateStorage::Sqlite(p) => {
-                todo!();
+                if let Some(newid) = newid {
+                    let csr = csr.to_owned();
+                    p.conn(move |conn| {
+                        let mut stmt = conn.prepare("INSERT INTO csr (id, requestor, email, phone, pem) VALUES (?1, ?2, ?3, ?4, ?5)").expect("Failed to build statement");
+                        stmt.execute([
+                            newid.to_sql().unwrap(),
+                            csr.name.to_sql().unwrap(),
+                            csr.email.to_sql().unwrap(),
+                            csr.phone.to_sql().unwrap(),
+                            csr.cert.to_sql().unwrap(),
+                        ]).expect("Failed to insert csr");
+                        Ok(())
+                    }).await.expect("Failed to insert csr");
+                }
+                newid
             }
         }
     }

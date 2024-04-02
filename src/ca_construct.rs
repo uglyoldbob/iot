@@ -55,6 +55,10 @@ impl CaCertificateStorage {
                         [],
                     )?;
                     conn.execute(
+                        "CREATE TABLE csr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pem TEXT )",
+                        [],
+                    )?;
+                    conn.execute(
                         "CREATE TABLE certs ( id INTEGER PRIMARY KEY, der BLOB )",
                         [],
                     )
