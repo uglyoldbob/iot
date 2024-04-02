@@ -25,6 +25,10 @@ struct Args {
     /// A configuration file with the answers already filled out
     #[arg(short, long)]
     answers: Option<PathBuf>,
+
+    /// The path answers should be saved to, if desired
+    #[arg(short, long)]
+    save_answers: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -52,6 +56,16 @@ async fn main() {
         config.provide_answers(&answers)
     } else {
         config.prompt_for_answers();
+    }
+    if let Some(pb) = &args.save_answers {
+        println!("Saving answers to {}", pb.display());
+        let answers = toml::to_string(&config).unwrap();
+        let mut f = tokio::fs::File::create(pb)
+            .await
+            .unwrap();
+        f.write_all(answers.as_bytes())
+            .await
+            .expect("Failed to write answers file");
     }
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();

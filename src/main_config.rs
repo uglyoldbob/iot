@@ -97,7 +97,7 @@ impl DatabaseSettings {
 }
 
 /// The main configuration of the application
-#[derive(prompt::Prompting, serde::Deserialize)]
+#[derive(prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct MainConfigurationAnswers {
     /// General settings
     pub general: GeneralSettings,
