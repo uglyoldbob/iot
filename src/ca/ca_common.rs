@@ -13,9 +13,9 @@ pub struct CaConfiguration {
     pub common_name: String,
     pub days: u32,
     pub chain_length: u8,
-    pub admin_password: String,
-    pub ocsp_password: String,
-    pub root_password: String,
+    pub admin_password: prompt::Password,
+    pub ocsp_password: prompt::Password,
+    pub root_password: prompt::Password,
     pub ocsp_signature: bool,
 }
 

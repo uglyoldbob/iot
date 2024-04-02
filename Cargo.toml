@@ -73,6 +73,7 @@ features = ["kdf"]
 
 [dependencies.prompt]
 git = "https://github.com/uglyoldbob/prompt.git"
+features = ["serde"]
 
 [dependencies.rcgen]
 version = "0.12.1"

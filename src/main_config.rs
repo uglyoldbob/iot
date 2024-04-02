@@ -23,7 +23,7 @@ impl GeneralSettings {
 /// The admin configuration for the application
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct AdminSettings {
-    pub pass: String,
+    pub pass: prompt::Password,
     pub n: u8,
     pub r: u32,
     pub p: u32,
@@ -32,7 +32,7 @@ pub struct AdminSettings {
 impl AdminSettings {
     fn new() -> Self {
         Self {
-            pass: "".into(),
+            pass: prompt::Password::new("".into()),
             n: 1,
             r: 1,
             p: 1,
@@ -61,7 +61,7 @@ impl HttpSettings {
 pub struct HttpsSettings {
     pub enabled: bool,
     pub certificate: PathBuf,
-    pub certpass: String,
+    pub certpass: prompt::Password,
     pub port: u16,
 }
 
@@ -70,7 +70,7 @@ impl HttpsSettings {
         Self {
             enabled: false,
             certificate: PathBuf::new(),
-            certpass: "".into(),
+            certpass: prompt::Password::new("".into()),
             port: 4,
         }
     }
@@ -80,7 +80,7 @@ impl HttpsSettings {
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct DatabaseSettings {
     pub username: String,
-    pub password: String,
+    pub password: prompt::Password,
     pub name: String,
     pub url: String,
 }
@@ -89,7 +89,7 @@ impl DatabaseSettings {
     fn new() -> Self {
         Self {
             username: "".into(),
-            password: "".into(),
+            password: prompt::Password::new("".into()),
             name: "".into(),
             url: "".into(),
         }
