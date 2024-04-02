@@ -75,6 +75,9 @@ impl Ca {
                 let pf = std::fs::read_dir(&pb).unwrap();
                 CaCertIter::FilesystemDer(pf)
             }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
+            }
         }
     }
 
@@ -87,6 +90,9 @@ impl Ca {
                 std::fs::create_dir_all(&pb).unwrap();
                 let pf = std::fs::read_dir(&pb).unwrap();
                 CaCsrIter::FilesystemDer(pf)
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
             }
         }
     }
@@ -104,6 +110,9 @@ impl Ca {
                 f.read_to_end(&mut contents).await.unwrap();
                 Some(contents)
             }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
+            }
         }
     }
 
@@ -119,6 +128,9 @@ impl Ca {
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await.ok().unwrap();
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
             }
         };
         rejection.map(|r| r.rejection)
@@ -161,6 +173,9 @@ impl Ca {
                 }
                 Ok(())
             }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
+            }
         }
     }
 
@@ -174,6 +189,9 @@ impl Ca {
                     .await
                     .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
                 Ok(())
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
             }
         }
     }
@@ -190,6 +208,9 @@ impl Ca {
                 let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
                 f.read_to_end(&mut cert).ok().unwrap();
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
             }
         }
     }
@@ -209,6 +230,9 @@ impl Ca {
                     cf.write_all(csr_doc.as_bytes()).await.unwrap();
                 }
                 newid
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
             }
         }
     }

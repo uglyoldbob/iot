@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use async_sqlite::rusqlite::ToSql;
+use mysql::params;
 use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
@@ -7,7 +9,7 @@ use crate::{oid::*, pkcs12::BagAttribute};
 /// The items used to configure a ca
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
-    pub path: Option<PathBuf>,
+    pub path: CaCertificateStorageBuilder,
     pub generate: bool,
     pub san: Vec<String>,
     pub common_name: String,
@@ -94,13 +96,46 @@ impl CertificateSigningMethod {
     }
 }
 
+/// The information needed to construct a CaCertificateStorage
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub enum CaCertificateStorageBuilder {
+    /// Certificates are stored nowhere
+    Nowhere,
+    /// Ca uses a dedicated folder on a filesystem
+    Filesystem(PathBuf),
+    /// Ca uses a sqlite database on a filesystem
+    Sqlite(PathBuf),
+}
+
+impl CaCertificateStorageBuilder {
+    pub async fn build(&self) -> CaCertificateStorage {
+        match self {
+            CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
+            CaCertificateStorageBuilder::Filesystem(p) => {
+                CaCertificateStorage::FilesystemDer(p.to_owned())
+            }
+            CaCertificateStorageBuilder::Sqlite(p) => {
+                let pool = async_sqlite::PoolBuilder::new()
+                    .path(p)
+                    .journal_mode(async_sqlite::JournalMode::Wal)
+                    .open()
+                    .await
+                    .unwrap();
+                CaCertificateStorage::Sqlite(pool)
+            }
+        }
+    }
+}
+
 /// Specifies how to access ca certificates on a ca
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum CaCertificateStorage {
     /// The certificates are stored nowhere. Used for testing.
     Nowhere,
     /// The certificates are stored on a filesystem, in der format, private key and certificate in separate files
     FilesystemDer(PathBuf),
+    /// The ca is held in a sqlite database
+    Sqlite(async_sqlite::Pool),
 }
 
 pub struct CaCertificateToBeSigned {
@@ -155,7 +190,7 @@ impl CaCertificateStorage {
     ) {
         if cert.pkey.is_some() {
             let p12: crate::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
-            let p12_der = &p12.get_pkcs12(password);
+            let p12_der = p12.get_pkcs12(password);
 
             match self {
                 CaCertificateStorage::Nowhere => {}
@@ -165,6 +200,22 @@ impl CaCertificateStorage {
                     let cp = p.join(format!("{}_cert.p12", name));
                     let mut cf = tokio::fs::File::create(cp).await.unwrap();
                     cf.write_all(&p12_der).await.unwrap();
+                }
+                CaCertificateStorage::Sqlite(p) => {
+                    println!("Inserting p12 {}", id);
+                    let name = name.to_owned();
+                    p.conn(move |conn| {
+                        let mut stmt = conn
+                            .prepare("INSERT INTO p12 (id, name, der) VALUES (?1, ?2, ?3)")
+                            .expect("Failed to build prepared statement");
+                        stmt.execute([
+                            id.to_sql().unwrap(),
+                            name.to_sql().unwrap(),
+                            p12_der.to_sql().unwrap(),
+                        ])
+                    })
+                    .await
+                    .expect("Failed to insert certificate");
                 }
             }
         }
@@ -188,12 +239,27 @@ impl CaCertificateStorage {
                 let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
                 Ok(p12.try_into().unwrap())
             }
+            CaCertificateStorage::Sqlite(p) => {
+                let name = name.to_owned();
+                let cert: Vec<u8> = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT der FROM p12 WHERE name='{}'", name),
+                            [],
+                            |r| r.get(0),
+                        )
+                    })
+                    .await
+                    .expect("Failed to retrieve cert");
+                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
+                Ok(p12.try_into().unwrap())
+            }
         }
     }
 }
 
 /// Represents a certificate that might be able to sign things
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CaCertificate {
     /// The algorithm used for the ceertificate
     algorithm: CertificateSigningMethod,
@@ -361,6 +427,9 @@ impl Ca {
                 let newname = newpath.join(format!("{}.toml", id));
                 tokio::fs::rename(oldname, newname).await.unwrap();
             }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
+            }
         }
     }
 
@@ -376,11 +445,22 @@ impl Ca {
                 let mut f = tokio::fs::File::create(path).await.ok().unwrap();
                 f.write_all(cert_der).await.unwrap();
             }
+            CaCertificateStorage::Sqlite(p) => {
+                let cert_der = cert_der.to_owned();
+                p.conn(move |conn| {
+                    let mut stmt = conn
+                        .prepare("INSERT INTO certs (id, der) VALUES (?1, ?2)")
+                        .expect("Failed to build prepared statement");
+                    stmt.execute([id.to_sql().unwrap(), cert_der.to_sql().unwrap()])
+                })
+                .await
+                .expect("Failed to insert certificate");
+            }
         }
     }
 
     /// Returns the ocsp url, based on the application settings, preferring https over http
-    fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
+    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
         let mut urls = Vec::new();
 
         if let Some(table) = &settings.ca {
@@ -432,12 +512,15 @@ impl Ca {
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
+            CaCertificateStorage::Sqlite(p) => {
+                todo!();
+            }
         }
     }
 
     /// Load ca stuff
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
-        let mut ca = Self::from_config(settings);
+        let mut ca = Self::from_config(settings).await;
 
         let table = settings.ca.as_ref().unwrap();
 
@@ -482,13 +565,9 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    pub fn from_config(settings: &crate::MainConfiguration) -> Self {
+    pub async fn from_config(settings: &crate::MainConfiguration) -> Self {
         let medium = if let Some(section) = &settings.ca {
-            if let Some(path) = &section.path {
-                CaCertificateStorage::FilesystemDer(path.to_owned())
-            } else {
-                CaCertificateStorage::Nowhere
-            }
+            section.path.build().await
         } else {
             CaCertificateStorage::Nowhere
         };
@@ -520,6 +599,16 @@ impl Ca {
                 } else {
                     None
                 }
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                let id = p
+                    .conn(|conn| {
+                        conn.execute("INSERT INTO id VALUES (NULL)", [])?;
+                        Ok(conn.last_insert_rowid())
+                    })
+                    .await
+                    .expect("Failed to insert id into table");
+                Some(id as usize)
             }
         }
     }

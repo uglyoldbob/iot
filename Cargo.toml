@@ -5,6 +5,7 @@ authors = ["Thomas Epperson"]
 edition = "2021"
 
 [dependencies]
+async-sqlite = "0.2.2"
 bincode = "1.3.3"
 cms = "0.2.3"
 const-oid = "0.9.6"

@@ -60,9 +60,7 @@ async fn main() {
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
         let answers = toml::to_string(&config).unwrap();
-        let mut f = tokio::fs::File::create(pb)
-            .await
-            .unwrap();
+        let mut f = tokio::fs::File::create(pb).await.unwrap();
         f.write_all(answers.as_bytes())
             .await
             .expect("Failed to write answers file");
