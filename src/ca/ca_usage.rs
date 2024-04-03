@@ -3,6 +3,7 @@ mod ca_common;
 
 use async_sqlite::rusqlite::ToSql;
 pub use ca_common::*;
+use serde::Deserialize;
 
 impl Ca {
     /// Return a reference to the root cert
@@ -112,7 +113,19 @@ impl Ca {
                 Some(contents)
             }
             CaCertificateStorage::Sqlite(p) => {
-                todo!();
+                let cert: Result<Vec<u8>, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT der FROM certs WHERE id='{}'", id),
+                            [],
+                            |r| r.get(0),
+                        )
+                    })
+                    .await;
+                match cert {
+                    Ok(c) => Some(c),
+                    Err(_e) => None,
+                }
             }
         }
     }
@@ -143,7 +156,7 @@ impl Ca {
         id: usize,
         reason: &String,
     ) -> Result<(), CertificateSigningError> {
-        let csr = self.get_csr_by_id(id);
+        let csr = self.get_csr_by_id(id).await;
         if csr.is_none() {
             return Err(CertificateSigningError::CsrDoesNotExist);
         }
@@ -198,7 +211,7 @@ impl Ca {
     }
 
     /// Retrieve a certificate signing request by id, if it exists
-    pub fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
+    pub async fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
@@ -211,7 +224,22 @@ impl Ca {
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
             }
             CaCertificateStorage::Sqlite(p) => {
-                todo!();
+                let cert: Result<CsrRequest, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(&format!("SELECT * FROM csr WHERE id='{}'", id), [], |r| {
+                            let dbentry = CsrRequestDbEntry::new(r);
+                            let csr = dbentry.into();
+                            Ok(csr)
+                        })
+                    })
+                    .await;
+                match cert {
+                    Ok(c) => Some(c.into()),
+                    Err(e) => {
+                        println!("Error retrieving csr {:?}", e);
+                        None
+                    }
+                }
             }
         }
     }

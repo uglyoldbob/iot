@@ -331,7 +331,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
         if let Some(id) = s.get.get("id") {
             let id = str::parse::<usize>(id);
             if let Ok(id) = id {
-                if let Some(csrr) = ca.get_csr_by_id(id) {
+                if let Some(csrr) = ca.get_csr_by_id(id).await {
                     let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
                     match &mut a {
                         Ok(csr) => {
@@ -415,65 +415,73 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
         }
     }
 
+    let csrr = if let Some(id) = s.get.get("id") {
+        let id = str::parse::<usize>(id);
+        if let Ok(id) = id {
+            ca.get_csr_by_id(id).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
         if let Some(id) = s.get.get("id") {
-            let id = str::parse::<usize>(id);
-            if let Ok(id) = id {
-                if let Some(csrr) = ca.get_csr_by_id(id) {
-                    use der::DecodePem;
-                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                    if let Ok(csr) = csr {
-                        let csr_names: Vec<String> = csr
-                            .info
-                            .subject
-                            .0
-                            .iter()
-                            .map(|n| format!("{}", n))
-                            .collect();
-                        let t = csr_names.join(", ");
-                        b.anchor(|ab| {
-                            ab.text("Back to all requests");
-                            ab.href(format!("/{}ca/list.rs", s.proxy));
-                            ab
-                        })
-                        .line_break(|a| a);
-                        b.text(t).line_break(|a| a);
-                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
-                        for attr in csr.info.attributes.iter() {
-                            for p in attr.values.iter() {
-                                let pa = CsrAttribute::with_oid_and_any(
-                                    Oid::from_const(attr.oid),
-                                    p.to_owned(),
-                                );
-                                b.text(format!("\t{}", pa)).line_break(|a| a);
-                            }
+            if let Some(csrr) = csrr {
+                use der::DecodePem;
+                let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                if let Ok(csr) = csr {
+                    let csr_names: Vec<String> = csr
+                        .info
+                        .subject
+                        .0
+                        .iter()
+                        .map(|n| format!("{}", n))
+                        .collect();
+                    let t = csr_names.join(", ");
+                    b.anchor(|ab| {
+                        ab.text("Back to all requests");
+                        ab.href(format!("/{}ca/list.rs", s.proxy));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.text(t).line_break(|a| a);
+                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                    for attr in csr.info.attributes.iter() {
+                        for p in attr.values.iter() {
+                            let pa = CsrAttribute::with_oid_and_any(
+                                Oid::from_const(attr.oid),
+                                p.to_owned(),
+                            );
+                            b.text(format!("\t{}", pa)).line_break(|a| a);
                         }
-                        b.anchor(|ab| {
-                            ab.text("Sign this request");
-                            ab.href(format!("/{}ca/request_sign.rs?id={}", s.proxy, id));
-                            ab
-                        })
-                        .line_break(|a| a);
-                        b.form(|f| {
-                            f.action(format!("/{}ca/request_reject.rs", s.proxy));
-                            f.text("Reject reason")
-                                .line_break(|a| a)
-                                .input(|i| {
-                                    i.type_("hidden")
-                                        .id("id")
-                                        .name("id")
-                                        .value(format!("{}", id))
-                                })
-                                .input(|i| i.type_("text").id("rejection").name("rejection"))
-                                .line_break(|a| a);
-                            f.input(|i| i.type_("submit").value("Reject this request"))
-                                .line_break(|a| a);
-                            f
-                        });
                     }
+                    b.anchor(|ab| {
+                        ab.text("Sign this request");
+                        ab.href(format!("/{}ca/request_sign.rs?id={}", s.proxy, id));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.form(|f| {
+                        f.action(format!("/{}ca/request_reject.rs", s.proxy));
+                        f.text("Reject reason")
+                            .line_break(|a| a)
+                            .input(|i| {
+                                i.type_("hidden")
+                                    .id("id")
+                                    .name("id")
+                                    .value(format!("{}", id))
+                            })
+                            .input(|i| i.type_("text").id("rejection").name("rejection"))
+                            .line_break(|a| a);
+                        f.input(|i| i.type_("submit").value("Reject this request"))
+                            .line_break(|a| a);
+                        f
+                    });
                 }
             }
         } else {
@@ -615,7 +623,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
         if let Ok(id) = id {
             cert = ca.get_user_cert(id).await;
             if cert.is_none() {
-                csr = ca.get_csr_by_id(id);
+                csr = ca.get_csr_by_id(id).await;
             }
             if csr.is_none() {
                 rejection = Some(ca.get_rejection_reason_by_id(id).await);

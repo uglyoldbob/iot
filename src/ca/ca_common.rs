@@ -799,6 +799,28 @@ impl CsrRejection {
     }
 }
 
+/// The database form of a CsrRequest
+pub struct CsrRequestDbEntry<'a> {
+    row_data: &'a async_sqlite::rusqlite::Row<'a>,
+}
+
+impl<'a> CsrRequestDbEntry<'a> {
+    pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
+        Self { row_data: row }
+    }
+}
+
+impl<'a> Into<CsrRequest> for CsrRequestDbEntry<'a> {
+    fn into(self) -> CsrRequest {
+        CsrRequest {
+            cert: self.row_data.get(4).unwrap(),
+            name: self.row_data.get(1).unwrap(),
+            email: self.row_data.get(2).unwrap(),
+            phone: self.row_data.get(3).unwrap(),
+        }
+    }
+}
+
 /// Contains a user signing request for a certificate
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct CsrRequest {
