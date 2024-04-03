@@ -25,13 +25,18 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
             if let Ok(csr) = cert {
                 valid_csr = ca.verify_request(&csr).await.is_ok();
                 if valid_csr {
-                    let csrr = CsrRequest {
-                        cert: pem.to_string(),
-                        name: form.get_first("name").unwrap().to_string(),
-                        email: form.get_first("email").unwrap().to_string(),
-                        phone: form.get_first("phone").unwrap().to_string(),
-                    };
-                    id = ca.save_csr(&csrr).await;
+                    let newid = ca.get_new_request_id().await;
+                    if let Some(newid) = newid {
+                        let csrr = CsrRequest {
+                            cert: pem.to_string(),
+                            name: form.get_first("name").unwrap().to_string(),
+                            email: form.get_first("email").unwrap().to_string(),
+                            phone: form.get_first("phone").unwrap().to_string(),
+                            id: newid,
+                        };
+                        ca.save_csr(&csrr).await;
+                    }
+                    id = newid;
                 }
             }
         }
@@ -271,7 +276,7 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
 
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if let Some(id) = s.get.get("id") {
-        let id = str::parse::<usize>(id);
+        let id = str::parse::<u64>(id);
         let reject = s.get.get("rejection").unwrap();
         if let Ok(id) = id {
             csr_check = ca.reject_csr_by_id(id, reject).await;
@@ -329,7 +334,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if admin {
         if let Some(id) = s.get.get("id") {
-            let id = str::parse::<usize>(id);
+            let id = str::parse::<u64>(id);
             if let Ok(id) = id {
                 if let Some(csrr) = ca.get_csr_by_id(id).await {
                     let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
@@ -416,7 +421,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     }
 
     let csrr = if let Some(id) = s.get.get("id") {
-        let id = str::parse::<usize>(id);
+        let id = str::parse::<u64>(id);
         if let Ok(id) = id {
             ca.get_csr_by_id(id).await
         } else {
@@ -619,7 +624,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut myid = 0;
 
     if let Some(id) = s.get.get("id") {
-        let id: Result<usize, std::num::ParseIntError> = str::parse(id.as_str());
+        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
         if let Ok(id) = id {
             cert = ca.get_user_cert(id).await;
             if cert.is_none() {
@@ -757,7 +762,7 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut cert: Option<Vec<u8>> = None;
 
     if let Some(id) = s.get.get("id") {
-        let id: Result<usize, std::num::ParseIntError> = str::parse(id.as_str());
+        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
         if let Ok(id) = id {
             if let Some(cert_der) = ca.get_user_cert(id).await {
                 let ty = if s.get.contains_key("type") {

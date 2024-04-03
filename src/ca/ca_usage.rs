@@ -3,7 +3,6 @@ mod ca_common;
 
 use async_sqlite::rusqlite::ToSql;
 pub use ca_common::*;
-use serde::Deserialize;
 
 impl Ca {
     /// Return a reference to the root cert
@@ -100,7 +99,7 @@ impl Ca {
     }
 
     /// Retrieve the specified index of user certificate
-    pub async fn get_user_cert(&self, id: usize) -> Option<Vec<u8>> {
+    pub async fn get_user_cert(&self, id: u64) -> Option<Vec<u8>> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
@@ -131,7 +130,7 @@ impl Ca {
     }
 
     /// Retrieve the reason the csr was rejected
-    pub async fn get_rejection_reason_by_id(&self, id: usize) -> Option<String> {
+    pub async fn get_rejection_reason_by_id(&self, id: u64) -> Option<String> {
         let rejection: Option<CsrRejection> = match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
@@ -153,7 +152,7 @@ impl Ca {
     /// Reject an existing certificate signing request by id.
     pub async fn reject_csr_by_id(
         &mut self,
-        id: usize,
+        id: u64,
         reason: &String,
     ) -> Result<(), CertificateSigningError> {
         let csr = self.get_csr_by_id(id).await;
@@ -163,7 +162,6 @@ impl Ca {
         let csr = csr.unwrap();
         let reject = CsrRejection::from_csr_with_reason(csr, reason);
         self.store_rejection(&reject).await?;
-        self.delete_request_by_id(id).await?;
         Ok(())
     }
 
@@ -176,19 +174,37 @@ impl Ca {
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::FilesystemDer(p) => {
+                let pb = p.join("csr");
+                let cp = pb.join(format!("{}.toml", reject.id));
+                tokio::fs::remove_file(cp)
+                    .await
+                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
                 let pb = p.join("csr-reject");
                 tokio::fs::create_dir_all(&pb).await.unwrap();
-                let newid = self.get_new_request_id().await;
-                if let Some(newid) = newid {
-                    let cp = pb.join(format!("{}.toml", newid));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    let csr_doc = toml::to_string(reject).unwrap();
-                    cf.write_all(csr_doc.as_bytes()).await.unwrap();
-                }
+                let cp = pb.join(format!("{}.toml", reject.id));
+                let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                let csr_doc = toml::to_string(reject).unwrap();
+                cf.write_all(csr_doc.as_bytes()).await.unwrap();
                 Ok(())
             }
             CaCertificateStorage::Sqlite(p) => {
-                todo!();
+                let rejection = reject.rejection.to_owned();
+                let id = reject.id;
+                let s = p
+                    .conn(move |conn| {
+                        let mut stmt = conn
+                            .prepare(&format!(
+                                "UPDATE csr SET 'rejection' = $1 WHERE id='{}'",
+                                id
+                            ))
+                            .unwrap();
+                        stmt.execute([rejection.to_sql().unwrap()])
+                    })
+                    .await;
+                match s {
+                    Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
+                    Ok(_) => Ok(()),
+                }
             }
         }
     }
@@ -196,22 +212,23 @@ impl Ca {
     async fn delete_request_by_id(&mut self, id: usize) -> Result<(), CertificateSigningError> {
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                let cp = pb.join(format!("{}.toml", id));
-                tokio::fs::remove_file(cp)
-                    .await
-                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
-                Ok(())
-            }
+            CaCertificateStorage::FilesystemDer(p) => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
-                todo!();
+                let s = p
+                    .conn(move |conn| {
+                        conn.execute(&format!("DELETE FROM csr WHERE id='{}'", id), [])
+                    })
+                    .await;
+                match s {
+                    Ok(_) => Ok(()),
+                    Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
+                }
             }
         }
     }
 
     /// Retrieve a certificate signing request by id, if it exists
-    pub async fn get_csr_by_id(&self, id: usize) -> Option<CsrRequest> {
+    pub async fn get_csr_by_id(&self, id: u64) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
@@ -244,38 +261,33 @@ impl Ca {
         }
     }
 
-    pub async fn save_csr(&mut self, csr: &CsrRequest) -> Option<usize> {
+    pub async fn save_csr(&mut self, csr: &CsrRequest) -> Result<(), ()> {
         use tokio::io::AsyncWriteExt;
-        let newid = self.get_new_request_id().await;
         match &self.medium {
-            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::FilesystemDer(p) => {
                 let pb = p.join("csr");
                 tokio::fs::create_dir_all(&pb).await.unwrap();
-                if let Some(newid) = newid {
-                    let cp = pb.join(format!("{}.toml", newid));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    let csr_doc = toml::to_string(csr).unwrap();
-                    cf.write_all(csr_doc.as_bytes()).await.unwrap();
-                }
-                newid
+                let cp = pb.join(format!("{}.toml", csr.id));
+                let mut cf = tokio::fs::File::create(cp).await.unwrap();
+                let csr_doc = toml::to_string(csr).unwrap();
+                cf.write_all(csr_doc.as_bytes()).await.unwrap();
+                Ok(())
             }
             CaCertificateStorage::Sqlite(p) => {
-                if let Some(newid) = newid {
-                    let csr = csr.to_owned();
-                    p.conn(move |conn| {
-                        let mut stmt = conn.prepare("INSERT INTO csr (id, requestor, email, phone, pem) VALUES (?1, ?2, ?3, ?4, ?5)").expect("Failed to build statement");
-                        stmt.execute([
-                            newid.to_sql().unwrap(),
-                            csr.name.to_sql().unwrap(),
-                            csr.email.to_sql().unwrap(),
-                            csr.phone.to_sql().unwrap(),
-                            csr.cert.to_sql().unwrap(),
-                        ]).expect("Failed to insert csr");
-                        Ok(())
-                    }).await.expect("Failed to insert csr");
-                }
-                newid
+                let csr = csr.to_owned();
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare("INSERT INTO csr (id, requestor, email, phone, pem) VALUES (?1, ?2, ?3, ?4, ?5)").expect("Failed to build statement");
+                    stmt.execute([
+                        csr.id.to_sql().unwrap(),
+                        csr.name.to_sql().unwrap(),
+                        csr.email.to_sql().unwrap(),
+                        csr.phone.to_sql().unwrap(),
+                        csr.cert.to_sql().unwrap(),
+                    ]).expect("Failed to insert csr");
+                    Ok(())
+                }).await.expect("Failed to insert csr");
+                Ok(())
             }
         }
     }

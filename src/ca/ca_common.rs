@@ -149,6 +149,8 @@ pub struct CaCertificateToBeSigned {
     pub pkey: Option<Zeroizing<Vec<u8>>>,
     /// The certificate name to use for storage
     pub name: String,
+    /// The id of the certificate to be signed
+    pub id: u64,
 }
 
 impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
@@ -174,6 +176,7 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
             pkey: Some(value.pkey),
             name: name,
             attributes: value.attributes.clone(),
+            id: value.id,
         })
     }
 }
@@ -183,7 +186,6 @@ impl CaCertificateStorage {
     pub async fn save_to_medium(
         &self,
         name: &str,
-        id: usize,
         ca: &mut Ca,
         cert: CaCertificate,
         password: &str,
@@ -202,14 +204,14 @@ impl CaCertificateStorage {
                     cf.write_all(&p12_der).await.unwrap();
                 }
                 CaCertificateStorage::Sqlite(p) => {
-                    println!("Inserting p12 {}", id);
+                    println!("Inserting p12 {}", cert.id);
                     let name = name.to_owned();
                     p.conn(move |conn| {
                         let mut stmt = conn
                             .prepare("INSERT INTO p12 (id, name, der) VALUES (?1, ?2, ?3)")
                             .expect("Failed to build prepared statement");
                         stmt.execute([
-                            id.to_sql().unwrap(),
+                            cert.id.to_sql().unwrap(),
                             name.to_sql().unwrap(),
                             p12_der.to_sql().unwrap(),
                         ])
@@ -219,7 +221,7 @@ impl CaCertificateStorage {
                 }
             }
         }
-        ca.save_user_cert(id, &cert.cert).await;
+        ca.save_user_cert(cert.id, &cert.cert).await;
     }
 
     /// Load a certificate from the storage medium
@@ -236,22 +238,22 @@ impl CaCertificateStorage {
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
-                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
+                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes(), 0);
                 Ok(p12.try_into().unwrap())
             }
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
-                let cert: Vec<u8> = p
+                let (id, cert): (u64, Vec<u8>) = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT der FROM p12 WHERE name='{}'", name),
+                            &format!("SELECT id,der FROM p12 WHERE name='{}'", name),
                             [],
-                            |r| r.get(0),
+                            |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())),
                         )
                     })
                     .await
                     .expect("Failed to retrieve cert");
-                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes());
+                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes(), id);
                 Ok(p12.try_into().unwrap())
             }
         }
@@ -273,6 +275,8 @@ pub struct CaCertificate {
     pub name: String,
     /// The extra attributes for the certificate
     pub attributes: Vec<crate::pkcs12::BagAttribute>,
+    /// The id of the certificate
+    pub id: u64,
 }
 
 impl CaCertificate {
@@ -283,6 +287,7 @@ impl CaCertificate {
         der: &[u8],
         pkey: Option<Zeroizing<Vec<u8>>>,
         name: String,
+        id: u64,
     ) -> Self {
         Self {
             algorithm,
@@ -294,6 +299,7 @@ impl CaCertificate {
                 BagAttribute::LocalKeyId(vec![42; 16]), //TODO
                 BagAttribute::FriendlyName(name),
             ],
+            id,
         }
     }
 
@@ -327,9 +333,9 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, id: usize, ca: &mut Ca, password: &str) {
+    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
         self.medium
-            .save_to_medium(&self.name, id, ca, self.to_owned(), password)
+            .save_to_medium(&self.name, ca, self.to_owned(), password)
             .await;
     }
 
@@ -365,6 +371,7 @@ impl CaCertificate {
                 BagAttribute::LocalKeyId(vec![42; 16]), //TODO
                 BagAttribute::FriendlyName(csr.name),
             ],
+            id: csr.id,
         })
     }
 
@@ -417,7 +424,7 @@ pub struct Ca {
 
 impl Ca {
     /// Marks the specified csr as done
-    pub async fn mark_csr_done(&mut self, id: usize) {
+    pub async fn mark_csr_done(&mut self, id: u64) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
@@ -434,7 +441,7 @@ impl Ca {
     }
 
     /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: usize, cert_der: &[u8]) {
+    pub async fn save_user_cert(&mut self, id: u64, cert_der: &[u8]) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
@@ -581,7 +588,7 @@ impl Ca {
     }
 
     /// Get a new request id, if possible
-    pub async fn get_new_request_id(&mut self) -> Option<usize> {
+    pub async fn get_new_request_id(&mut self) -> Option<u64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::FilesystemDer(p) => {
@@ -608,7 +615,7 @@ impl Ca {
                     })
                     .await
                     .expect("Failed to insert id into table");
-                Some(id as usize)
+                Some(id as u64)
             }
         }
     }
@@ -785,6 +792,8 @@ pub struct CsrRejection {
     phone: String,
     /// The reason for rejection
     pub rejection: String,
+    /// The id for the csr
+    pub id: u64,
 }
 
 impl CsrRejection {
@@ -795,6 +804,7 @@ impl CsrRejection {
             email: csr.email,
             phone: csr.phone,
             rejection: reason.to_owned(),
+            id: csr.id,
         }
     }
 }
@@ -817,6 +827,7 @@ impl<'a> Into<CsrRequest> for CsrRequestDbEntry<'a> {
             name: self.row_data.get(1).unwrap(),
             email: self.row_data.get(2).unwrap(),
             phone: self.row_data.get(3).unwrap(),
+            id: self.row_data.get(0).unwrap(),
         }
     }
 }
@@ -832,6 +843,8 @@ pub struct CsrRequest {
     pub email: String,
     /// The phone number of the person issuing the request
     pub phone: String,
+    /// The id of the request
+    pub id: u64,
 }
 
 /// The ways to hash data for the certificate checks

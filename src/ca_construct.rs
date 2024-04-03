@@ -55,7 +55,7 @@ impl CaCertificateStorage {
                         [],
                     )?;
                     conn.execute(
-                        "CREATE TABLE csr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pem TEXT )",
+                        "CREATE TABLE csr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pem TEXT, rejection TEXT )",
                         [],
                     )?;
                     conn.execute(
@@ -134,10 +134,9 @@ impl Ca {
                 &cert_der,
                 Some(Zeroizing::from(key_der)),
                 "root".to_string(),
+                0,
             );
-            cacert
-                .save_to_medium(0, &mut ca, &table.root_password)
-                .await;
+            cacert.save_to_medium(&mut ca, &table.root_password).await;
             ca.root_cert = Ok(cacert);
             println!("Generating OCSP responder certificate");
             let mut key_usage_oids = Vec::new();
@@ -163,7 +162,7 @@ impl Ca {
                 .unwrap();
             ocsp_cert.medium = ca.medium.clone();
             ocsp_cert
-                .save_to_medium(id, &mut ca, &table.ocsp_password)
+                .save_to_medium(&mut ca, &table.ocsp_password)
                 .await;
             ca.ocsp_signer = Ok(ocsp_cert);
 
@@ -191,7 +190,7 @@ impl Ca {
                 .unwrap();
             admin_cert.medium = ca.medium.clone();
             admin_cert
-                .save_to_medium(id, &mut ca, &table.admin_password)
+                .save_to_medium(&mut ca, &table.admin_password)
                 .await;
             ca.admin = Ok(admin_cert);
         }
@@ -212,7 +211,7 @@ impl Ca {
         common_name: String,
         names: Vec<String>,
         extensions: Vec<rcgen::CustomExtension>,
-        id: usize,
+        id: u64,
     ) -> CaCertificateToBeSigned {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names);
@@ -244,6 +243,7 @@ impl Ca {
             csr,
             pkey,
             name,
+            id,
         }
     }
 }

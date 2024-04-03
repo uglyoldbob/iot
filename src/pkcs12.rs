@@ -69,6 +69,8 @@ pub struct Pkcs12 {
     pub pkey: zeroize::Zeroizing<Vec<u8>>,
     /// The extra attributes for the certificate
     pub attributes: Vec<BagAttribute>,
+    /// The id for the certificate
+    pub id: u64,
 }
 
 impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
@@ -83,6 +85,7 @@ impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
             cert,
             pkey: pkey.unwrap(),
             attributes: value.get_attributes(),
+            id: value.id,
         })
     }
 }
@@ -316,7 +319,7 @@ impl Pkcs12 {
     /// # Arguments
     /// * data - The contents of the pkcs12 document
     /// * pass - The password protecting the document
-    pub fn load_from_data(data: &[u8], pass: &[u8]) -> Self {
+    pub fn load_from_data(data: &[u8], pass: &[u8], id: u64) -> Self {
         use der::Encode;
 
         let mut cert = None;
@@ -418,6 +421,7 @@ impl Pkcs12 {
             cert: cert.unwrap(),
             pkey: zeroize::Zeroizing::new(pkey.unwrap()),
             attributes,
+            id,
         }
     }
 }
