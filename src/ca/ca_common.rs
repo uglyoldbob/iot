@@ -723,11 +723,44 @@ impl Ca {
     }
 }
 
+#[derive(Debug)]
+pub enum ExtendedKeyUsage {
+    ClientIdentification,
+    ServerIdentification,
+    CodeSigning,
+    Unrecognized(Oid),
+}
+
+impl From<Oid> for ExtendedKeyUsage {
+    fn from(value: Oid) -> Self {
+        if value == *OID_EXTENDED_KEY_USAGE_CLIENT_AUTH {
+            return ExtendedKeyUsage::ClientIdentification;
+        } else if value == *OID_EXTENDED_KEY_USAGE_SERVER_AUTH {
+            return ExtendedKeyUsage::ServerIdentification;
+        } else if value == *OID_EXTENDED_KEY_USAGE_CODE_SIGNING {
+            return ExtendedKeyUsage::CodeSigning;
+        } else {
+            return ExtendedKeyUsage::Unrecognized(value);
+        }
+    }
+}
+
+impl ExtendedKeyUsage {
+    fn to_oid(&self) -> Oid {
+        match self {
+            ExtendedKeyUsage::ClientIdentification => OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone(),
+            ExtendedKeyUsage::ServerIdentification => OID_EXTENDED_KEY_USAGE_SERVER_AUTH.clone(),
+            ExtendedKeyUsage::CodeSigning => OID_EXTENDED_KEY_USAGE_CODE_SIGNING.clone(),
+            ExtendedKeyUsage::Unrecognized(s) => s.clone(),
+        }
+    }
+}
+
 /// The types of attributes that can be present in a csr
 #[allow(dead_code)]
 pub enum CsrAttribute {
     /// What the certificate can be used for
-    ExtendedKeyUsage(Vec<Oid>),
+    ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
     /// The challenge password
     ChallengePassword(String),
     /// The unstructured name
@@ -745,7 +778,7 @@ impl CsrAttribute {
                 let content = yasna::construct_der(|w| {
                     w.write_sequence_of(|w| {
                         for o in oids {
-                            w.next().write_oid(&o.to_yasna());
+                            w.next().write_oid(&o.to_oid().to_yasna());
                         }
                     });
                 });
@@ -759,7 +792,8 @@ impl CsrAttribute {
 
     #[allow(dead_code)]
     pub fn build_extended_key_usage(usage: Vec<Oid>) -> Self {
-        Self::ExtendedKeyUsage(usage)
+        let ks = usage.iter().map(|o| o.clone().into()).collect();
+        Self::ExtendedKeyUsage(ks)
     }
 
     #[allow(dead_code)]
@@ -770,24 +804,30 @@ impl CsrAttribute {
         } else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
             let n = any.decode_as().unwrap();
             Self::ChallengePassword(n)
+        } else if oid == *OID_EXTENDED_KEY_USAGE {
+            let oids: Vec<der::asn1::ObjectIdentifier> = any.decode_as().unwrap();
+            let oids = oids.iter().map(|o| Oid::from_const(*o).into()).collect();
+            Self::ExtendedKeyUsage(oids)
+        } else if oid == *OID_PKCS9_EXTENSION_REQUEST {
+            use der::Encode;
+            let params = yasna::parse_der(&any.to_der().unwrap(), |r| {
+                r.read_sequence(|r| {
+                    r.next().read_sequence(|r| {
+                        let oid = r.next().read_oid();
+                        r.next().read_bytes()
+                    })
+                })
+            })
+            .unwrap();
+            let oids: Vec<yasna::models::ObjectIdentifier> =
+                yasna::parse_der(&params, |r| r.collect_sequence_of(|r| r.read_oid())).unwrap();
+            let oids = oids
+                .iter()
+                .map(|o| Oid::from_yasna(o.clone()).into())
+                .collect();
+            Self::ExtendedKeyUsage(oids)
         } else {
             Self::Unrecognized(oid, any)
-        }
-    }
-}
-
-impl std::fmt::Display for CsrAttribute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CsrAttribute::ChallengePassword(s) => f.write_str(&format!("Password: {}", s)),
-            CsrAttribute::UnstructuredName(s) => f.write_str(&format!("Unstructured Name: {}", s)),
-            CsrAttribute::ExtendedKeyUsage(usages) => {
-                for u in usages {
-                    f.write_str(&format!("Usage: {:?}", u))?;
-                }
-                Ok(())
-            }
-            CsrAttribute::Unrecognized(oid, _a) => f.write_str(&format!("Unrecognized: {:?}", oid)),
         }
     }
 }

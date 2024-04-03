@@ -468,7 +468,24 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                                 Oid::from_const(attr.oid),
                                 p.to_owned(),
                             );
-                            b.text(format!("\t{}", pa)).line_break(|a| a);
+                            match pa {
+                                CsrAttribute::ExtendedKeyUsage(ek) => {
+                                    for key_use in ek {
+                                        b.text(format!("\tUsage: {:?}", key_use)).line_break(|a| a);
+                                    }
+                                }
+                                CsrAttribute::ChallengePassword(p) => {
+                                    b.text(format!("\tChallenge password: {}", p))
+                                        .line_break(|a| a);
+                                }
+                                CsrAttribute::UnstructuredName(n) => {
+                                    b.text(format!("\tChallenge name: {}", n)).line_break(|a| a);
+                                }
+                                CsrAttribute::Unrecognized(oid, _a) => {
+                                    b.text(format!("\tUnrecognized: {:?}", oid))
+                                        .line_break(|a| a);
+                                }
+                            }
                         }
                     }
                     b.anchor(|ab| {
