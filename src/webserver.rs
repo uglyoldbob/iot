@@ -193,8 +193,8 @@ impl multipart::server::HttpRequest for PostContent {
     }
 
     fn multipart_boundary(&self) -> Option<&str> {
-        let h = self.headers.get("Content-Type")?;
-        None
+        let _h = self.headers.get("Content-Type")?;
+        todo!()
     }
 }
 
@@ -448,11 +448,6 @@ impl<T> TokioIo<T> {
     /// Create a new Self
     pub fn new(inner: T) -> Self {
         Self { inner }
-    }
-
-    /// Return the inner object
-    pub fn inner(self) -> T {
-        self.inner
     }
 }
 

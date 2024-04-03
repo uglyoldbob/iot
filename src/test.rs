@@ -11,29 +11,6 @@ enum TestEnum {
     Option4 { a: u8, b: u16, c: String },
 }
 
-impl TestEnum {
-    fn prompt_test(name: Option<&str>) -> Result<Self, prompt::Error> {
-        if let Some(name) = name {
-            println!("[{}]", name);
-        }
-        println!("Enter the variant type, valid options are listed below");
-        println!("Option1");
-        println!("Option2");
-        println!("Option4");
-        let a = <String as prompt::Prompting>::prompt(None)?;
-        match a.as_str() {
-            "Option1" => Ok(Self::Option1),
-            "Option2" => Ok(Self::Option2),
-            "Option4" => Ok(Self::Option4 {
-                a: 42,
-                b: 5000,
-                c: "asdf".to_string(),
-            }),
-            _ => panic!("Unexpected value"),
-        }
-    }
-}
-
 #[allow(dead_code)]
 #[derive(Debug, prompt::Prompting)]
 struct TestMe {

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use async_sqlite::rusqlite::ToSql;
-use mysql::params;
 use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
@@ -15,6 +14,7 @@ pub struct CaConfiguration {
     pub common_name: String,
     pub days: u32,
     pub chain_length: u8,
+    pub admin_access_password: prompt::Password,
     pub admin_password: prompt::Password,
     pub ocsp_password: prompt::Password,
     pub root_password: prompt::Password,
@@ -434,7 +434,7 @@ impl Ca {
                 let newname = newpath.join(format!("{}.toml", id));
                 tokio::fs::rename(oldname, newname).await.unwrap();
             }
-            CaCertificateStorage::Sqlite(p) => {
+            CaCertificateStorage::Sqlite(_p) => {
                 todo!();
             }
         }
@@ -519,7 +519,7 @@ impl Ca {
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
-            CaCertificateStorage::Sqlite(p) => {
+            CaCertificateStorage::Sqlite(_p) => {
                 todo!();
             }
         }
@@ -683,6 +683,7 @@ impl Ca {
 }
 
 /// The types of attributes that can be present in a csr
+#[allow(dead_code)]
 pub enum CsrAttribute {
     /// What the certificate can be used for
     ExtendedKeyUsage(Vec<Oid>),
@@ -695,6 +696,7 @@ pub enum CsrAttribute {
 }
 
 impl CsrAttribute {
+    #[allow(dead_code)]
     pub fn to_custom_extension(&self) -> rcgen::CustomExtension {
         match self {
             CsrAttribute::ExtendedKeyUsage(oids) => {
@@ -708,16 +710,18 @@ impl CsrAttribute {
                 });
                 rcgen::CustomExtension::from_oid_content(oid, content)
             }
-            CsrAttribute::ChallengePassword(p) => todo!(),
-            CsrAttribute::UnstructuredName(n) => todo!(),
-            CsrAttribute::Unrecognized(oid, any) => todo!(),
+            CsrAttribute::ChallengePassword(_p) => todo!(),
+            CsrAttribute::UnstructuredName(_n) => todo!(),
+            CsrAttribute::Unrecognized(_oid, _any) => todo!(),
         }
     }
 
+    #[allow(dead_code)]
     pub fn build_extended_key_usage(usage: Vec<Oid>) -> Self {
         Self::ExtendedKeyUsage(usage)
     }
 
+    #[allow(dead_code)]
     pub fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
         if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
             let n = any.decode_as().unwrap();
@@ -748,6 +752,7 @@ impl std::fmt::Display for CsrAttribute {
 }
 
 /// Errors that can occur when signing a csr
+#[allow(dead_code)]
 pub enum CertificateSigningError {
     /// The requested csr does not exist
     CsrDoesNotExist,
@@ -756,6 +761,7 @@ pub enum CertificateSigningError {
 }
 
 /// The types of attributes that can be present in a certificate
+#[allow(dead_code)]
 pub enum CertAttribute {
     /// All other types of attributes
     Unrecognized(Oid, der::asn1::OctetString),
@@ -772,6 +778,7 @@ impl std::fmt::Display for CertAttribute {
 }
 
 impl CertAttribute {
+    #[allow(dead_code)]
     pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
         {
             Self::Unrecognized(oid, data)
@@ -797,6 +804,7 @@ pub struct CsrRejection {
 }
 
 impl CsrRejection {
+    #[allow(dead_code)]
     pub fn from_csr_with_reason(csr: CsrRequest, reason: &String) -> Self {
         Self {
             cert: csr.cert,
@@ -815,6 +823,7 @@ pub struct CsrRequestDbEntry<'a> {
 }
 
 impl<'a> CsrRequestDbEntry<'a> {
+    #[allow(dead_code)]
     pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
         Self { row_data: row }
     }
@@ -870,6 +879,7 @@ impl HashType {
 }
 
 /// Represents a type that can be good, an error, or non-existent.
+#[allow(dead_code)]
 pub enum MaybeError<T, E> {
     Ok(T),
     Err(E),

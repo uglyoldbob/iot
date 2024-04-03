@@ -125,6 +125,7 @@ impl Password {
         bincode::deserialize(data).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn password(&self) -> &[u8] {
         &self.data
     }

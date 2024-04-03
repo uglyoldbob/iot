@@ -31,6 +31,7 @@ san = ["self.uglyoldbob.com"]
 common_name = "TEST CA"
 days = 1825
 chain_length = 2
+admin_access_password = "fjeiouwueoirrueiwowr"
 admin_password = "feiwoqjwioef"
 ocsp_password = "fjeiwoqjwioef"
 root_password = "fjjeiwoqjwioefj"

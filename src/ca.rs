@@ -34,7 +34,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
                             phone: form.get_first("phone").unwrap().to_string(),
                             id: newid,
                         };
-                        ca.save_csr(&csrr).await;
+                        let _ = ca.save_csr(&csrr).await;
                     }
                     id = newid;
                 }

@@ -76,7 +76,7 @@ impl Ca {
                 let pf = std::fs::read_dir(&pb).unwrap();
                 CaCertIter::FilesystemDer(pf)
             }
-            CaCertificateStorage::Sqlite(p) => {
+            CaCertificateStorage::Sqlite(_p) => {
                 todo!();
             }
         }
@@ -92,7 +92,7 @@ impl Ca {
                 let pf = std::fs::read_dir(&pb).unwrap();
                 CaCsrIter::FilesystemDer(pf)
             }
-            CaCertificateStorage::Sqlite(p) => {
+            CaCertificateStorage::Sqlite(_p) => {
                 todo!();
             }
         }
@@ -142,7 +142,7 @@ impl Ca {
                 f.read_to_end(&mut cert).await.ok().unwrap();
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
             }
-            CaCertificateStorage::Sqlite(p) => {
+            CaCertificateStorage::Sqlite(_p) => {
                 todo!();
             }
         };
@@ -204,24 +204,6 @@ impl Ca {
                 match s {
                     Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
                     Ok(_) => Ok(()),
-                }
-            }
-        }
-    }
-
-    async fn delete_request_by_id(&mut self, id: usize) -> Result<(), CertificateSigningError> {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => Ok(()),
-            CaCertificateStorage::Sqlite(p) => {
-                let s = p
-                    .conn(move |conn| {
-                        conn.execute(&format!("DELETE FROM csr WHERE id='{}'", id), [])
-                    })
-                    .await;
-                match s {
-                    Ok(_) => Ok(()),
-                    Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
                 }
             }
         }
