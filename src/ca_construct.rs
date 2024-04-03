@@ -86,6 +86,14 @@ impl Ca {
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
+            admin_access: Zeroizing::new(
+                settings
+                    .ca
+                    .as_ref()
+                    .unwrap()
+                    .admin_access_password
+                    .to_string(),
+            ),
         }
     }
 

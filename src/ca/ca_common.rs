@@ -228,8 +228,7 @@ impl CaCertificateStorage {
     pub async fn load_from_medium(
         &self,
         name: &str,
-        password: &str,
-    ) -> Result<CaCertificate, CertificateLoadingError> {
+    ) -> Result<crate::pkcs12::ProtectedPkcs12, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::FilesystemDer(p) => {
@@ -238,8 +237,11 @@ impl CaCertificateStorage {
                 let mut f = tokio::fs::File::open(certp).await?;
                 let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
                 f.read_to_end(&mut cert).await?;
-                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes(), 0);
-                Ok(p12.try_into().unwrap())
+                let p12 = crate::pkcs12::ProtectedPkcs12 {
+                    contents: cert,
+                    id: 0,
+                };
+                Ok(p12)
             }
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
@@ -253,8 +255,8 @@ impl CaCertificateStorage {
                     })
                     .await
                     .expect("Failed to retrieve cert");
-                let p12 = crate::pkcs12::Pkcs12::load_from_data(&cert, password.as_bytes(), id);
-                Ok(p12.try_into().unwrap())
+                let p12 = crate::pkcs12::ProtectedPkcs12 { contents: cert, id };
+                Ok(p12)
             }
         }
     }
@@ -420,6 +422,8 @@ pub struct Ca {
     pub admin: Result<CaCertificate, CertificateLoadingError>,
     /// The urls for the ca
     pub ocsp_urls: Vec<String>,
+    /// The access token for the admin certificate
+    pub admin_access: zeroize::Zeroizing<String>,
 }
 
 impl Ca {
@@ -544,9 +548,26 @@ impl Ca {
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
-            self.root_cert = self.medium.load_from_medium("root", password).await;
+            let rc = self.medium.load_from_medium("root").await.unwrap();
+            self.root_cert =
+                Ok(
+                    crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
+                        .try_into()
+                        .unwrap(),
+                );
         }
         self.root_cert.as_ref()
+    }
+
+    /// Get the protected admin certificate
+    pub async fn get_admin_cert(&self) -> Vec<u8> {
+        let p = self.medium.load_from_medium("admin").await.unwrap();
+        p.contents
+    }
+
+    /// Attempt to get the already loaded admin certificate data
+    pub async fn retrieve_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.admin.as_ref()
     }
 
     /// Load the admin signer certificate, loading if required.
@@ -555,7 +576,13 @@ impl Ca {
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
-            self.admin = self.medium.load_from_medium("admin", password).await;
+            let rc = self.medium.load_from_medium("admin").await.unwrap();
+            let mut cert: CaCertificate =
+                crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
+                    .try_into()
+                    .unwrap();
+            cert.pkey = None;
+            self.admin = Ok(cert);
         }
         self.admin.as_ref()
     }
@@ -566,7 +593,13 @@ impl Ca {
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
-            self.ocsp_signer = self.medium.load_from_medium("ocsp", password).await;
+            let rc = self.medium.load_from_medium("ocsp").await.unwrap();
+            self.ocsp_signer =
+                Ok(
+                    crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
+                        .try_into()
+                        .unwrap(),
+                );
         }
         self.ocsp_signer.as_ref()
     }
@@ -584,6 +617,14 @@ impl Ca {
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
+            admin_access: Zeroizing::new(
+                settings
+                    .ca
+                    .as_ref()
+                    .unwrap()
+                    .admin_access_password
+                    .to_string(),
+            ),
         }
     }
 
@@ -782,6 +823,30 @@ impl CertAttribute {
     pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
         {
             Self::Unrecognized(oid, data)
+        }
+    }
+}
+
+pub struct CsrRejectionDbEntry<'a> {
+    row_data: &'a async_sqlite::rusqlite::Row<'a>,
+}
+
+impl<'a> CsrRejectionDbEntry<'a> {
+    #[allow(dead_code)]
+    pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
+        Self { row_data: row }
+    }
+}
+
+impl<'a> Into<CsrRejection> for CsrRejectionDbEntry<'a> {
+    fn into(self) -> CsrRejection {
+        CsrRejection {
+            cert: self.row_data.get(4).unwrap(),
+            name: self.row_data.get(1).unwrap(),
+            email: self.row_data.get(2).unwrap(),
+            phone: self.row_data.get(3).unwrap(),
+            rejection: self.row_data.get(5).unwrap(),
+            id: self.row_data.get(0).unwrap(),
         }
     }
 }

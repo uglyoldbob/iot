@@ -160,10 +160,12 @@ impl PostContent {
 
     /// Convert the post content to form data if possible
     pub fn form<'a>(&'a self) -> Option<url_encoded_data::UrlEncodedData<'a>> {
-        let s = std::str::from_utf8(self.body.as_ref().unwrap()).ok()?;
-        self.body
-            .as_ref()
-            .map(|d| url_encoded_data::UrlEncodedData::parse_str(s))
+        if let Some(body) = self.body.as_ref() {
+            let s = std::str::from_utf8(body).ok()?;
+            Some(url_encoded_data::UrlEncodedData::parse_str(s))
+        } else {
+            None
+        }
     }
 
     /// Convert the post content to a multipart request if possible.

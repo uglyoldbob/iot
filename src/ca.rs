@@ -213,7 +213,7 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
         for cert in cs {
-            if ca.is_admin(cert) {
+            if ca.is_admin(cert).await {
                 admin = true;
             }
         }
@@ -325,7 +325,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
         for cert in cs {
-            if ca.is_admin(cert) {
+            if ca.is_admin(cert).await {
                 admin = true;
             }
         }
@@ -414,7 +414,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
         for cert in cs {
-            if ca.is_admin(cert) {
+            if ca.is_admin(cert).await {
                 admin = true;
             }
         }
@@ -543,7 +543,7 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
         for cert in cs {
-            if ca.is_admin(cert) {
+            if ca.is_admin(cert).await {
                 admin = true;
             }
         }
@@ -609,7 +609,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut admin = false;
     if let Some(cs) = s.user_certs.all_certs() {
         for cert in cs {
-            if ca.is_admin(cert) {
+            if ca.is_admin(cert).await {
                 admin = true;
             }
         }
@@ -809,6 +809,67 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
         http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
     } else {
         http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+    };
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
+/// Runs the page for fetching the ca certificate for the certificate authority being run
+async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
+    let ca = s.ca.lock().await;
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+
+    let p = s.post.form();
+    if let Some(p) = p {
+        let token = p.get_first("token").unwrap();
+        if token == ca.admin_access.as_str() {
+            let cert_der = ca.get_admin_cert().await;
+            response.headers.append(
+                "Content-Type",
+                HeaderValue::from_static("application/x-pkcs12"),
+            );
+            response.headers.append(
+                "Content-Disposition",
+                HeaderValue::from_static("attachment; filename=admin.p12"),
+            );
+            cert = Some(cert_der);
+        }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    } else {
+        let mut html = html::root::Html::builder();
+        html.head(|h| {
+            generic_head(h, &s)
+                .script(|sb| {
+                    sb.src(format!("/{}js/forge.min.js", s.proxy));
+                    sb
+                })
+                .script(|sb| {
+                    sb.src(format!("/{}js/certgen.js", s.proxy));
+                    sb
+                })
+        })
+        .body(|b| {
+            b.form(|f| {
+                f.method("POST");
+                f.text("Access key for admin certificate")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("password").name("token").id("token"))
+                    .line_break(|a| a);
+                f.input(|i| i.type_("submit")).line_break(|a| a);
+                f
+            });
+            b
+        });
+        http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()))
     };
     webserver::WebResponse {
         response: hyper::http::Response::from_parts(response, body),
@@ -1058,4 +1119,5 @@ pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca/list.rs", ca_list_requests);
     router.register("/ca/request_sign.rs", ca_sign_request);
     router.register("/ca/request_reject.rs", ca_reject_request);
+    router.register("/ca/get_admin.rs", ca_get_admin);
 }

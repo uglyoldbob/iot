@@ -61,6 +61,14 @@ impl BagAttribute {
     }
 }
 
+/// A struct for holding the unparsed (encrypted) contents of a pkcs12 document
+pub struct ProtectedPkcs12 {
+    /// The der contents of the document
+    pub contents: Vec<u8>,
+    /// The id number of the document
+    pub id: u64,
+}
+
 /// A struct for pkcs12 certificates containing a certificate and a private key
 pub struct Pkcs12 {
     /// The certificate in der format

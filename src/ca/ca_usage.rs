@@ -15,8 +15,8 @@ impl Ca {
         self.ocsp_signer.as_ref()
     }
 
-    pub fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
-        let admin = self.get_admin_cert().unwrap();
+    pub async fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
+        let admin = self.retrieve_admin_cert().await.unwrap();
         let admin_x509_cert = {
             use der::Decode;
             x509_cert::Certificate::from_der(&admin.cert).unwrap()
@@ -24,10 +24,6 @@ impl Ca {
         cert.tbs_certificate.serial_number == admin_x509_cert.tbs_certificate.serial_number
             && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
             && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
-    }
-
-    fn get_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.admin.as_ref()
     }
 
     /// Verify a certificate signing request
@@ -142,8 +138,17 @@ impl Ca {
                 f.read_to_end(&mut cert).await.ok().unwrap();
                 toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
             }
-            CaCertificateStorage::Sqlite(_p) => {
-                todo!();
+            CaCertificateStorage::Sqlite(p) => {
+                let cert: Result<CsrRejection, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(&format!("SELECT * FROM csr WHERE id='{}'", id), [], |r| {
+                            let dbentry = CsrRejectionDbEntry::new(r);
+                            let csr = dbentry.into();
+                            Ok(csr)
+                        })
+                    })
+                    .await;
+                cert.ok()
             }
         };
         rejection.map(|r| r.rejection)
