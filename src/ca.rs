@@ -431,6 +431,12 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
         None
     };
 
+    let mut csr_list: Vec<(CsrRequest, u64)> = Vec::new();
+    ca.csr_processing(|index, csr, id| {
+        csr_list.push((csr, id));
+    })
+    .await;
+
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, &s)).body(|b| {
         if let Some(id) = s.get.get("id") {
@@ -494,7 +500,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                 b.text("List all pending requests");
                 b.line_break(|a| a);
                 let mut index_shown = 0;
-                for (csrr, id) in ca.get_csr_iter() {
+                for (csrr, id) in csr_list {
                     use der::DecodePem;
                     let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
                     if let Ok(csr) = csr {

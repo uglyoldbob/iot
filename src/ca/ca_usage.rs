@@ -78,19 +78,57 @@ impl Ca {
         }
     }
 
-    /// Get an iterator for the csr of a ca
-    pub fn get_csr_iter(&self) -> CaCsrIter {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => CaCsrIter::Nowhere,
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                std::fs::create_dir_all(&pb).unwrap();
-                let pf = std::fs::read_dir(&pb).unwrap();
-                CaCsrIter::FilesystemDer(pf)
+    pub async fn csr_processing<'a, F>(&'a self, mut process: F)
+    where
+        F: FnMut(usize, CsrRequest, u64) + Send + 'a,
+    {
+        let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
+
+        let self2_medium = self.medium.to_owned();
+        tokio::spawn(async move {
+            match self2_medium {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::FilesystemDer(p) => {
+                    let pb = p.join("csr");
+                    std::fs::create_dir_all(&pb).unwrap();
+                    let mut pf = tokio::fs::read_dir(&pb).await.unwrap();
+                    let mut index = 0;
+
+                    while let Ok(Some(a)) = pf.next_entry().await {
+                        use std::io::Read;
+                        let path = a.path();
+                        let fname = path.file_stem().unwrap();
+                        let fnint: u64 = fname.to_str().unwrap().parse().unwrap();
+                        let mut f = std::fs::File::open(path).ok().unwrap();
+                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
+                        f.read_to_end(&mut cert).unwrap();
+                        let csr: CsrRequest =
+                            toml::from_str(std::str::from_utf8(&cert).unwrap()).unwrap();
+                        s.send((index, csr, fnint)).unwrap();
+                        index += 1;
+                    }
+                }
+                CaCertificateStorage::Sqlite(p) => {
+                    p.conn(move |conn| {
+                        let mut stmt = conn.prepare("SELECT * from csr").unwrap();
+                        let mut rows = stmt.query([]).unwrap();
+                        let mut index = 0;
+                        while let Ok(Some(r)) = rows.next() {
+                            let id = r.get(0).unwrap();
+                            let dbentry = CsrRequestDbEntry::new(r);
+                            let csr = dbentry.into();
+                            s.send((index, csr, id)).unwrap();
+                            index += 1;
+                        }
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                }
             }
-            CaCertificateStorage::Sqlite(_p) => {
-                todo!();
-            }
+        });
+        while let Some((index, csr, id)) = r.recv().await {
+            process(index, csr, id);
         }
     }
 
@@ -304,42 +342,6 @@ impl Iterator for CaCertIter {
                         let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
                         f.read_to_end(&mut cert).unwrap();
                         (x509_cert::Certificate::from_der(&cert).unwrap(), fnint)
-                    })
-                    .unwrap()
-                });
-                a
-            }
-        }
-    }
-}
-
-/// An iterator over the csr of a certificate authority
-pub enum CaCsrIter {
-    Nowhere,
-    FilesystemDer(std::fs::ReadDir),
-}
-
-impl Iterator for CaCsrIter {
-    type Item = (CsrRequest, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CaCsrIter::Nowhere => None,
-            CaCsrIter::FilesystemDer(rd) => {
-                let n = rd.next();
-                let a = n.map(|rde| {
-                    rde.map(|de| {
-                        use std::io::Read;
-                        let path = de.path();
-                        let fname = path.file_stem().unwrap();
-                        let fnint: usize = fname.to_str().unwrap().parse().unwrap();
-                        let mut f = std::fs::File::open(path).ok().unwrap();
-                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                        f.read_to_end(&mut cert).unwrap();
-                        (
-                            toml::from_str(std::str::from_utf8(&cert).unwrap()).unwrap(),
-                            fnint,
-                        )
                     })
                     .unwrap()
                 });
