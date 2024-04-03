@@ -1,0 +1,40 @@
+[general]
+cookie = "/asdf"
+proxy = ""
+static_content = "./content"
+
+[admin]
+pass = "ghruwiojhjiworgf"
+n = 50
+r = 50
+p = 12
+
+[http]
+enabled = true
+port = 3000
+
+[https]
+enabled = true
+certificate = "./keyStore.p12"
+certpass = "passwordpassword"
+port = 3001
+
+[database]
+username = "rjrfeiwouwuioer"
+password = "rueuwiowueior"
+name = "rjejuiwowuioer"
+url = "rueiouwioer"
+
+[ca]
+generate = true
+san = ["self.uglyoldbob.com"]
+common_name = "TEST CA"
+days = 1825
+chain_length = 2
+admin_password = "feiwoqjwioef"
+ocsp_password = "fjeiwoqjwioef"
+root_password = "fjjeiwoqjwioefj"
+ocsp_signature = false
+
+[ca.path]
+Sqlite = "./cadb.sqlite"

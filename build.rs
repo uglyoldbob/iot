@@ -10,12 +10,6 @@ fn main() {
     let source_path =
         std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("No source directory"));
 
-    let settings = source_path.join("settings.ini");
-    if !settings.exists() {
-        let example = source_path.join("settings.example.ini");
-        std::fs::copy(example, settings).unwrap();
-    }
-
     let p = if use_out {
         let p = out_path.join("js");
         std::fs::create_dir_all(&p).expect("Failed to create file for npm work files");
