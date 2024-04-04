@@ -449,8 +449,12 @@ impl Ca {
                 let newname = newpath.join(format!("{}.toml", id));
                 tokio::fs::rename(oldname, newname).await.unwrap();
             }
-            CaCertificateStorage::Sqlite(_p) => {
-                todo!();
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    conn.execute(&format!("UPDATE csr SET done=1 WHERE id='{}'", id), [])
+                })
+                .await
+                .expect("Failed to mark csr as done");
             }
         }
     }

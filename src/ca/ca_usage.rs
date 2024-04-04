@@ -110,7 +110,7 @@ impl Ca {
                 }
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
-                        let mut stmt = conn.prepare("SELECT * from csr").unwrap();
+                        let mut stmt = conn.prepare("SELECT * from csr WHERE done='0'").unwrap();
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
