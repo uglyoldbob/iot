@@ -741,6 +741,12 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                                     ))
                                     .line_break(|a| a);
                                 }
+                                CertAttribute::AuthorityInfoAccess(aias) => {
+                                    for aia in aias {
+                                        b.text(format!("Authority Information Access: {:?}", aia))
+                                            .line_break(|a| a);
+                                    }
+                                }
                             }
                         }
                     }

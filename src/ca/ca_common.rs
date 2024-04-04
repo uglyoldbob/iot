@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use async_sqlite::rusqlite::ToSql;
+use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
@@ -860,6 +861,53 @@ pub enum CertificateSigningError {
     FailedToDeleteRequest,
 }
 
+/// The types of methods that can be specified by authority info access
+#[derive(Debug)]
+pub enum AuthorityInfoAccess {
+    /// Info is by ocsp provider at the specified url
+    Ocsp(String),
+    /// Unknown authority info access
+    Unknown(String),
+}
+
+impl From<&AccessDescription> for AuthorityInfoAccess {
+    fn from(value: &AccessDescription) -> Self {
+        let s = match &value.access_location {
+            x509_cert::ext::pkix::name::GeneralName::OtherName(a) => {
+                todo!()
+            }
+            x509_cert::ext::pkix::name::GeneralName::Rfc822Name(a) => {
+                todo!()
+            }
+            x509_cert::ext::pkix::name::GeneralName::DnsName(a) => {
+                let s: &str = a.as_ref();
+                s.to_string()
+            }
+            x509_cert::ext::pkix::name::GeneralName::DirectoryName(a) => {
+                todo!()
+            }
+            x509_cert::ext::pkix::name::GeneralName::EdiPartyName(a) => {
+                todo!()
+            }
+            x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(a) => {
+                let s: &str = a.as_ref();
+                s.to_string()
+            }
+            x509_cert::ext::pkix::name::GeneralName::IpAddress(a) => {
+                String::from_utf8(a.as_bytes().to_vec()).unwrap()
+            }
+            x509_cert::ext::pkix::name::GeneralName::RegisteredId(a) => {
+                todo!()
+            }
+        };
+        if value.access_method == OID_OCSP.to_const() {
+            Self::Ocsp(s)
+        } else {
+            Self::Unknown(s)
+        }
+    }
+}
+
 /// The types of attributes that can be present in a certificate
 #[allow(dead_code)]
 pub enum CertAttribute {
@@ -871,6 +919,8 @@ pub enum CertAttribute {
     ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
     /// The basic constraints extension
     BasicContraints { ca: bool, path_len: u8 },
+    /// Authority info access
+    AuthorityInfoAccess(Vec<AuthorityInfoAccess>),
     /// All other types of attributes
     Unrecognized(Oid, der::asn1::OctetString),
 }
@@ -910,6 +960,12 @@ impl CertAttribute {
             })
             .unwrap();
             Self::BasicContraints { ca, path_len: len }
+        } else if oid == *OID_PKIX_AUTHORITY_INFO_ACCESS {
+            use der::Decode;
+            let aia =
+                x509_cert::ext::pkix::AuthorityInfoAccessSyntax::from_der(data.as_bytes()).unwrap();
+            let aias: Vec<AuthorityInfoAccess> = aia.0.iter().map(|a| a.into()).collect();
+            Self::AuthorityInfoAccess(aias)
         } else {
             Self::Unrecognized(oid, data)
         }
