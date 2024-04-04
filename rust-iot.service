@@ -1,0 +1,9 @@
+[Unit]
+Description=Iot Certificate Authority and Iot Manager
+
+[Service]
+ExecStart=rust-iot
+LoadCredentialEncrypted=foobar:/etc/rust-iot/credentials
+
+[Install]
+WantedBy=multi-user.target

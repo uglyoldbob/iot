@@ -23,6 +23,7 @@ rand = "0.8.5"
 regex = "1.10.3"
 ring = "0.17.8"
 rsa = "0.9.6"
+rustls-pki-types = "1.4.1"
 scrypt = "0.11.0"
 sha1 = "0.10.6"
 sha2 = "^0.10"
@@ -77,9 +78,7 @@ git = "https://github.com/uglyoldbob/prompt.git"
 features = ["serde"]
 
 [dependencies.rcgen]
-version = "0.12.1"
-git = "https://github.com/uglyoldbob/rcgen.git"
-branch = "publickey"
+version = "0.13.0"
 features = ["ring", "pem", "x509-parser"]
 
 [dependencies.serde]

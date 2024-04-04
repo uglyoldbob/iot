@@ -337,9 +337,13 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
             let id = str::parse::<u64>(id);
             if let Ok(id) = id {
                 if let Some(csrr) = ca.get_csr_by_id(id).await {
-                    let mut a = rcgen::CertificateSigningRequest::from_pem(&csrr.cert);
-                    match &mut a {
-                        Ok(csr) => {
+                    use der::Encode;
+                    let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
+                    let der = der.to_der().unwrap();
+                    let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
+                    let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
+                    match a {
+                        Ok(mut csr) => {
                             csr.params.not_before = time::OffsetDateTime::now_utc();
                             csr.params.not_after =
                                 csr.params.not_before + time::Duration::days(365);
@@ -350,18 +354,18 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                             let sn = rcgen::SerialNumber::from_slice(&sn);
                             csr.params.serial_number = Some(sn);
                             println!("Ready to sign the csr");
+                            let ca_cert = ca.root_ca_cert().unwrap();
                             let der = csr
-                                .serialize_der_with_signer(
-                                    &ca.root_ca_cert().unwrap().as_certificate(),
-                                )
+                                .signed_by(&ca_cert.as_certificate(), &ca_cert.keypair())
                                 .unwrap();
+                            let der = der.der();
                             println!(
                                 "got a signed der certificate for the user length {}",
                                 der.len()
                             );
                             ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der).await;
-                            csr_check = Ok(der);
+                            csr_check = Ok(der.to_vec());
                         }
                         Err(e) => {
                             println!("Error decoding csr to sign: {:?}", e);

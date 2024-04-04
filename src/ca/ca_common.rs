@@ -139,12 +139,12 @@ pub enum CaCertificateStorage {
 }
 
 pub struct CaCertificateToBeSigned {
-    /// The algorithm used for the ceertificate
+    /// The algorithm used for the certificate
     pub algorithm: CertificateSigningMethod,
     /// Where the certificate is stored
     pub medium: CaCertificateStorage,
-    /// The certificate signing request
-    pub csr: rcgen::CertificateSigningRequest,
+    /// The certificate signing request parameters
+    pub csr: rcgen::CertificateSigningRequestParams,
     /// The optional private key in der format
     pub pkey: Option<Zeroizing<Vec<u8>>>,
     /// The certificate name to use for storage
@@ -323,15 +323,25 @@ impl CaCertificate {
         self.cert.clone()
     }
 
+    /// Returns the keypair for this certificate
+    pub fn keypair(&self) -> rcgen::KeyPair {
+        if let Some(pri) = &self.pkey {
+            let pkcs8 = rustls_pki_types::PrivatePkcs8KeyDer::from(pri.as_slice());
+            let alg =
+                rcgen::SignatureAlgorithm::from_oid(&self.algorithm.oid().components()).unwrap();
+            rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&pkcs8, alg).unwrap()
+        } else {
+            todo!("Implement getting keypair from remote keypair");
+        }
+    }
+
     /// Retrieve the certificate in the rcgen Certificate format
     pub fn as_certificate(&self) -> rcgen::Certificate {
-        let keypair = if let Some(kp) = &self.pkey {
-            rcgen::KeyPair::from_der(kp).unwrap()
-        } else {
-            panic!("No keypair - need to implement RemoteKeyPair trait");
-        };
-        let p = rcgen::CertificateParams::from_ca_cert_der(&self.cert, keypair).unwrap();
-        rcgen::Certificate::from_params(p).unwrap()
+        let keypair = self.keypair();
+        let ca_cert_der = rustls_pki_types::CertificateDer::from(self.cert.clone());
+        let p = rcgen::CertificateParams::from_ca_cert_der(&ca_cert_der).unwrap();
+        //TODO unsure if this is correct
+        p.self_signed(&keypair).unwrap()
     }
 
     /// Save this certificate to the storage medium
@@ -361,8 +371,9 @@ impl CaCertificate {
 
         let cert = csr
             .csr
-            .serialize_der_with_signer(&self.as_certificate())
+            .signed_by(&self.as_certificate(), &self.keypair())
             .ok()?;
+        let cert = cert.der().to_vec();
         Some(CaCertificate {
             algorithm: csr.algorithm,
             medium: CaCertificateStorage::Nowhere,
