@@ -79,6 +79,8 @@ features = ["serde"]
 
 [dependencies.rcgen]
 version = "0.13.0"
+git = "https://github.com/uglyoldbob/rcgen.git"
+branch = "main"
 features = ["ring", "pem", "x509-parser"]
 
 [dependencies.serde]

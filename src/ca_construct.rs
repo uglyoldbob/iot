@@ -50,6 +50,7 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(p) => {
                 p.conn(|conn| {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
+                    conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
                     conn.execute(
                         "CREATE TABLE p12 ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, der BLOB )",
                         [],

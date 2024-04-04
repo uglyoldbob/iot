@@ -222,7 +222,8 @@ impl CaCertificateStorage {
                 }
             }
         }
-        ca.save_user_cert(cert.id, &cert.cert).await;
+        let rc_cert = cert.as_certificate();
+        ca.save_user_cert(cert.id, &rc_cert).await;
     }
 
     /// Load a certificate from the storage medium
@@ -461,7 +462,8 @@ impl Ca {
     }
 
     /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: u64, cert_der: &[u8]) {
+    pub async fn save_user_cert(&mut self, id: u64, cert: &rcgen::Certificate) {
+        let der = cert.der();
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
@@ -470,10 +472,10 @@ impl Ca {
                 tokio::fs::create_dir_all(&pb).await.unwrap();
                 let path = pb.join(format!("{}.der", id));
                 let mut f = tokio::fs::File::create(path).await.ok().unwrap();
-                f.write_all(cert_der).await.unwrap();
+                f.write_all(der).await.unwrap();
             }
             CaCertificateStorage::Sqlite(p) => {
-                let cert_der = cert_der.to_owned();
+                let cert_der = der.to_owned();
                 p.conn(move |conn| {
                     let mut stmt = conn
                         .prepare("INSERT INTO certs (id, der) VALUES (?1, ?2)")
@@ -482,6 +484,15 @@ impl Ca {
                 })
                 .await
                 .expect("Failed to insert certificate");
+                let serial = cert.params().serial_number.as_ref().unwrap().to_owned();
+                p.conn(move |conn| {
+                    let mut stmt = conn
+                        .prepare("INSERT INTO serials (id, serial) VALUES (?1, ?2)")
+                        .expect("Failed to build prepared statement");
+                    stmt.execute([id.to_sql().unwrap(), serial.to_bytes().to_sql().unwrap()])
+                })
+                .await
+                .expect("Failed to insert serial number for certificate");
             }
         }
     }
@@ -534,13 +545,31 @@ impl Ca {
     /// * serial - The serial number of the certificate
     async fn get_cert_by_serial(
         &self,
-        _serial: &[u8],
+        serial: &[u8],
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
+        let s_str: Vec<String> = serial.iter().map(|v| format!("{:02X}", v)).collect();
+        let s_str = s_str.concat();
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
-            CaCertificateStorage::Sqlite(_p) => {
-                todo!();
+            CaCertificateStorage::Sqlite(p) => {
+                let cert: Result<Vec<u8>, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT der FROM certs WHERE serial=x'{}' INNER JOIN serials ON certs.id = serials.id", s_str),
+                            [],
+                            |r| r.get(0),
+                        )
+                    })
+                    .await;
+                match cert {
+                    Ok(c) => {
+                        use der::Decode;
+                        let c = x509_cert::Certificate::from_der(&c).unwrap();
+                        MaybeError::Ok(c)
+                    }
+                    Err(_e) => MaybeError::None,
+                }
             }
         }
     }

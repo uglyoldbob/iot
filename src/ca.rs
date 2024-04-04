@@ -358,14 +358,9 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                             let der = csr
                                 .signed_by(&ca_cert.as_certificate(), &ca_cert.keypair())
                                 .unwrap();
-                            let der = der.der();
-                            println!(
-                                "got a signed der certificate for the user length {}",
-                                der.len()
-                            );
                             ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der).await;
-                            csr_check = Ok(der.to_vec());
+                            csr_check = Ok(der);
                         }
                         Err(e) => {
                             println!("Error decoding csr to sign: {:?}", e);
