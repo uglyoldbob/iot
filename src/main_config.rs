@@ -23,7 +23,7 @@ impl GeneralSettings {
 /// The admin configuration for the application
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct AdminSettings {
-    pub pass: prompt::Password,
+    pub pass: prompt::Password2,
     pub n: u8,
     pub r: u32,
     pub p: u32,
@@ -32,7 +32,7 @@ pub struct AdminSettings {
 impl AdminSettings {
     fn new() -> Self {
         Self {
-            pass: prompt::Password::new("".into()),
+            pass: prompt::Password2::new("".into()),
             n: 1,
             r: 1,
             p: 1,
@@ -61,7 +61,8 @@ impl HttpSettings {
 pub struct HttpsSettings {
     pub enabled: bool,
     pub certificate: PathBuf,
-    pub certpass: prompt::Password,
+    /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
+    pub certpass: prompt::Password2,
     pub port: u16,
 }
 
@@ -70,7 +71,7 @@ impl HttpsSettings {
         Self {
             enabled: false,
             certificate: PathBuf::new(),
-            certpass: prompt::Password::new("".into()),
+            certpass: prompt::Password2::new("".into()),
             port: 4,
         }
     }
@@ -80,7 +81,7 @@ impl HttpsSettings {
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct DatabaseSettings {
     pub username: String,
-    pub password: prompt::Password,
+    pub password: prompt::Password2,
     pub name: String,
     pub url: String,
 }
@@ -89,7 +90,7 @@ impl DatabaseSettings {
     fn new() -> Self {
         Self {
             username: "".into(),
-            password: prompt::Password::new("".into()),
+            password: prompt::Password2::new("".into()),
             name: "".into(),
             url: "".into(),
         }
