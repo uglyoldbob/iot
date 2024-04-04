@@ -347,19 +347,23 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
                             csr.params.not_before = time::OffsetDateTime::now_utc();
                             csr.params.not_after =
                                 csr.params.not_before + time::Duration::days(365);
-                            let mut sn = [0; 20];
-                            for (i, b) in id.to_le_bytes().iter().enumerate() {
-                                sn[i] = *b;
-                            }
-                            let sn = rcgen::SerialNumber::from_slice(&sn);
+                            let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
                             csr.params.serial_number = Some(sn);
+                            let cert_to_sign = CaCertificateToBeSigned {
+                                algorithm: CertificateSigningMethod::RsaSha256,
+                                medium: ca.medium.clone(),
+                                csr,
+                                pkey: None,
+                                name: "".into(),
+                                id,
+                            };
+
                             println!("Ready to sign the csr");
                             let ca_cert = ca.root_ca_cert().unwrap();
-                            let der = csr
-                                .signed_by(&ca_cert.as_certificate(), &ca_cert.keypair())
-                                .unwrap();
+                            let cert = ca_cert.sign_csr(cert_to_sign, &ca).unwrap();
+                            let der = cert.cert;
                             ca.mark_csr_done(id).await;
-                            ca.save_user_cert(id, &der).await;
+                            ca.save_user_cert(id, &der, &snb).await;
                             csr_check = Ok(der);
                         }
                         Err(e) => {

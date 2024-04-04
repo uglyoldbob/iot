@@ -154,6 +154,17 @@ pub struct CaCertificateToBeSigned {
     pub id: u64,
 }
 
+impl CaCertificateToBeSigned {
+    pub fn calc_sn(id: u64) -> ([u8; 20], rcgen::SerialNumber) {
+        let mut snb = [0; 20];
+        for (i, b) in id.to_le_bytes().iter().enumerate() {
+            snb[i] = *b;
+        }
+        let sn = rcgen::SerialNumber::from_slice(&snb);
+        (snb, sn)
+    }
+}
+
 impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
     type Error = ();
     fn try_from(value: crate::pkcs12::Pkcs12) -> Result<Self, Self::Error> {
@@ -222,8 +233,8 @@ impl CaCertificateStorage {
                 }
             }
         }
-        let rc_cert = cert.as_certificate();
-        ca.save_user_cert(cert.id, &rc_cert).await;
+        let (snb, _sn) = CaCertificateToBeSigned::calc_sn(cert.id);
+        ca.save_user_cert(cert.id, &cert.cert, &snb).await;
     }
 
     /// Load a certificate from the storage medium
@@ -462,8 +473,7 @@ impl Ca {
     }
 
     /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: u64, cert: &rcgen::Certificate) {
-        let der = cert.der();
+    pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: &[u8]) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::FilesystemDer(p) => {
@@ -484,12 +494,12 @@ impl Ca {
                 })
                 .await
                 .expect("Failed to insert certificate");
-                let serial = cert.params().serial_number.as_ref().unwrap().to_owned();
+                let serial = sn.to_owned();
                 p.conn(move |conn| {
                     let mut stmt = conn
                         .prepare("INSERT INTO serials (id, serial) VALUES (?1, ?2)")
                         .expect("Failed to build prepared statement");
-                    stmt.execute([id.to_sql().unwrap(), serial.to_bytes().to_sql().unwrap()])
+                    stmt.execute([id.to_sql().unwrap(), serial.to_sql().unwrap()])
                 })
                 .await
                 .expect("Failed to insert serial number for certificate");
