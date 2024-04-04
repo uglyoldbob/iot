@@ -1029,6 +1029,7 @@ async fn build_ocsp_response(
     };
 
     for r in req.tbs_request.request_list {
+        println!("Looking up a certificate");
         let stat = ca.get_cert_status(&x509_cert, &r.certid).await;
         let resp = ocsp::response::OneResp {
             cid: r.certid,

@@ -559,6 +559,7 @@ impl Ca {
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
         let s_str: Vec<String> = serial.iter().map(|v| format!("{:02X}", v)).collect();
         let s_str = s_str.concat();
+        println!("Looking for serial number {}", s_str);
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
@@ -576,9 +577,13 @@ impl Ca {
                     Ok(c) => {
                         use der::Decode;
                         let c = x509_cert::Certificate::from_der(&c).unwrap();
+                        println!("Found the cert");
                         MaybeError::Ok(c)
                     }
-                    Err(_e) => MaybeError::None,
+                    Err(e) => {
+                        println!("Did not find the cert {:?}", e);
+                        MaybeError::None
+                    }
                 }
             }
         }
@@ -732,6 +737,7 @@ impl Ca {
         let mut status = ocsp::response::CertStatusCode::Unknown;
 
         let hash = if oid == OID_HASH_SHA1.to_yasna() {
+            println!("Using sha1 for hashing");
             HashType::Sha1
         } else {
             println!("Unknown OID for hash is {:?}", oid);
@@ -740,18 +746,35 @@ impl Ca {
 
         let dn = {
             use der::Encode;
-            root_cert.tbs_certificate.subject.to_der().unwrap()
+            root_cert.tbs_certificate.issuer.to_der().unwrap()
         };
         let dnhash = hash.hash(&dn).unwrap();
 
+        println!(
+            "Compare {:02X?} and {:02X?}",
+            dnhash, certid.issuer_name_hash
+        );
+
         if dnhash == certid.issuer_name_hash {
-            let key = root_cert
+            use der::Encode;
+            let key2 = root_cert
                 .tbs_certificate
                 .subject_public_key_info
                 .subject_public_key
-                .as_bytes()
+                .to_der()
                 .unwrap();
-            let keyhash = hash.hash(key).unwrap();
+            let key: Vec<u8> = yasna::parse_der(&key2, |r| {
+                let (a, _b) = r.read_bitvec_bytes()?;
+                Ok(a)
+            })
+            .unwrap();
+            println!("The key to hash is {:02X?}", key2);
+            println!("The key to hash is {:02X?}", key);
+            let keyhash = hash.hash(&key).unwrap();
+            println!(
+                "Compare {:02X?} and {:02X?}",
+                keyhash, certid.issuer_key_hash
+            );
             if keyhash == certid.issuer_key_hash {
                 let cert = self.get_cert_by_serial(&certid.serial_num).await;
                 match cert {
