@@ -72,11 +72,9 @@ async fn main() {
         .await
         .unwrap();
 
-    let mut password: prompt::Password;
+    let mut password: prompt::Password2;
     loop {
-        print!("Please enter a password:");
-        std::io::stdout().flush().unwrap();
-        password = prompt::Password::prompt(None).unwrap();
+        password = prompt::Password2::prompt(None).unwrap();
         if !password.is_empty() {
             break;
         }
