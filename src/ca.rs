@@ -576,6 +576,14 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
         }
     }
 
+    let mut csr_list: Vec<(x509_cert::Certificate, u64)> = Vec::new();
+    if admin {
+        ca.certificate_processing(|_index, cert, id| {
+            csr_list.push((cert, id));
+        })
+        .await;
+    }
+
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
 
@@ -595,7 +603,7 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
         if admin {
             b.heading_1(|h| h.text("Current Certificates"))
                 .line_break(|a| a);
-            for c in ca.get_cert_iter() {
+            for c in csr_list {
                 b.thematic_break(|a| a);
                 b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
                     .line_break(|a| a);
@@ -706,7 +714,34 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
                                 e.extn_id.into(),
                                 e.extn_value.to_owned(),
                             );
-                            b.text(format!("\t{}", ca)).line_break(|a| a);
+                            match ca {
+                                CertAttribute::ExtendedKeyUsage(ek) => {
+                                    for key_use in ek {
+                                        b.text(format!("\tUsage: {:?}", key_use)).line_break(|a| a);
+                                    }
+                                }
+                                CertAttribute::Unrecognized(oid, a) => {
+                                    b.text(format!("\tUnrecognized: {:?} {:02X?}", oid, a))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::SubjectAlternativeName(names) => {
+                                    b.text(format!("Alternate names: {}", names.join(",")))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::SubjectKeyIdentifier(i) => {
+                                    let p: Vec<String> =
+                                        i.iter().map(|a| format!("{:02X}", a)).collect();
+                                    b.text(format!("Subject key identifer: {}", p.join(":")))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::BasicContraints { ca, path_len } => {
+                                    b.text(format!(
+                                        "Basic Contraints: CA:{}, Path length {}",
+                                        ca, path_len
+                                    ))
+                                    .line_break(|a| a);
+                                }
+                            }
                         }
                     }
                     b.button(|b| b.text("Build certificate").onclick("build_cert()"));

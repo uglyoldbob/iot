@@ -743,6 +743,7 @@ pub enum ExtendedKeyUsage {
     ClientIdentification,
     ServerIdentification,
     CodeSigning,
+    OcspSigning,
     Unrecognized(Oid),
 }
 
@@ -754,6 +755,8 @@ impl From<Oid> for ExtendedKeyUsage {
             return ExtendedKeyUsage::ServerIdentification;
         } else if value == *OID_EXTENDED_KEY_USAGE_CODE_SIGNING {
             return ExtendedKeyUsage::CodeSigning;
+        } else if value == *OID_EXTENDED_KEY_USAGE_OCSP_SIGNING {
+            return ExtendedKeyUsage::OcspSigning;
         } else {
             return ExtendedKeyUsage::Unrecognized(value);
         }
@@ -766,6 +769,7 @@ impl ExtendedKeyUsage {
             ExtendedKeyUsage::ClientIdentification => OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone(),
             ExtendedKeyUsage::ServerIdentification => OID_EXTENDED_KEY_USAGE_SERVER_AUTH.clone(),
             ExtendedKeyUsage::CodeSigning => OID_EXTENDED_KEY_USAGE_CODE_SIGNING.clone(),
+            ExtendedKeyUsage::OcspSigning => OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.clone(),
             ExtendedKeyUsage::Unrecognized(s) => s.clone(),
         }
     }
@@ -789,7 +793,7 @@ impl CsrAttribute {
     pub fn to_custom_extension(&self) -> rcgen::CustomExtension {
         match self {
             CsrAttribute::ExtendedKeyUsage(oids) => {
-                let oid = &OID_EXTENDED_KEY_USAGE.components();
+                let oid = &OID_CERT_EXTENDED_KEY_USAGE.components();
                 let content = yasna::construct_der(|w| {
                     w.write_sequence_of(|w| {
                         for o in oids {
@@ -819,7 +823,7 @@ impl CsrAttribute {
         } else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
             let n = any.decode_as().unwrap();
             Self::ChallengePassword(n)
-        } else if oid == *OID_EXTENDED_KEY_USAGE {
+        } else if oid == *OID_CERT_EXTENDED_KEY_USAGE {
             let oids: Vec<der::asn1::ObjectIdentifier> = any.decode_as().unwrap();
             let oids = oids.iter().map(|o| Oid::from_const(*o).into()).collect();
             Self::ExtendedKeyUsage(oids)
@@ -859,24 +863,54 @@ pub enum CertificateSigningError {
 /// The types of attributes that can be present in a certificate
 #[allow(dead_code)]
 pub enum CertAttribute {
+    /// The alternate names for the certificate
+    SubjectAlternativeName(Vec<String>),
+    /// The subject key identifier
+    SubjectKeyIdentifier(Vec<u8>),
+    /// What the certificate can be used for
+    ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
+    /// The basic constraints extension
+    BasicContraints { ca: bool, path_len: u8 },
     /// All other types of attributes
     Unrecognized(Oid, der::asn1::OctetString),
-}
-
-impl std::fmt::Display for CertAttribute {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CertAttribute::Unrecognized(oid, _a) => {
-                f.write_str(&format!("Unrecognized: {:?}", oid))
-            }
-        }
-    }
 }
 
 impl CertAttribute {
     #[allow(dead_code)]
     pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
-        {
+        if oid == *OID_CERT_EXTENDED_KEY_USAGE {
+            let oids: Vec<yasna::models::ObjectIdentifier> =
+                yasna::parse_der(data.as_bytes(), |r| r.collect_sequence_of(|r| r.read_oid()))
+                    .unwrap();
+            let eku = oids
+                .iter()
+                .map(|o| Oid::from_yasna(o.clone()).into())
+                .collect();
+            Self::ExtendedKeyUsage(eku)
+        } else if oid == *OID_CERT_ALTERNATIVE_NAME {
+            let names: Vec<String> = yasna::parse_der(data.as_bytes(), |r| {
+                r.collect_sequence_of(|r| {
+                    let der = r.read_tagged_der()?;
+                    let string = String::from_utf8(der.value().to_vec()).unwrap();
+                    Ok(string)
+                })
+            })
+            .unwrap();
+            Self::SubjectAlternativeName(names)
+        } else if oid == *OID_CERT_SUBJECT_KEY_IDENTIFIER {
+            let data: Vec<u8> = yasna::decode_der(data.as_bytes()).unwrap();
+            Self::SubjectKeyIdentifier(data)
+        } else if oid == *OID_CERT_BASIC_CONSTRAINTS {
+            let (ca, len) = yasna::parse_der(data.as_bytes(), |r| {
+                r.read_sequence(|r| {
+                    let ca = r.next().read_bool()?;
+                    let len = r.next().read_u8()?;
+                    Ok((ca, len))
+                })
+            })
+            .unwrap();
+            Self::BasicContraints { ca, path_len: len }
+        } else {
             Self::Unrecognized(oid, data)
         }
     }

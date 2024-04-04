@@ -62,22 +62,64 @@ impl Ca {
         Err(())
     }
 
-    /// Get an iterator for the valid certificates of a ca
-    pub fn get_cert_iter(&self) -> CaCertIter {
-        match &self.medium {
-            CaCertificateStorage::Nowhere => CaCertIter::Nowhere,
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("certs");
-                std::fs::create_dir_all(&pb).unwrap();
-                let pf = std::fs::read_dir(&pb).unwrap();
-                CaCertIter::FilesystemDer(pf)
+    /// Performs an iteration of all certificates, processing them with the given closure.
+    pub async fn certificate_processing<'a, F>(&'a self, mut process: F)
+    where
+        F: FnMut(usize, x509_cert::Certificate, u64) + Send + 'a,
+    {
+        let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
+
+        let self2_medium = self.medium.to_owned();
+        tokio::spawn(async move {
+            use der::Decode;
+            match self2_medium {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::FilesystemDer(p) => {
+                    let pb = p.join("certs");
+                    std::fs::create_dir_all(&pb).unwrap();
+                    let mut pf = tokio::fs::read_dir(&pb).await.unwrap();
+                    let mut index = 0;
+
+                    while let Ok(Some(a)) = pf.next_entry().await {
+                        use std::io::Read;
+                        let path = a.path();
+                        let fname = path.file_stem().unwrap();
+                        let fnint: u64 = fname.to_str().unwrap().parse().unwrap();
+                        let mut f = std::fs::File::open(path).ok().unwrap();
+                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
+                        f.read_to_end(&mut cert).unwrap();
+                        let cert: x509_cert::Certificate =
+                            x509_cert::Certificate::from_der(&cert).unwrap();
+                        s.send((index, cert, fnint)).unwrap();
+                        index += 1;
+                    }
+                }
+                CaCertificateStorage::Sqlite(p) => {
+                    p.conn(move |conn| {
+                        let mut stmt = conn.prepare("SELECT * from certs").unwrap();
+                        let mut rows = stmt.query([]).unwrap();
+                        let mut index = 0;
+                        while let Ok(Some(r)) = rows.next() {
+                            let id = r.get(0).unwrap();
+                            let der: Vec<u8> = r.get(1).unwrap();
+                            let cert: x509_cert::Certificate =
+                                x509_cert::Certificate::from_der(&der).unwrap();
+                            s.send((index, cert, id)).unwrap();
+                            index += 1;
+                        }
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                }
             }
-            CaCertificateStorage::Sqlite(_p) => {
-                todo!();
-            }
+        });
+        while let Some((index, csr, id)) = r.recv().await {
+            process(index, csr, id);
         }
     }
 
+    /// Performs an iteration of all csr that are not done, processing them with the given closure.
     pub async fn csr_processing<'a, F>(&'a self, mut process: F)
     where
         F: FnMut(usize, CsrRequest, u64) + Send + 'a,
@@ -313,39 +355,6 @@ impl Ca {
                     Ok(())
                 }).await.expect("Failed to insert csr");
                 Ok(())
-            }
-        }
-    }
-}
-
-pub enum CaCertIter {
-    Nowhere,
-    FilesystemDer(std::fs::ReadDir),
-}
-
-impl Iterator for CaCertIter {
-    type Item = (x509_cert::Certificate, usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use der::Decode;
-        match self {
-            CaCertIter::Nowhere => None,
-            CaCertIter::FilesystemDer(rd) => {
-                let n = rd.next();
-                let a = n.map(|rde| {
-                    rde.map(|de| {
-                        use std::io::Read;
-                        let path = de.path();
-                        let fname = path.file_stem().unwrap();
-                        let fnint: usize = fname.to_str().unwrap().parse().unwrap();
-                        let mut f = std::fs::File::open(path).ok().unwrap();
-                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                        f.read_to_end(&mut cert).unwrap();
-                        (x509_cert::Certificate::from_der(&cert).unwrap(), fnint)
-                    })
-                    .unwrap()
-                });
-                a
             }
         }
     }

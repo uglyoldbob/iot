@@ -198,8 +198,17 @@ lazy_static::lazy_static! {
     /// The oid for sha1
     pub static ref OID_HASH_SHA1: Oid =
         as_oid(&[1, 3, 14, 3, 2, 26]);
+    /// The oid for subject key identifier
+    pub static ref OID_CERT_SUBJECT_KEY_IDENTIFIER: Oid =
+        as_oid(&[2, 5, 29, 14]);
+    /// The oid for subject alternative name
+    pub static ref OID_CERT_ALTERNATIVE_NAME: Oid =
+        as_oid(&[2, 5, 29, 17]);
+    /// The oid for basic constraints
+    pub static ref OID_CERT_BASIC_CONSTRAINTS: Oid =
+        as_oid(&[2, 5, 29, 19]);
     /// The oid for extended key usage
-    pub static ref OID_EXTENDED_KEY_USAGE: Oid =
+    pub static ref OID_CERT_EXTENDED_KEY_USAGE: Oid =
         as_oid(&[2, 5, 29, 37]);
     /// The oid for aes 256 cbc encryption
     pub static ref OID_AES_256_CBC: Oid =
