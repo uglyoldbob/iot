@@ -99,7 +99,7 @@ features = ["full"]
 [dependencies.tss-esapi]
 git = "https://github.com/uglyoldbob/rust-tss-esapi.git"
 optional = true
-features = ["bundled"]
+features = ["bundled", "generate-bindings"]
 
 [features]
 default = []
