@@ -3323,6 +3323,7 @@ dependencies = [
 [[package]]
 name = "tss-esapi"
 version = "8.0.0-alpha"
+source = "git+https://github.com/uglyoldbob/rust-tss-esapi.git#f874972f2abcaad0449b8454a5f8119a61b9998a"
 dependencies = [
  "bitfield",
  "cfg-if",
@@ -3347,6 +3348,7 @@ dependencies = [
 [[package]]
 name = "tss-esapi-sys"
 version = "0.5.0"
+source = "git+https://github.com/uglyoldbob/rust-tss-esapi.git#f874972f2abcaad0449b8454a5f8119a61b9998a"
 dependencies = [
  "autotools",
  "bindgen",
