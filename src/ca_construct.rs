@@ -10,27 +10,32 @@ impl CaCertificateStorageBuilder {
         match self {
             CaCertificateStorageBuilder::Nowhere => {}
             CaCertificateStorageBuilder::Filesystem(p) => {
-                let _ = tokio::fs::remove_dir_all(p).await;
+                let _ = std::fs::remove_dir_all(p);
             }
             CaCertificateStorageBuilder::Sqlite(p) => {
                 let mut p = p.clone();
-                println!("Removing {}", p.display());
-                let _ = tokio::fs::remove_file(&p).await;
+                
+                if p.exists() {
+                    println!("Removing {}", p.display());
+                    std::fs::remove_file(&p).expect("Failed to delete database");
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                }
+                
                 let name = p.file_name().unwrap().to_owned();
                 p.pop();
                 let name2 = p.join(format!("{}-shm", name.to_str().unwrap()));
                 if name2.exists() {
                     println!("Removing {}", name2.display());
-                    tokio::fs::remove_file(name2)
-                        .await
+                    std::fs::remove_file(name2)
                         .expect("Failed to delete file");
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
                 let name2 = p.join(format!("{}-wal", name.to_str().unwrap()));
                 if name2.exists() {
                     println!("Removing {}", name2.display());
-                    tokio::fs::remove_file(name2)
-                        .await
+                    std::fs::remove_file(name2)
                         .expect("Failed to delete file");
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
             }
         }

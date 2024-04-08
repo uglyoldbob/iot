@@ -116,13 +116,25 @@ impl CaCertificateStorageBuilder {
                 CaCertificateStorage::FilesystemDer(p.to_owned())
             }
             CaCertificateStorageBuilder::Sqlite(p) => {
-                let pool = async_sqlite::PoolBuilder::new()
-                    .path(p)
-                    .journal_mode(async_sqlite::JournalMode::Wal)
-                    .open()
-                    .await
-                    .unwrap();
-                CaCertificateStorage::Sqlite(pool)
+                let mut count = 0;
+                let mut pool;
+                loop {
+                    pool = async_sqlite::PoolBuilder::new()
+                        .path(p)
+                        .journal_mode(async_sqlite::JournalMode::Wal)
+                        .open()
+                        .await;
+                    if pool.is_err() {
+                        count += 1;
+                        if count > 10 {
+                            panic!("Failed to create database");
+                        }
+                    }
+                    else {
+                        break;
+                    }
+                }
+                CaCertificateStorage::Sqlite(pool.unwrap())
             }
         }
     }
