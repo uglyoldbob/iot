@@ -142,7 +142,7 @@ impl Ca {
             let key_der = key_pair.serialize_der();
 
             let cacert = CaCertificate::from_existing(
-                CertificateSigningMethod::Ecdsa,
+                CertificateSigningMethod::RsaSha256,
                 ca.medium.clone(),
                 &cert_der,
                 Some(Zeroizing::from(key_der)),
@@ -229,10 +229,6 @@ impl Ca {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names).unwrap();
         let (keypair, pkey) = t.generate_keypair().unwrap();
-        let public_key = keypair.public_key_der();
-        let alg =
-            rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components())
-                .unwrap();
         params.distinguished_name = rcgen::DistinguishedName::new();
         params
             .distinguished_name
@@ -241,16 +237,19 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
+        
+
+        let csr = params.serialize_request(&keypair).unwrap();
+        let csr_der = csr.der();
+        let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+        
         let mut sn = [0; 20];
         for (i, b) in id.to_le_bytes().iter().enumerate() {
             sn[i] = *b;
         }
         let sn = rcgen::SerialNumber::from_slice(&sn);
-        params.serial_number = Some(sn);
-
-        let csr = params.serialize_request(&keypair).unwrap();
-        let csr_der = csr.der();
-        let csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+        csr.params.serial_number = Some(sn);
+        
         CaCertificateToBeSigned {
             algorithm: t,
             medium: self.medium.clone(),
