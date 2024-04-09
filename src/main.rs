@@ -160,16 +160,15 @@ You are logged in
         h
     })
     .body(|b| {
-        if let Some(certs) = s.user_certs.all_certs() {
-            if !certs.is_empty() {
-                b.text("You have a certificate");
+        let certs = s.user_certs.all_certs();
+        if !certs.is_empty() {
+            b.text("You have a certificate");
+            b.line_break(|fb| fb);
+            for c in certs {
+                b.text(c.tbs_certificate.subject.to_string());
                 b.line_break(|fb| fb);
-                for c in certs {
-                    b.text(c.tbs_certificate.subject.to_string());
-                    b.line_break(|fb| fb);
-                    b.text(c.tbs_certificate.issuer.to_string());
-                    b.line_break(|fb| fb);
-                }
+                b.text(c.tbs_certificate.issuer.to_string());
+                b.line_break(|fb| fb);
             }
         }
 

@@ -95,23 +95,25 @@ pub struct ExtraContext {
 }
 
 /// Represents the ways user certs can make it to us
-pub enum UserCerts {
+pub enum UserCert {
     /// The user certs came directly from tls
-    HttpsCerts(Vec<x509_cert::Certificate>),
+    HttpsCert(x509_cert::Certificate),
     /// The user certs came from http headers
-    ProxyCerts(Vec<x509_cert::Certificate>),
-    /// There are no user certs
-    None,
+    ProxyCert(x509_cert::Certificate),
 }
+
+pub struct UserCerts(Vec<UserCert>);
 
 impl UserCerts {
     /// Return a list of all certs, regardless of how the made it here
-    pub fn all_certs(&self) -> Option<&Vec<x509_cert::Certificate>> {
-        match self {
-            UserCerts::HttpsCerts(hc) => Some(hc),
-            UserCerts::ProxyCerts(pc) => Some(pc),
-            UserCerts::None => None,
-        }
+    pub fn all_certs(&self) -> Vec<&x509_cert::Certificate> {
+        self.0
+            .iter()
+            .map(|c| match c {
+                UserCert::HttpsCert(a) => a,
+                UserCert::ProxyCert(a) => a,
+            })
+            .collect()
     }
 }
 
@@ -337,11 +339,20 @@ async fn handle<'a>(
         None
     };
 
-    let user_certs = if let Some(uc) = ec.user_certs.as_ref() {
-        UserCerts::HttpsCerts(uc.to_owned())
-    } else {
-        UserCerts::None
-    };
+    let mut user_certs = UserCerts(Vec::new());
+    if let Some(uc) = ec.user_certs.as_ref() {
+        for c in uc {
+            user_certs.0.push(UserCert::HttpsCert(c.to_owned()));
+        }
+    }
+
+    let ssls = hdrs.get_all("ssl_client_cert");
+    for ssl in ssls {
+        use der::DecodePem;
+        let ssl = url_escape::decode(std::str::from_utf8(ssl.as_bytes()).unwrap());
+        let x509 = x509_cert::Certificate::from_pem(ssl.as_bytes()).unwrap();
+        user_certs.0.push(UserCert::ProxyCert(x509));
+    }
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 

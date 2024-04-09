@@ -2,6 +2,8 @@
 Description=Iot Certificate Authority and Iot Manager
 
 [Service]
+User=pki
+Group=pki
 ExecStart=rust-iot
 LoadCredentialEncrypted=foobar:/etc/rust-iot/credentials
 

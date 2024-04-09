@@ -211,11 +211,10 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
     let mut admin = false;
-    if let Some(cs) = s.user_certs.all_certs() {
-        for cert in cs {
-            if ca.is_admin(cert).await {
-                admin = true;
-            }
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
         }
     }
 
@@ -323,11 +322,10 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
     let mut admin = false;
-    if let Some(cs) = s.user_certs.all_certs() {
-        for cert in cs {
-            if ca.is_admin(cert).await {
-                admin = true;
-            }
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
         }
     }
 
@@ -415,11 +413,10 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
     let mut admin = false;
-    if let Some(cs) = s.user_certs.all_certs() {
-        for cert in cs {
-            if ca.is_admin(cert).await {
-                admin = true;
-            }
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
         }
     }
 
@@ -567,11 +564,10 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
     let mut admin = false;
-    if let Some(cs) = s.user_certs.all_certs() {
-        for cert in cs {
-            if ca.is_admin(cert).await {
-                admin = true;
-            }
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
         }
     }
 
@@ -641,11 +637,10 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
     let mut admin = false;
-    if let Some(cs) = s.user_certs.all_certs() {
-        for cert in cs {
-            if ca.is_admin(cert).await {
-                admin = true;
-            }
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
         }
     }
 
