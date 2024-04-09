@@ -65,12 +65,14 @@ pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCe
 /// # Arguments
 /// * certfile - The Path for the pkcs12 container
 /// * pass - The password for the container
-/// * rcs - The root cert store of client certificate root authorities.
+/// * rcs - The root cert store of client certificate root authorities. If this is set, it will replace the normal root authority. Useful for larger setups with multiple servers.
+/// * require_cert - Set to true when the https should require a valid certificate instead of making it optional.
 pub fn load_certificate<P>(
     certfile: P,
     pass: &str,
     rcs: Option<RootCertStore>,
     lca: &Arc<futures::lock::Mutex<crate::ca::Ca>>,
+    require_cert: bool,
 ) -> Result<Arc<ServerConfig>, Error>
 where
     P: AsRef<Path>,
@@ -95,28 +97,34 @@ where
     let sc: tokio_rustls::rustls::ConfigBuilder<ServerConfig, tokio_rustls::rustls::WantsVerifier> =
         ServerConfig::builder();
 
-    let mut rcs = if rcs.is_none() {
+    let mut rcs2 = if rcs.is_none() {
         RootCertStore::empty()
     } else {
-        rcs.unwrap()
+        rcs.clone().unwrap()
     };
 
-    let client_cert_der = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            let ca = lca.lock().await;
-            let cert = ca.root_ca_cert().unwrap();
-            cert.certificate_der()
-        })
-    });
-    rcs.add(client_cert_der.into()).unwrap();
+    if rcs.is_none() {
+        let client_cert_der = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let ca = lca.lock().await;
+                let cert = ca.root_ca_cert().unwrap();
+                cert.certificate_der()
+            })
+        });
+        rcs2.add(client_cert_der.into()).unwrap();
+    }
 
     //todo fill out the rcs struct
-    let roots = Arc::new(rcs);
+    let roots = Arc::new(rcs2);
 
-    let client_verifier = WebPkiClientVerifier::builder(roots)
-        .allow_unauthenticated()
-        .build()
-        .unwrap();
+    let client_verifier = if !require_cert {
+        WebPkiClientVerifier::builder(roots)
+            .allow_unauthenticated()
+            .build()
+            .unwrap()
+    } else {
+        WebPkiClientVerifier::builder(roots).build().unwrap()
+    };
 
     let sc = sc.with_client_cert_verifier(client_verifier);
     let sc = sc.with_single_cert(certs, pkey)?;

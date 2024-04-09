@@ -9,7 +9,7 @@ pub use main_config::MainConfiguration;
 
 use clap::Parser;
 use prompt::Prompting;
-use std::{io::Write, path::PathBuf};
+use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 
 use crate::main_config::MainConfigurationAnswers;

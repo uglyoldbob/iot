@@ -306,15 +306,21 @@ async fn main() {
 
         let pconfig = tpm2::decrypt(settings_con, &password_combined);
 
-        settings = toml::from_str(std::str::from_utf8(&pconfig).unwrap())
-            .expect("Failed to parse configuration");
+        let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+        if settings2.is_err() {
+            panic!("Failed to parse configuration file");
+        }
+        settings = settings2.unwrap();
     }
     #[cfg(not(feature = "tpm2"))]
     {
         let password_combined = password.as_bytes();
         let pconfig = tpm2::decrypt(settings_con, &password_combined);
-        settings = toml::from_str(std::str::from_utf8(&pconfig).unwrap())
-            .expect("Failed to parse configuration");
+        let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+        if settings2.is_err() {
+            panic!("Failed to parse configuration file");
+        }
+        settings = settings2.unwrap();
     }
 
     let settings = Arc::new(settings);
@@ -344,7 +350,7 @@ async fn main() {
     let mut hc = HttpContext {
         dirmap: router,
         root: settings.general.static_content.to_owned(),
-        proxy: "".to_string(),
+        proxy: None,
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
@@ -358,10 +364,15 @@ async fn main() {
     }
 
     hc.proxy = settings.general.proxy.to_owned();
-    hc.cookiename = format!("/{}{}", &hc.proxy, settings.general.cookie);
+    let proxy = if let Some(p) = &hc.proxy {
+        p.to_owned()
+    } else {
+        String::new()
+    };
+    hc.cookiename = format!("/{}{}", proxy, settings.general.cookie);
 
-    if hc.proxy != *"" {
-        println!("Using {} as the proxy path", &hc.proxy);
+    if let Some(proxy) = &hc.proxy {
+        println!("Using {} as the proxy path", proxy);
     } else {
         println!("Not using a proxy path");
     }
@@ -398,7 +409,16 @@ async fn main() {
 
         let hc_https = hc.clone();
 
-        if let Err(e) = https_webserver(hc_https, https_port, tls, &mut tasks, client_certs).await {
+        if let Err(e) = https_webserver(
+            hc_https,
+            https_port,
+            tls,
+            &mut tasks,
+            client_certs,
+            settings.https.require_certificate,
+        )
+        .await
+        {
             println!("https web server errored {}", e);
         }
     }

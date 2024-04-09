@@ -23,15 +23,15 @@ Use openssl to show contents of a public certificate.
 
 List of future changes
 - [ ] Add proxy mode configuration item.
-- [ ] Add more configuration to the client certificate verifier, allowing ca to be something besides self.
-- [ ] Receive user certs with the SSL_CLIENT_CERT html header for proxy setups.
+- [x] Add more configuration to the client certificate verifier, allowing ca to be something besides self.
+- [x] Receive user certs with the SSL_CLIENT_CERT html header for proxy setups.
 - [ ] Verify user certs received with html headers.
 - [x] Fix ocsp responder.
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Implement pki object containing a vector of ca.
-- [ ] Allows the https client cert verifier to require a cert, useful for proxied setups.
+- [x] Allows the https client cert verifier to require a cert, useful for proxied setups.
 - [ ] Automatically generate server certs for when https client certificates are required and a proxy mode is enabled.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better

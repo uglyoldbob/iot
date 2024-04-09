@@ -10,7 +10,7 @@ use crate::{oid::*, pkcs12::BagAttribute};
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
     pub path: CaCertificateStorageBuilder,
-    pub generate: bool,
+    pub root: bool,
     pub san: Vec<String>,
     pub common_name: String,
     pub days: u32,
@@ -20,6 +20,24 @@ pub struct CaConfiguration {
     pub ocsp_password: prompt::Password2,
     pub root_password: prompt::Password2,
     pub ocsp_signature: bool,
+}
+
+impl CaConfiguration {
+    pub fn new() -> Self {
+        Self {
+            path: CaCertificateStorageBuilder::Nowhere,
+            root: true,
+            san: Vec::new(),
+            common_name: "".to_string(),
+            days: 1,
+            chain_length: 0,
+            admin_access_password: prompt::Password2::new("".to_string()),
+            admin_password: prompt::Password2::new("".to_string()),
+            ocsp_password: prompt::Password2::new("".to_string()),
+            root_password: prompt::Password2::new("".to_string()),
+            ocsp_signature: false,
+        }
+    }
 }
 
 pub struct PkixAuthorityInfoAccess {
@@ -483,40 +501,44 @@ impl Ca {
     pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
         let mut urls = Vec::new();
 
-        if let Some(table) = &settings.ca {
-            for san in &table.san {
-                let san: &str = san.as_str();
+        let table = &settings.ca;
+        for san in &table.san {
+            let san: &str = san.as_str();
 
-                let mut url = String::new();
-                let mut port_override = None;
-                if settings.https.enabled {
-                    let default_port = 443;
-                    let p = settings.get_https_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("https://");
-                } else if settings.http.enabled {
-                    let default_port = 80;
-                    let p = settings.get_http_port();
-                    if p != default_port {
-                        port_override = Some(p);
-                    }
-                    url.push_str("http://");
-                } else {
-                    panic!("Cannot build ocsp responder url");
+            let mut url = String::new();
+            let mut port_override = None;
+            if settings.https.enabled {
+                let default_port = 443;
+                let p = settings.get_https_port();
+                if p != default_port {
+                    port_override = Some(p);
                 }
-
-                url.push_str(san);
-                if let Some(p) = port_override {
-                    url.push_str(&format!(":{}", p));
+                url.push_str("https://");
+            } else if settings.http.enabled {
+                let default_port = 80;
+                let p = settings.get_http_port();
+                if p != default_port {
+                    port_override = Some(p);
                 }
-
-                let proxy = &settings.general.proxy;
-                url.push_str(proxy.as_str());
-                url.push_str("/ca/ocsp");
-                urls.push(url);
+                url.push_str("http://");
+            } else {
+                panic!("Cannot build ocsp responder url");
             }
+
+            url.push_str(san);
+            if let Some(p) = port_override {
+                url.push_str(&format!(":{}", p));
+            }
+
+            let proxy = if let Some(p) = &settings.general.proxy {
+                p
+            } else {
+                ""
+            };
+
+            url.push_str(proxy);
+            url.push_str("/ca/ocsp");
+            urls.push(url);
         }
 
         urls
@@ -564,7 +586,7 @@ impl Ca {
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::from_config(settings).await;
 
-        let table = settings.ca.as_ref().unwrap();
+        let table = &settings.ca;
 
         // These will error when the ca needs to be built
         let _ = ca.load_ocsp_cert(&table.ocsp_password).await;
@@ -637,25 +659,14 @@ impl Ca {
 
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::MainConfiguration) -> Self {
-        let medium = if let Some(section) = &settings.ca {
-            section.path.build().await
-        } else {
-            CaCertificateStorage::Nowhere
-        };
+        let medium = settings.ca.path.build().await;
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
-            admin_access: Zeroizing::new(
-                settings
-                    .ca
-                    .as_ref()
-                    .unwrap()
-                    .admin_access_password
-                    .to_string(),
-            ),
+            admin_access: Zeroizing::new(settings.ca.admin_access_password.to_string()),
         }
     }
 

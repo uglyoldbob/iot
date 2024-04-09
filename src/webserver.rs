@@ -79,7 +79,7 @@ pub struct HttpContext {
     /// The name of the login cookie
     pub cookiename: String,
     /// The proxy subdirectory
-    pub proxy: String,
+    pub proxy: Option<String>,
     /// The optional mysql connection
     pub pool: Option<mysql::Pool>,
     /// The application settings
@@ -359,7 +359,7 @@ async fn handle<'a>(
     let p = WebPageContext {
         post: post_data,
         get: get_map,
-        proxy: context.proxy.to_owned(),
+        proxy: context.proxy.as_ref().unwrap_or(&String::new()).to_owned(),
         logincookie: ourcookie.clone(),
         pool: mysql,
         user_certs,
@@ -368,7 +368,11 @@ async fn handle<'a>(
     };
 
     let path = rparts.uri.path();
-    let proxy = &context.proxy;
+    let proxy = if let Some(p) = &context.proxy {
+        p.to_owned()
+    } else {
+        String::new()
+    };
     let reg1 = format!("(^{})", proxy);
     let reg1 = Regex::new(&reg1[..]).unwrap();
     let fixed_path = reg1.replace_all(path, "");
@@ -657,12 +661,14 @@ impl std::fmt::Display for ServiceError {
 /// * tls_config - A struct describing how to load the pkcs12 document.
 /// * tasks: A joinset used to determine if any critical threads have terminated early.
 /// * client_certs - Used to request and verify tls client certificates
+/// * require_cert - True when the https should require a client certificate.
 pub async fn https_webserver(
     hc: Arc<HttpContext>,
     port: u16,
     tls_config: tls::TlsConfig,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
     client_certs: Option<RootCertStore>,
+    require_cert: bool,
 ) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -671,6 +677,7 @@ pub async fn https_webserver(
         &tls_config.key_password,
         client_certs,
         &hc.ca,
+        require_cert,
     )
     .map_err(|e| ServiceError::Other(e.to_string()))?;
 

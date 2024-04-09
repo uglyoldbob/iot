@@ -68,12 +68,8 @@ impl CaCertificateStorage {
 impl Ca {
     /// Create a Self from the application configuration
     pub async fn init_from_config(settings: &crate::MainConfiguration) -> Self {
-        let mut medium = if let Some(section) = &settings.ca {
-            section.path.destroy().await;
-            section.path.build().await
-        } else {
-            CaCertificateStorage::Nowhere
-        };
+        settings.ca.path.destroy().await;
+        let mut medium = settings.ca.path.build().await;
         medium.init().await;
         Self {
             medium,
@@ -81,23 +77,16 @@ impl Ca {
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
-            admin_access: Zeroizing::new(
-                settings
-                    .ca
-                    .as_ref()
-                    .unwrap()
-                    .admin_access_password
-                    .to_string(),
-            ),
+            admin_access: Zeroizing::new(settings.ca.admin_access_password.to_string()),
         }
     }
 
     pub async fn init(settings: &crate::MainConfiguration) -> Self {
         let mut ca = Self::init_from_config(settings).await;
 
-        let table = settings.ca.as_ref().unwrap();
+        let table = &settings.ca;
 
-        if table.generate {
+        if table.root {
             use pkcs8::EncodePrivateKey;
             println!("Generating a root certificate for ca operations");
 
@@ -109,9 +98,6 @@ impl Ca {
 
             let san: Vec<String> = table.san.to_owned();
             let mut certparams = rcgen::CertificateParams::new(san).unwrap();
-            let alg =
-                rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components())
-                    .unwrap();
             certparams.distinguished_name = rcgen::DistinguishedName::new();
 
             let cn = &table.common_name;
@@ -195,6 +181,8 @@ impl Ca {
                 .save_to_medium(&mut ca, &table.admin_password)
                 .await;
             ca.admin = Ok(admin_cert);
+        } else {
+            todo!("Intermediate certificate authority generation not implemented");
         }
         ca
     }

@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use prompt::Prompting;
 
+use crate::ca::CaConfiguration;
+
 /// The main configuration for the application
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {
     pub cookie: String,
-    pub proxy: String,
+    pub proxy: Option<String>,
     pub static_content: String,
 }
 
@@ -14,7 +16,7 @@ impl GeneralSettings {
     fn new() -> Self {
         Self {
             cookie: "".into(),
-            proxy: "".into(),
+            proxy: None,
             static_content: "".into(),
         }
     }
@@ -64,6 +66,7 @@ pub struct HttpsSettings {
     /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
     pub certpass: prompt::Password2,
     pub port: u16,
+    pub require_certificate: bool,
 }
 
 impl HttpsSettings {
@@ -73,6 +76,7 @@ impl HttpsSettings {
             certificate: PathBuf::new(),
             certpass: prompt::Password2::new("".into()),
             port: 4,
+            require_certificate: false,
         }
     }
 }
@@ -111,7 +115,7 @@ pub struct MainConfigurationAnswers {
     /// Settings for the database
     pub database: DatabaseSettings,
     /// The table for ca settings
-    pub ca: Option<crate::ca::CaConfiguration>,
+    pub ca: crate::ca::CaConfiguration,
 }
 
 /// The main configuration of the application
@@ -130,7 +134,7 @@ pub struct MainConfiguration {
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
     /// The table for ca settings
-    pub ca: Option<crate::ca::CaConfiguration>,
+    pub ca: crate::ca::CaConfiguration,
 }
 
 impl MainConfiguration {
@@ -143,7 +147,7 @@ impl MainConfiguration {
             https: HttpsSettings::new(),
             database: DatabaseSettings::new(),
             client_certs: None,
-            ca: None,
+            ca: CaConfiguration::new(),
         }
     }
 

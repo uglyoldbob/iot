@@ -1113,7 +1113,7 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
 
     let mut ocsp_requirements = OcspRequirements::new();
     let ocsp_response = if let Some(ocsp) = ocsp_request {
-        let config = s.settings.ca.as_ref().unwrap();
+        let config = &s.settings.ca;
         ocsp_requirements.signature = config.ocsp_signature;
 
         if ocsp_requirements.signature {

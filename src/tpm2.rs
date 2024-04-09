@@ -83,7 +83,7 @@ pub fn decrypt(edata: Vec<u8>, password: &[u8]) -> Vec<u8> {
             Aad::from([]),
             &mut in_out,
         )
-        .unwrap()
+        .expect("Failed to decrypt configuration")
         .to_vec()
 }
 
