@@ -758,7 +758,7 @@ impl Ca {
 
         let dn = {
             use der::Encode;
-            root_cert.tbs_certificate.issuer.to_der().unwrap()
+            root_cert.tbs_certificate.subject.to_der().unwrap()
         };
         let dnhash = hash.hash(&dn).unwrap();
 
