@@ -213,6 +213,9 @@ impl CaCertificateStorage {
         cert: CaCertificate,
         password: &str,
     ) {
+        use der::Decode;
+        let x509 = x509_cert::Certificate::from_der(&cert.cert).unwrap();
+        let snb = x509.tbs_certificate.serial_number.as_bytes().to_vec();
         if cert.pkey.is_some() {
             let p12: crate::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
             let p12_der = p12.get_pkcs12(password);
@@ -244,7 +247,6 @@ impl CaCertificateStorage {
                 }
             }
         }
-        let (snb, _sn) = CaCertificateToBeSigned::calc_sn(cert.id);
         ca.save_user_cert(cert.id, &cert.cert, &snb).await;
     }
 
