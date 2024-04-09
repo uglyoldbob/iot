@@ -26,7 +26,7 @@ List of future changes
 - [ ] Add more configuration to the client certificate verifier, allowing ca to be something besides self.
 - [ ] Receive user certs with the SSL_CLIENT_CERT html header for proxy setups.
 - [ ] Verify user certs received with html headers.
-- [ ] Fix ocsp responder.
+- [x] Fix ocsp responder.
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
@@ -41,7 +41,7 @@ List of future changes
 - [ ] Create indexing program for large proxied setups
 - [ ] Add ability to create example reverse proxy setups for common reverse proxies.
 - [ ] Feature gate the sqlite backend
-- [ ] Remove the filesystem backend
+- [x] Remove the filesystem backend
 - [ ] Add more database backends, feature gated
 - [ ] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
 - [ ] Add certificate viewer for users.

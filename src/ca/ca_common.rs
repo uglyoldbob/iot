@@ -102,8 +102,6 @@ impl CertificateSigningMethod {
 pub enum CaCertificateStorageBuilder {
     /// Certificates are stored nowhere
     Nowhere,
-    /// Ca uses a dedicated folder on a filesystem
-    Filesystem(PathBuf),
     /// Ca uses a sqlite database on a filesystem
     Sqlite(PathBuf),
 }
@@ -112,9 +110,6 @@ impl CaCertificateStorageBuilder {
     pub async fn build(&self) -> CaCertificateStorage {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
-            CaCertificateStorageBuilder::Filesystem(p) => {
-                CaCertificateStorage::FilesystemDer(p.to_owned())
-            }
             CaCertificateStorageBuilder::Sqlite(p) => {
                 let mut count = 0;
                 let mut pool;
@@ -144,8 +139,6 @@ impl CaCertificateStorageBuilder {
 pub enum CaCertificateStorage {
     /// The certificates are stored nowhere. Used for testing.
     Nowhere,
-    /// The certificates are stored on a filesystem, in der format, private key and certificate in separate files
-    FilesystemDer(PathBuf),
     /// The ca is held in a sqlite database
     Sqlite(async_sqlite::Pool),
 }
@@ -222,13 +215,6 @@ impl CaCertificateStorage {
 
             match self {
                 CaCertificateStorage::Nowhere => {}
-                CaCertificateStorage::FilesystemDer(p) => {
-                    tokio::fs::create_dir_all(&p).await.unwrap();
-                    use tokio::io::AsyncWriteExt;
-                    let cp = p.join(format!("{}_cert.p12", name));
-                    let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                    cf.write_all(&p12_der).await.unwrap();
-                }
                 CaCertificateStorage::Sqlite(p) => {
                     println!("Inserting p12 {}", cert.id);
                     let name = name.to_owned();
@@ -257,18 +243,6 @@ impl CaCertificateStorage {
     ) -> Result<crate::pkcs12::ProtectedPkcs12, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let certp = p.join(format!("{}_cert.p12", name));
-                let mut f = tokio::fs::File::open(certp).await?;
-                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut cert).await?;
-                let p12 = crate::pkcs12::ProtectedPkcs12 {
-                    contents: cert,
-                    id: 0,
-                };
-                Ok(p12)
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
                 let (id, cert): (u64, Vec<u8>) = p
@@ -468,13 +442,6 @@ impl Ca {
     pub async fn mark_csr_done(&mut self, id: u64) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                let oldname = p.join("csr").join(format!("{}.toml", id));
-                let newpath = p.join("csr-done");
-                tokio::fs::create_dir_all(&newpath).await.unwrap();
-                let newname = newpath.join(format!("{}.toml", id));
-                tokio::fs::rename(oldname, newname).await.unwrap();
-            }
             CaCertificateStorage::Sqlite(p) => {
                 p.conn(move |conn| {
                     conn.execute(&format!("UPDATE csr SET done=1 WHERE id='{}'", id), [])
@@ -489,14 +456,6 @@ impl Ca {
     pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: &[u8]) {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let pb = p.join("certs");
-                tokio::fs::create_dir_all(&pb).await.unwrap();
-                let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::create(path).await.ok().unwrap();
-                f.write_all(der).await.unwrap();
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let cert_der = der.to_owned();
                 p.conn(move |conn| {
@@ -575,7 +534,6 @@ impl Ca {
         println!("Looking for serial number {}", s_str);
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
-            CaCertificateStorage::FilesystemDer(_p) => MaybeError::None,
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -705,22 +663,6 @@ impl Ca {
     pub async fn get_new_request_id(&mut self) -> Option<u64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let pb = p.join("certs.txt");
-                let mut contents = Vec::new();
-                let mut cf = tokio::fs::File::open(&pb).await.unwrap();
-                cf.read_to_end(&mut contents).await.unwrap();
-                if let Ok(cid) = str::parse(std::str::from_utf8(&contents).unwrap()) {
-                    use tokio::io::AsyncWriteExt;
-                    let new_id = cid + 1;
-                    let mut cf = tokio::fs::File::create(pb).await.unwrap();
-                    cf.write(format!("{}", new_id).as_bytes()).await.unwrap();
-                    Some(cid)
-                } else {
-                    None
-                }
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let id = p
                     .conn(|conn| {

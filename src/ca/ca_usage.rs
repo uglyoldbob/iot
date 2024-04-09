@@ -61,26 +61,6 @@ impl Ca {
             use der::Decode;
             match self2_medium {
                 CaCertificateStorage::Nowhere => {}
-                CaCertificateStorage::FilesystemDer(p) => {
-                    let pb = p.join("certs");
-                    std::fs::create_dir_all(&pb).unwrap();
-                    let mut pf = tokio::fs::read_dir(&pb).await.unwrap();
-                    let mut index = 0;
-
-                    while let Ok(Some(a)) = pf.next_entry().await {
-                        use std::io::Read;
-                        let path = a.path();
-                        let fname = path.file_stem().unwrap();
-                        let fnint: u64 = fname.to_str().unwrap().parse().unwrap();
-                        let mut f = std::fs::File::open(path).ok().unwrap();
-                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                        f.read_to_end(&mut cert).unwrap();
-                        let cert: x509_cert::Certificate =
-                            x509_cert::Certificate::from_der(&cert).unwrap();
-                        s.send((index, cert, fnint)).unwrap();
-                        index += 1;
-                    }
-                }
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
                         let mut stmt = conn.prepare("SELECT * from certs").unwrap();
@@ -117,26 +97,6 @@ impl Ca {
         tokio::spawn(async move {
             match self2_medium {
                 CaCertificateStorage::Nowhere => {}
-                CaCertificateStorage::FilesystemDer(p) => {
-                    let pb = p.join("csr");
-                    std::fs::create_dir_all(&pb).unwrap();
-                    let mut pf = tokio::fs::read_dir(&pb).await.unwrap();
-                    let mut index = 0;
-
-                    while let Ok(Some(a)) = pf.next_entry().await {
-                        use std::io::Read;
-                        let path = a.path();
-                        let fname = path.file_stem().unwrap();
-                        let fnint: u64 = fname.to_str().unwrap().parse().unwrap();
-                        let mut f = std::fs::File::open(path).ok().unwrap();
-                        let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                        f.read_to_end(&mut cert).unwrap();
-                        let csr: CsrRequest =
-                            toml::from_str(std::str::from_utf8(&cert).unwrap()).unwrap();
-                        s.send((index, csr, fnint)).unwrap();
-                        index += 1;
-                    }
-                }
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
                         let mut stmt = conn.prepare("SELECT * from csr WHERE done='0'").unwrap();
@@ -165,15 +125,6 @@ impl Ca {
     pub async fn get_user_cert(&self, id: u64) -> Option<Vec<u8>> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let pb = p.join("certs");
-                let path = pb.join(format!("{}.der", id));
-                let mut f = tokio::fs::File::open(path).await.ok()?;
-                let mut contents = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut contents).await.unwrap();
-                Some(contents)
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -196,15 +147,6 @@ impl Ca {
     pub async fn get_rejection_reason_by_id(&self, id: u64) -> Option<String> {
         let rejection: Option<CsrRejection> = match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncReadExt;
-                let pb = p.join("csr-reject");
-                let path = pb.join(format!("{}.toml", id));
-                let mut f = tokio::fs::File::open(path).await.ok()?;
-                let mut cert = Vec::with_capacity(f.metadata().await.unwrap().len() as usize);
-                f.read_to_end(&mut cert).await.ok().unwrap();
-                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<CsrRejection, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -245,20 +187,6 @@ impl Ca {
         use tokio::io::AsyncWriteExt;
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                let cp = pb.join(format!("{}.toml", reject.id));
-                tokio::fs::remove_file(cp)
-                    .await
-                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
-                let pb = p.join("csr-reject");
-                tokio::fs::create_dir_all(&pb).await.unwrap();
-                let cp = pb.join(format!("{}.toml", reject.id));
-                let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                let csr_doc = toml::to_string(reject).unwrap();
-                cf.write_all(csr_doc.as_bytes()).await.unwrap();
-                Ok(())
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let rejection = reject.rejection.to_owned();
                 let id = reject.id;
@@ -285,15 +213,6 @@ impl Ca {
     pub async fn get_csr_by_id(&self, id: u64) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::FilesystemDer(p) => {
-                use std::io::Read;
-                let pb = p.join("csr");
-                let path = pb.join(format!("{}.toml", id));
-                let mut f = std::fs::File::open(path).ok()?;
-                let mut cert = Vec::with_capacity(f.metadata().unwrap().len() as usize);
-                f.read_to_end(&mut cert).ok().unwrap();
-                toml::from_str(std::str::from_utf8(&cert).unwrap()).ok()
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<CsrRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -319,15 +238,6 @@ impl Ca {
         use tokio::io::AsyncWriteExt;
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
-            CaCertificateStorage::FilesystemDer(p) => {
-                let pb = p.join("csr");
-                tokio::fs::create_dir_all(&pb).await.unwrap();
-                let cp = pb.join(format!("{}.toml", csr.id));
-                let mut cf = tokio::fs::File::create(cp).await.unwrap();
-                let csr_doc = toml::to_string(csr).unwrap();
-                cf.write_all(csr_doc.as_bytes()).await.unwrap();
-                Ok(())
-            }
             CaCertificateStorage::Sqlite(p) => {
                 let csr = csr.to_owned();
                 p.conn(move |conn| {

@@ -9,9 +9,6 @@ impl CaCertificateStorageBuilder {
     pub async fn destroy(&self) {
         match self {
             CaCertificateStorageBuilder::Nowhere => {}
-            CaCertificateStorageBuilder::Filesystem(p) => {
-                let _ = std::fs::remove_dir_all(p);
-            }
             CaCertificateStorageBuilder::Sqlite(p) => {
                 let mut p = p.clone();
 
@@ -44,12 +41,6 @@ impl CaCertificateStorage {
     pub async fn init(&mut self) {
         match self {
             CaCertificateStorage::Nowhere => {}
-            CaCertificateStorage::FilesystemDer(p) => {
-                use tokio::io::AsyncWriteExt;
-                let pb = p.join("certs.txt");
-                let mut cf = tokio::fs::File::create(pb).await.unwrap();
-                cf.write(b"1").await.unwrap();
-            }
             CaCertificateStorage::Sqlite(p) => {
                 p.conn(|conn| {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
