@@ -22,17 +22,14 @@ Use openssl to show contents of a public certificate.
 `openssl x509 -noout -text -in ./cafiles/certs/2.der`
 
 List of future changes
-- [ ] Add proxy mode configuration item.
 - [x] Add more configuration to the client certificate verifier, allowing ca to be something besides self.
 - [x] Receive user certs with the SSL_CLIENT_CERT html header for proxy setups.
-- [ ] Verify user certs received with html headers.
 - [x] Fix ocsp responder.
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Implement pki object containing a vector of ca.
 - [x] Allows the https client cert verifier to require a cert, useful for proxied setups.
-- [ ] Automatically generate server certs for when https client certificates are required and a proxy mode is enabled.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
 - [ ] Make site mobile friendly
@@ -45,3 +42,4 @@ List of future changes
 - [ ] Add more database backends, feature gated
 - [ ] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
 - [ ] Add certificate viewer for users.
+- [ ] Enable using systemd to start the service.

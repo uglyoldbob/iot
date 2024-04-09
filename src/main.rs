@@ -277,15 +277,28 @@ async fn main() {
 
     let settings: MainConfiguration;
 
-    let mut password: prompt::Password;
-    loop {
-        print!("Please enter a password:");
-        std::io::stdout().flush().unwrap();
-        password = prompt::Password::prompt(None).unwrap();
-        if !password.is_empty() {
-            break;
+    let mut password: Option<String> = None;
+
+    #[cfg(all(target_os = "linux", feature="systemd"))]
+    {
+        password = Some("moron".to_string());
+        println!("Linux specific password get");
+    }
+
+    if password.is_none() {
+        let mut password2: prompt::Password;
+        loop {
+            print!("Please enter a password:");
+            std::io::stdout().flush().unwrap();
+            password2 = prompt::Password::prompt(None).unwrap();
+            if !password2.is_empty() {
+                password = Some(password2.to_string());
+                break;
+            }
         }
     }
+
+    let password = password.expect("No password provided");
 
     #[cfg(feature = "tpm2")]
     {

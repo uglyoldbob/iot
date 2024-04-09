@@ -4,11 +4,20 @@ version = "0.0.1"
 authors = ["Thomas Epperson"]
 edition = "2021"
 
+[package.metadata.deb]
+assets = [["content/css/*", "etc/rust-iot/content/css/", "600" ],
+        ["target/release/rust-iot", "usr/bin/rust-iot", "755"],
+        ["target/release/rust-iot-construct", "usr/bin/rust-iot-construct", "755"],
+        ["content/js/*", "etc/rust-iot/content/js/", "600"]
+        ]
+systemd-units = { unit-scripts = "./", enable = true, start = true }
+
 [dependencies]
 async-sqlite = "0.2.2"
 bincode = "1.3.3"
 cms = "0.2.3"
 const-oid = "0.9.6"
+cryptoki = "0.6.2"
 der = "0.7.8"
 directories = "5.0.1"
 futures="0.3.30"
@@ -103,7 +112,8 @@ optional = true
 features = ["bundled", "generate-bindings"]
 
 [features]
-default = []
+default = [ "systemd" ]
+systemd = []
 tpm2 = [ "dep:tss-esapi" ]
 
 [[bin]]
