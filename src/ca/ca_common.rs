@@ -768,21 +768,10 @@ impl Ca {
         );
 
         if dnhash == certid.issuer_name_hash {
-            use der::Encode;
             let key2 = root_cert
-                .tbs_certificate
-                .subject_public_key_info
-                .subject_public_key
-                .to_der()
-                .unwrap();
-            let key: Vec<u8> = yasna::parse_der(&key2, |r| {
-                let (a, _b) = r.read_bitvec_bytes()?;
-                Ok(a)
-            })
-            .unwrap();
+                .tbs_certificate.subject_public_key_info.subject_public_key.raw_bytes();
             println!("The key to hash is {:02X?}", key2);
-            println!("The key to hash is {:02X?}", key);
-            let keyhash = hash.hash(&key).unwrap();
+            let keyhash = hash.hash(&key2).unwrap();
             println!(
                 "Compare {:02X?} and {:02X?}",
                 keyhash, certid.issuer_key_hash

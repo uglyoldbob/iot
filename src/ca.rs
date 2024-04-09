@@ -1023,14 +1023,18 @@ async fn build_ocsp_response(
     let ocsp_cert = ca.ocsp_ca_cert().unwrap();
     let root_cert = ca.root_ca_cert().unwrap();
 
-    let x509_cert = {
+    let root_x509_cert = {
+        use der::Decode;
+        x509_cert::Certificate::from_der(&root_cert.cert).unwrap()
+    };
+    let ocsp_x509_cert = {
         use der::Decode;
         x509_cert::Certificate::from_der(&ocsp_cert.cert).unwrap()
     };
 
     for r in req.tbs_request.request_list {
         println!("Looking up a certificate");
-        let stat = ca.get_cert_status(&x509_cert, &r.certid).await;
+        let stat = ca.get_cert_status(&root_x509_cert, &r.certid).await;
         let resp = ocsp::response::OneResp {
             cid: r.certid,
             cert_status: stat,
@@ -1053,7 +1057,7 @@ async fn build_ocsp_response(
 
     let hash = HashType::Sha1
         .hash(
-            x509_cert
+            ocsp_x509_cert
                 .tbs_certificate
                 .subject_public_key_info
                 .subject_public_key
