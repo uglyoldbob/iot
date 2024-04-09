@@ -176,7 +176,6 @@ impl Tpm2 {
     pub fn new(node: tss_esapi::tcti_ldr::TctiNameConf) -> Self {
         use std::str::FromStr;
         println!("tpms device name is -{:?}-", node);
-        
 
         let mut context = tss_esapi::Context::new(node).unwrap();
 

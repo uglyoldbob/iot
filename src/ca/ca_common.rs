@@ -129,8 +129,7 @@ impl CaCertificateStorageBuilder {
                         if count > 10 {
                             panic!("Failed to create database");
                         }
-                    }
-                    else {
+                    } else {
                         break;
                     }
                 }
@@ -579,7 +578,7 @@ impl Ca {
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT der FROM certs WHERE serial=x'{}' INNER JOIN serials ON certs.id = serials.id", s_str),
+                            &format!("SELECT der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s_str),
                             [],
                             |r| r.get(0),
                         )
@@ -769,7 +768,10 @@ impl Ca {
 
         if dnhash == certid.issuer_name_hash {
             let key2 = root_cert
-                .tbs_certificate.subject_public_key_info.subject_public_key.raw_bytes();
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                .raw_bytes();
             println!("The key to hash is {:02X?}", key2);
             let keyhash = hash.hash(&key2).unwrap();
             println!(

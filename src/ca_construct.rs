@@ -14,27 +14,25 @@ impl CaCertificateStorageBuilder {
             }
             CaCertificateStorageBuilder::Sqlite(p) => {
                 let mut p = p.clone();
-                
+
                 if p.exists() {
                     println!("Removing {}", p.display());
                     std::fs::remove_file(&p).expect("Failed to delete database");
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
-                
+
                 let name = p.file_name().unwrap().to_owned();
                 p.pop();
                 let name2 = p.join(format!("{}-shm", name.to_str().unwrap()));
                 if name2.exists() {
                     println!("Removing {}", name2.display());
-                    std::fs::remove_file(name2)
-                        .expect("Failed to delete file");
+                    std::fs::remove_file(name2).expect("Failed to delete file");
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
                 let name2 = p.join(format!("{}-wal", name.to_str().unwrap()));
                 if name2.exists() {
                     println!("Removing {}", name2.display());
-                    std::fs::remove_file(name2)
-                        .expect("Failed to delete file");
+                    std::fs::remove_file(name2).expect("Failed to delete file");
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                 }
             }
@@ -237,19 +235,17 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
-        
-
         let csr = params.serialize_request(&keypair).unwrap();
         let csr_der = csr.der();
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-        
+
         let mut sn = [0; 20];
         for (i, b) in id.to_le_bytes().iter().enumerate() {
             sn[i] = *b;
         }
         let sn = rcgen::SerialNumber::from_slice(&sn);
         csr.params.serial_number = Some(sn);
-        
+
         CaCertificateToBeSigned {
             algorithm: t,
             medium: self.medium.clone(),
