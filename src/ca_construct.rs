@@ -119,7 +119,7 @@ impl Ca {
             let cacert = CaCertificate::from_existing(
                 CertificateSigningMethod::RsaSha256,
                 ca.medium.clone(),
-                &cert_der,
+                cert_der,
                 Some(Zeroizing::from(key_der)),
                 "root".to_string(),
                 0,

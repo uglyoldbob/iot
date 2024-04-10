@@ -35,6 +35,12 @@ pub struct CaConfiguration {
     pub ocsp_signature: bool,
 }
 
+impl Default for CaConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
@@ -229,7 +235,7 @@ impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
             medium: CaCertificateStorage::Nowhere,
             cert: cert_der.to_owned(),
             pkey: Some(value.pkey),
-            name: name,
+            name,
             attributes: value.attributes.clone(),
             id: value.id,
         })
@@ -436,7 +442,7 @@ impl CaCertificate {
                 if let Some(pkey) = &self.pkey {
                     let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
                     let rng = &ring::rand::SystemRandom::new();
-                    let key = ring::signature::EcdsaKeyPair::from_pkcs8(alg, &pkey, rng).unwrap();
+                    let key = ring::signature::EcdsaKeyPair::from_pkcs8(alg, pkey, rng).unwrap();
                     let signature = key.sign(rng, data).unwrap();
                     Some((self.algorithm.oid(), signature.as_ref().to_vec()))
                 } else {
@@ -449,7 +455,7 @@ impl CaCertificate {
             CertificateSigningMethod::RsaSha256 => {
                 if let Some(pkey) = &self.pkey {
                     let rng = &ring::rand::SystemRandom::new();
-                    let key = ring::signature::RsaKeyPair::from_pkcs8(&pkey).unwrap();
+                    let key = ring::signature::RsaKeyPair::from_pkcs8(pkey).unwrap();
                     let mut signature = vec![0; key.public().modulus_len()];
                     let pad = &ring::signature::RSA_PKCS1_SHA256;
                     key.sign(pad, rng, data, &mut signature).unwrap();
@@ -751,7 +757,7 @@ impl Ca {
                 .subject_public_key
                 .raw_bytes();
             println!("The key to hash is {:02X?}", key2);
-            let keyhash = hash.hash(&key2).unwrap();
+            let keyhash = hash.hash(key2).unwrap();
             println!(
                 "Compare {:02X?} and {:02X?}",
                 keyhash, certid.issuer_key_hash
@@ -886,7 +892,7 @@ impl CsrAttribute {
             let params = yasna::parse_der(&any.to_der().unwrap(), |r| {
                 r.read_sequence(|r| {
                     r.next().read_sequence(|r| {
-                        let oid = r.next().read_oid();
+                        let _oid = r.next().read_oid();
                         r.next().read_bytes()
                     })
                 })
@@ -926,20 +932,20 @@ pub enum AuthorityInfoAccess {
 impl From<&AccessDescription> for AuthorityInfoAccess {
     fn from(value: &AccessDescription) -> Self {
         let s = match &value.access_location {
-            x509_cert::ext::pkix::name::GeneralName::OtherName(a) => {
+            x509_cert::ext::pkix::name::GeneralName::OtherName(_a) => {
                 todo!()
             }
-            x509_cert::ext::pkix::name::GeneralName::Rfc822Name(a) => {
+            x509_cert::ext::pkix::name::GeneralName::Rfc822Name(_a) => {
                 todo!()
             }
             x509_cert::ext::pkix::name::GeneralName::DnsName(a) => {
                 let s: &str = a.as_ref();
                 s.to_string()
             }
-            x509_cert::ext::pkix::name::GeneralName::DirectoryName(a) => {
+            x509_cert::ext::pkix::name::GeneralName::DirectoryName(_a) => {
                 todo!()
             }
-            x509_cert::ext::pkix::name::GeneralName::EdiPartyName(a) => {
+            x509_cert::ext::pkix::name::GeneralName::EdiPartyName(_a) => {
                 todo!()
             }
             x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(a) => {
@@ -949,7 +955,7 @@ impl From<&AccessDescription> for AuthorityInfoAccess {
             x509_cert::ext::pkix::name::GeneralName::IpAddress(a) => {
                 String::from_utf8(a.as_bytes().to_vec()).unwrap()
             }
-            x509_cert::ext::pkix::name::GeneralName::RegisteredId(a) => {
+            x509_cert::ext::pkix::name::GeneralName::RegisteredId(_a) => {
                 todo!()
             }
         };

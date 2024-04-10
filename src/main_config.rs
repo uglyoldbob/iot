@@ -161,6 +161,12 @@ pub struct MainConfiguration {
     pub ca: crate::ca::CaConfiguration,
 }
 
+impl Default for MainConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MainConfiguration {
     /// Construct an empty configuration file
     pub fn new() -> Self {

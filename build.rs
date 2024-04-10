@@ -17,7 +17,8 @@ fn main() {
         for f in ["package.json", "package-lock.json"] {
             let src = source_path.join(f);
             let dest = p.join(f);
-            std::fs::copy(src, dest).expect(&format!("Failed to copy input file {} for npm", f));
+            std::fs::copy(src, dest)
+                .unwrap_or_else(|_| panic!("Failed to copy input file {} for npm", f));
         }
         p
     } else {
@@ -52,7 +53,7 @@ fn main() {
             for (f, g) in filenames {
                 let src = nfp.join(f);
                 std::fs::copy(src, out_path.join(g))
-                    .expect(&format!("Failed to copy js file {}", f));
+                    .unwrap_or_else(|_| panic!("Failed to copy js file {}", f));
             }
         } else {
             let p = source_path.join("content").join("js");
@@ -61,7 +62,7 @@ fn main() {
                 let src = nfp.join(f);
                 let dst = p.join(g);
                 std::fs::copy(&src, dst)
-                    .expect(&format!("Failed to copy js file {}", src.to_str().unwrap()));
+                    .unwrap_or_else(|_| panic!("Failed to copy js file {}", src.to_str().unwrap()));
             }
         }
     }

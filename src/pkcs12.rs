@@ -45,7 +45,7 @@ impl BagAttribute {
                 w.write_sequence(|w| {
                     w.next().write_oid(&OID_PKCS9_LOCAL_KEY_ID.to_yasna());
                     w.next().write_set(|w| {
-                        w.next().write_bytes(&id);
+                        w.next().write_bytes(id);
                     });
                 });
             }

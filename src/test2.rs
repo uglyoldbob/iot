@@ -28,10 +28,9 @@ pub async fn verify_request2<'a>(
         .verify(&info, signature.as_bytes().unwrap())
         .map_err(|_| {
             println!("Error verifying the signature on the csr 1");
-            ()
         })?;
     //TODO perform more validation of the csr
-    return Ok(csr);
+    Ok(csr)
 }
 
 #[tokio::main]
