@@ -110,7 +110,7 @@ optional = true
 features = ["bundled", "generate-bindings"]
 
 [target.'cfg(unix)'.dependencies]
-nix = "0.28.0"
+nix = { version = "0.28.0", features = ["user"] }
 
 [features]
 default = [ ]

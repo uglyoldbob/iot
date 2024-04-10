@@ -55,6 +55,13 @@ async fn main() {
 
     let name = args.name.unwrap_or("default".to_string());
 
+    let username = args.user.unwrap_or("pki".to_string());
+
+    #[cfg(target_family = "unix")]
+    let user_obj = nix::unistd::User::from_name(&username).unwrap().unwrap();
+    #[cfg(target_family = "unix")]
+    let user_uid = user_obj.uid;
+
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
 
@@ -109,12 +116,18 @@ async fn main() {
         let epdata = protected_password.data();
         let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
-        let mut f2 = tokio::fs::File::create(config_path.join(format!("{}-password.bin", name)))
-            .await
-            .unwrap();
+        let p = config_path.join(format!("{}-password.bin", name));
+        let mut f2 = tokio::fs::File::create(p).await.unwrap();
         f2.write_all(&tpmblob.data())
             .await
             .expect("Failed to write protected password");
+        #[cfg(target_family = "unix")]
+        {
+            std::os::unix::fs::chown(p, Some(user_uid.as_raw), None);
+            let mut perms = std::fs::metadata(p).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::fs::set_permissions(p, perms);
+        }
 
         f.write_all(&econfig)
             .await
@@ -124,13 +137,18 @@ async fn main() {
     {
         let password_combined = password.as_bytes();
 
-        let mut fpw =
-            tokio::fs::File::create(config_path.join(format!("{}-credentials.bin", name)))
-                .await
-                .unwrap();
+        let p = config_path.join(format!("{}-credentials.bin", name));
+        let mut fpw = tokio::fs::File::create(&p).await.unwrap();
         fpw.write_all(password.to_string().as_bytes())
             .await
             .expect("Failed to write credentials");
+        #[cfg(target_family = "unix")]
+        {
+            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None).unwrap();
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::fs::set_permissions(p, perms).unwrap();
+        }
 
         let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
 
@@ -139,14 +157,6 @@ async fn main() {
             .expect("Failed to write configuration file");
     }
     ca::Ca::init(&config).await;
-
-    let username = args.user.unwrap_or("pki".to_string());
-
-    #[cfg(target_os = "unix")]
-    {
-        let user_obj = nix::unistd::User::from_name(username);
-        let user_uid = user_obj.uid;
-    }
 
     #[cfg(target_os = "linux")]
     {
