@@ -1,3 +1,5 @@
+//! Common code for a certificate authority, used from both using the certificate authority and constructing a certificate authority.
+
 use std::path::PathBuf;
 
 use async_sqlite::rusqlite::ToSql;
@@ -6,23 +8,35 @@ use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
 
-/// The items used to configure a ca
+/// The items used to configure a certificate authority
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
+    /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
     pub root: bool,
+    /// The subject alternate names for the certificate authority.
     pub san: Vec<String>,
+    /// The common name of the certificate authrity
     pub common_name: String,
+    /// The number of days the certificate authority should be good for.
     pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
     pub admin_access_password: prompt::Password2,
+    /// The password to protect the admin p12 certificate document.
     pub admin_password: prompt::Password2,
+    /// The password to protect the ocsp p12 certificate document.
     pub ocsp_password: prompt::Password2,
+    /// The password to protect the root p12 certificate document.
     pub root_password: prompt::Password2,
+    /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
 }
 
 impl CaConfiguration {
+    /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
             path: CaCertificateStorageBuilder::Nowhere,
@@ -40,11 +54,14 @@ impl CaConfiguration {
     }
 }
 
+/// The Authority Info Access for specifying certification validators.
 pub struct PkixAuthorityInfoAccess {
+    /// The der representation
     pub der: Vec<u8>,
 }
 
 impl PkixAuthorityInfoAccess {
+    /// Create a new Self with the given list of urls, all assumed to be ocsp access urls.
     pub fn new(urls: Vec<String>) -> Self {
         let asn = yasna::construct_der(|w| {
             w.write_sequence_of(|w| {
@@ -106,6 +123,7 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
 }
 
 impl CertificateSigningMethod {
+    /// Convert Self into an Oid
     fn oid(&self) -> crate::oid::Oid {
         match self {
             Self::RsaSha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
@@ -125,6 +143,7 @@ pub enum CaCertificateStorageBuilder {
 }
 
 impl CaCertificateStorageBuilder {
+    /// Build the CaCertificateStorage from self
     pub async fn build(&self) -> CaCertificateStorage {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
@@ -161,6 +180,7 @@ pub enum CaCertificateStorage {
     Sqlite(async_sqlite::Pool),
 }
 
+/// Represents a certificate that has not been signed yet.
 pub struct CaCertificateToBeSigned {
     /// The algorithm used for the certificate
     pub algorithm: CertificateSigningMethod,
@@ -177,6 +197,7 @@ pub struct CaCertificateToBeSigned {
 }
 
 impl CaCertificateToBeSigned {
+    /// Calculate a serial for a certificate from an id.
     pub fn calc_sn(id: u64) -> ([u8; 20], rcgen::SerialNumber) {
         let mut snb = [0; 20];
         for (i, b) in id.to_le_bytes().iter().enumerate() {
@@ -323,10 +344,12 @@ impl CaCertificate {
         }
     }
 
+    /// Get the list of attributes
     pub fn get_attributes(&self) -> Vec<crate::pkcs12::BagAttribute> {
         self.attributes.clone()
     }
 
+    /// Get the name of the certificate
     pub fn get_name(&self) -> String {
         self.name.to_owned()
     }
@@ -759,32 +782,39 @@ impl Ca {
     }
 }
 
+/// The ways in which a certificate can be used, the extended form
 #[derive(Debug)]
 pub enum ExtendedKeyUsage {
+    /// The certificate is used to identify a client
     ClientIdentification,
+    /// The certificate is used to identify a server
     ServerIdentification,
+    /// The certificate is used to sign code
     CodeSigning,
+    /// The certificate is used for ocsp signning
     OcspSigning,
+    /// The key usage is unrecognized
     Unrecognized(Oid),
 }
 
 impl From<Oid> for ExtendedKeyUsage {
     fn from(value: Oid) -> Self {
         if value == *OID_EXTENDED_KEY_USAGE_CLIENT_AUTH {
-            return ExtendedKeyUsage::ClientIdentification;
+            ExtendedKeyUsage::ClientIdentification
         } else if value == *OID_EXTENDED_KEY_USAGE_SERVER_AUTH {
-            return ExtendedKeyUsage::ServerIdentification;
+            ExtendedKeyUsage::ServerIdentification
         } else if value == *OID_EXTENDED_KEY_USAGE_CODE_SIGNING {
-            return ExtendedKeyUsage::CodeSigning;
+            ExtendedKeyUsage::CodeSigning
         } else if value == *OID_EXTENDED_KEY_USAGE_OCSP_SIGNING {
-            return ExtendedKeyUsage::OcspSigning;
+            ExtendedKeyUsage::OcspSigning
         } else {
-            return ExtendedKeyUsage::Unrecognized(value);
+            ExtendedKeyUsage::Unrecognized(value)
         }
     }
 }
 
 impl ExtendedKeyUsage {
+    /// Convert Self to an Oid
     fn to_oid(&self) -> Oid {
         match self {
             ExtendedKeyUsage::ClientIdentification => OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone(),
@@ -811,6 +841,7 @@ pub enum CsrAttribute {
 
 impl CsrAttribute {
     #[allow(dead_code)]
+    /// Convert self to an `rcgen::CustomExtension`
     pub fn to_custom_extension(&self) -> rcgen::CustomExtension {
         match self {
             CsrAttribute::ExtendedKeyUsage(oids) => {
@@ -831,12 +862,14 @@ impl CsrAttribute {
     }
 
     #[allow(dead_code)]
+    /// Build a Self with a list of Oid
     pub fn build_extended_key_usage(usage: Vec<Oid>) -> Self {
         let ks = usage.iter().map(|o| o.clone().into()).collect();
         Self::ExtendedKeyUsage(ks)
     }
 
     #[allow(dead_code)]
+    /// Build a self with the specified oid and data
     pub fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
         if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
             let n = any.decode_as().unwrap();
@@ -938,7 +971,12 @@ pub enum CertAttribute {
     /// What the certificate can be used for
     ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
     /// The basic constraints extension
-    BasicContraints { ca: bool, path_len: u8 },
+    BasicContraints {
+        /// Is this certificate a certificate authority
+        ca: bool,
+        /// How deep can the nesting of certificate authorities go?
+        path_len: u8,
+    },
     /// Authority info access
     AuthorityInfoAccess(Vec<AuthorityInfoAccess>),
     /// All other types of attributes
@@ -947,6 +985,7 @@ pub enum CertAttribute {
 
 impl CertAttribute {
     #[allow(dead_code)]
+    /// Build a cert attribute from an oid and octetstring
     pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
         if oid == *OID_CERT_EXTENDED_KEY_USAGE {
             let oids: Vec<yasna::models::ObjectIdentifier> =
@@ -992,26 +1031,29 @@ impl CertAttribute {
     }
 }
 
+/// Represents an intermediate object for a CsrRejection
 pub struct CsrRejectionDbEntry<'a> {
+    /// The row contents
     row_data: &'a async_sqlite::rusqlite::Row<'a>,
 }
 
 impl<'a> CsrRejectionDbEntry<'a> {
     #[allow(dead_code)]
+    /// Construct a new Self from a sqlite row.
     pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
         Self { row_data: row }
     }
 }
 
-impl<'a> Into<CsrRejection> for CsrRejectionDbEntry<'a> {
-    fn into(self) -> CsrRejection {
-        CsrRejection {
-            cert: self.row_data.get(4).unwrap(),
-            name: self.row_data.get(1).unwrap(),
-            email: self.row_data.get(2).unwrap(),
-            phone: self.row_data.get(3).unwrap(),
-            rejection: self.row_data.get(5).unwrap(),
-            id: self.row_data.get(0).unwrap(),
+impl<'a> From<CsrRejectionDbEntry<'a>> for CsrRejection {
+    fn from(val: CsrRejectionDbEntry<'a>) -> Self {
+        Self {
+            cert: val.row_data.get(4).unwrap(),
+            name: val.row_data.get(1).unwrap(),
+            email: val.row_data.get(2).unwrap(),
+            phone: val.row_data.get(3).unwrap(),
+            rejection: val.row_data.get(5).unwrap(),
+            id: val.row_data.get(0).unwrap(),
         }
     }
 }
@@ -1035,6 +1077,7 @@ pub struct CsrRejection {
 
 impl CsrRejection {
     #[allow(dead_code)]
+    /// Build a new Self, with the csr and the reason.
     pub fn from_csr_with_reason(csr: CsrRequest, reason: &String) -> Self {
         Self {
             cert: csr.cert,
@@ -1049,24 +1092,26 @@ impl CsrRejection {
 
 /// The database form of a CsrRequest
 pub struct CsrRequestDbEntry<'a> {
+    /// The row contents
     row_data: &'a async_sqlite::rusqlite::Row<'a>,
 }
 
 impl<'a> CsrRequestDbEntry<'a> {
     #[allow(dead_code)]
+    /// Construct a new Self from a sqlite row
     pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
         Self { row_data: row }
     }
 }
 
-impl<'a> Into<CsrRequest> for CsrRequestDbEntry<'a> {
-    fn into(self) -> CsrRequest {
+impl<'a> From<CsrRequestDbEntry<'a>> for CsrRequest {
+    fn from(val: CsrRequestDbEntry<'a>) -> Self {
         CsrRequest {
-            cert: self.row_data.get(4).unwrap(),
-            name: self.row_data.get(1).unwrap(),
-            email: self.row_data.get(2).unwrap(),
-            phone: self.row_data.get(3).unwrap(),
-            id: self.row_data.get(0).unwrap(),
+            cert: val.row_data.get(4).unwrap(),
+            name: val.row_data.get(1).unwrap(),
+            email: val.row_data.get(2).unwrap(),
+            phone: val.row_data.get(3).unwrap(),
+            id: val.row_data.get(0).unwrap(),
         }
     }
 }
@@ -1095,6 +1140,7 @@ pub enum HashType {
 }
 
 impl HashType {
+    /// Perform a hash on the specified data
     pub fn hash(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             HashType::Unknown => None,
@@ -1111,8 +1157,11 @@ impl HashType {
 /// Represents a type that can be good, an error, or non-existent.
 #[allow(dead_code)]
 pub enum MaybeError<T, E> {
+    /// The element is good
     Ok(T),
+    /// There was an error getting the element
     Err(E),
+    /// The item does not exist
     None,
 }
 

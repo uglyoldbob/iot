@@ -5,10 +5,14 @@ use ring::aead::Aad;
 #[cfg(feature = "tpm2")]
 use tss_esapi::structures::{CreatePrimaryKeyResult, Private, Public, SensitiveData};
 
+/// Represents aead encrypted data
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct AeadEncryptedData {
+    /// The salt for the aead algorithm
     salt: [u8; 8],
+    /// The nonce for the aead encryption algorithm
     nonce: [u8; 12],
+    /// Encrypted data
     data: Vec<u8>,
 }
 
@@ -32,6 +36,7 @@ pub fn tpm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
 }
 
 #[allow(dead_code)]
+/// Encrypt some data with the specified password.
 pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
     let salt: [u8; 8] = rand::random();
     let mut keydata = [0; 32];
@@ -63,6 +68,7 @@ pub fn encrypt(data: &[u8], password: &[u8]) -> Vec<u8> {
 }
 
 #[allow(dead_code)]
+/// Decrypt some encrypted data with the specified password.
 pub fn decrypt(edata: Vec<u8>, password: &[u8]) -> Vec<u8> {
     let edata: AeadEncryptedData = bincode::deserialize(&edata).unwrap();
 
@@ -87,15 +93,20 @@ pub fn decrypt(edata: Vec<u8>, password: &[u8]) -> Vec<u8> {
         .to_vec()
 }
 
+/// A password, stretched with pbkdf2
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct Password {
+    /// The salt to append to the password in the pbkdf2 algorithm.
     salt: [u8; 16],
+    /// Number of iterations for key stretching
     iterations: std::num::NonZeroU32,
+    /// The password
     data: Vec<u8>,
 }
 
 impl Password {
     #[allow(dead_code)]
+    /// Build a new Self
     pub fn build(password: &[u8], iterations: std::num::NonZeroU32) -> Self {
         let salt: [u8; 16] = rand::random();
         let mut pw = Vec::new();
@@ -114,6 +125,7 @@ impl Password {
     }
 
     #[allow(dead_code)]
+    /// Verify the given password
     pub fn verify(&self, password: &[u8]) -> bool {
         let salt = &self.salt;
         match ring::pbkdf2::verify(
@@ -129,16 +141,19 @@ impl Password {
     }
 
     #[allow(dead_code)]
+    /// Serialize self into data.
     pub fn data(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
     #[allow(dead_code)]
+    /// Rebuild a Self with the serialized data.
     pub fn rebuild(data: &[u8]) -> Self {
         bincode::deserialize(data).unwrap()
     }
 
     #[allow(dead_code)]
+    /// Retrieve the password
     pub fn password(&self) -> &[u8] {
         &self.data
     }

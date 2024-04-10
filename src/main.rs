@@ -279,7 +279,7 @@ async fn main() {
 
     let mut password: Option<String> = None;
 
-    #[cfg(all(target_os = "linux", feature="systemd"))]
+    #[cfg(all(target_os = "linux", feature = "systemd"))]
     {
         password = Some("moron".to_string());
         println!("Linux specific password get");
@@ -328,7 +328,7 @@ async fn main() {
     #[cfg(not(feature = "tpm2"))]
     {
         let password_combined = password.as_bytes();
-        let pconfig = tpm2::decrypt(settings_con, &password_combined);
+        let pconfig = tpm2::decrypt(settings_con, password_combined);
         let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
         if settings2.is_err() {
             panic!("Failed to parse configuration file");

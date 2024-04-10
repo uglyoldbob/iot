@@ -15,6 +15,7 @@ impl Ca {
         self.ocsp_signer.as_ref()
     }
 
+    /// Returns true if the provided certificate is an admin certificate
     pub async fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
         let admin = self.retrieve_admin_cert().await.unwrap();
         let admin_x509_cert = {
@@ -46,7 +47,7 @@ impl Ca {
         .unwrap();
 
         //TODO perform more validation of the csr
-        return Ok(csr);
+        Ok(csr)
     }
 
     /// Performs an iteration of all certificates, processing them with the given closure.
@@ -184,7 +185,6 @@ impl Ca {
         &mut self,
         reject: &CsrRejection,
     ) -> Result<(), CertificateSigningError> {
-        use tokio::io::AsyncWriteExt;
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
@@ -224,7 +224,7 @@ impl Ca {
                     })
                     .await;
                 match cert {
-                    Ok(c) => Some(c.into()),
+                    Ok(c) => Some(c),
                     Err(e) => {
                         println!("Error retrieving csr {:?}", e);
                         None
@@ -234,8 +234,8 @@ impl Ca {
         }
     }
 
+    /// Save the csr to the storage medium
     pub async fn save_csr(&mut self, csr: &CsrRequest) -> Result<(), ()> {
-        use tokio::io::AsyncWriteExt;
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
@@ -257,8 +257,10 @@ impl Ca {
     }
 }
 
+/// A representation of a public key
 #[derive(Debug)]
 pub struct InternalPublicKey<'a> {
+    /// The public key
     key: ring::signature::UnparsedPublicKey<&'a [u8]>,
 }
 
@@ -287,6 +289,10 @@ impl<'a> InternalPublicKey<'a> {
         }
     }
 
+    /// Verify a signature on the specified data.
+    /// # Arguments
+    /// * data - The data that has been signed
+    /// * signature - The signature to check
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
         self.key.verify(data, signature).map_err(|e| {
             println!("Error verifying signature 2 {:?}", e);

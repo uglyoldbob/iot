@@ -110,7 +110,7 @@ async fn main() {
     #[cfg(not(feature = "tpm2"))]
     {
         let password_combined = password.as_bytes();
-        let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), &password_combined);
+        let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
 
         f.write_all(&econfig)
             .await

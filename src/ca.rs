@@ -6,9 +6,11 @@ use crate::{webserver, WebPageContext, WebRouter};
 
 use crate::oid::*;
 
+/// The module for using a certificate authority
 pub mod ca_usage;
 pub use ca_usage::*;
 
+/// The page that allows users to submit a signing request.
 async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
@@ -72,6 +74,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// The page that allows a user to generate a signing request.
 async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| {
@@ -270,6 +273,7 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Reject a csr with a specified reason
 async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
@@ -318,6 +322,7 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// A page to sign a single request.
 async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
@@ -409,6 +414,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// A page for listing all requests in the system. It also can enumerate a single request.
 async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
@@ -432,7 +438,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     };
 
     let mut csr_list: Vec<(CsrRequest, u64)> = Vec::new();
-    ca.csr_processing(|index, csr, id| {
+    ca.csr_processing(|_index, csr, id| {
         csr_list.push((csr, id));
     })
     .await;
@@ -498,12 +504,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
                         f.action(format!("/{}ca/request_reject.rs", s.proxy));
                         f.text("Reject reason")
                             .line_break(|a| a)
-                            .input(|i| {
-                                i.type_("hidden")
-                                    .id("id")
-                                    .name("id")
-                                    .value(format!("{}", id))
-                            })
+                            .input(|i| i.type_("hidden").id("id").name("id").value(id.to_string()))
                             .input(|i| i.type_("text").id("rejection").name("rejection"))
                             .line_break(|a| a);
                         f.input(|i| i.type_("submit").value("Reject this request"))
@@ -560,6 +561,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// A page for viewing all certificates in the certificate authority
 async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     let ca = s.ca.lock().await;
 
@@ -995,16 +997,20 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Ocsp requirements
 struct OcspRequirements {
+    /// Is a signure required for ocsp requests?
     signature: bool,
 }
 
 impl OcspRequirements {
+    /// Construct a new Self
     fn new() -> Self {
         Self { signature: false }
     }
 }
 
+/// A helper function for building an ocsp response
 async fn build_ocsp_response(
     ca: &mut Ca,
     req: ocsp::request::OcspRequest,
@@ -1095,9 +1101,7 @@ async fn build_ocsp_response(
     let data_der = data.to_der().unwrap();
 
     let (oid, sign) = ocsp_cert.sign(&data_der).await.unwrap();
-    let mut certs = Vec::new();
-    certs.push(ocsp_cert.cert.to_owned());
-    certs.push(root_cert.cert.to_owned());
+    let certs = vec![ocsp_cert.cert.to_owned(), root_cert.cert.to_owned()];
     let certs = Some(certs);
 
     let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, certs);
@@ -1106,6 +1110,7 @@ async fn build_ocsp_response(
     ocsp::response::OcspResponse::new_success(bytes)
 }
 
+/// Run the ocsp responder
 async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
     let mut ca = s.ca.lock().await;
 
@@ -1154,6 +1159,11 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Add elements for a generic header in the ca code.
+/// # Arguments
+/// * h - The `html::metadata::builders::HeadBuilder` to modify
+/// * s - The context for the webpage
+/// * Returns - The modified `html::metadata::builders::HeadBuilder`
 fn generic_head<'a>(
     h: &'a mut html::metadata::builders::HeadBuilder,
     s: &WebPageContext,
@@ -1173,6 +1183,7 @@ fn generic_head<'a>(
     h
 }
 
+/// Register handlers into the specified webrouter.
 pub fn ca_register(router: &mut WebRouter) {
     router.register("/ca", ca_main_page);
     router.register("/ca/", ca_main_page);

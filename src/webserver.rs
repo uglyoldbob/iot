@@ -96,12 +96,13 @@ pub struct ExtraContext {
 
 /// Represents the ways user certs can make it to us
 pub enum UserCert {
-    /// The user certs came directly from tls
+    /// The user certs came directly from tls, could be a user certificate or a load balancer (reverse proxy) certificate.
     HttpsCert(x509_cert::Certificate),
     /// The user certs came from http headers
     ProxyCert(x509_cert::Certificate),
 }
 
+/// A list of all the `UserCert` that the current page knows about.
 pub struct UserCerts(Vec<UserCert>);
 
 impl UserCerts {
@@ -140,11 +141,14 @@ pub struct WebPageContext {
 /// Represents the contents of a post request
 #[derive(Clone)]
 pub struct PostContent {
+    /// The body of a request, containing some content
     body: Option<hyper::body::Bytes>,
+    /// The headers, for extracting the multipart
     headers: hyper::header::HeaderMap,
 }
 
 impl PostContent {
+    /// Construct a Self with the given body and headers.
     fn new(body: Option<hyper::body::Bytes>, headers: hyper::header::HeaderMap) -> Self {
         Self { body, headers }
     }
@@ -161,7 +165,7 @@ impl PostContent {
     }
 
     /// Convert the post content to form data if possible
-    pub fn form<'a>(&'a self) -> Option<url_encoded_data::UrlEncodedData<'a>> {
+    pub fn form(&self) -> Option<url_encoded_data::UrlEncodedData<'_>> {
         if let Some(body) = self.body.as_ref() {
             let s = std::str::from_utf8(body).ok()?;
             Some(url_encoded_data::UrlEncodedData::parse_str(s))
@@ -272,7 +276,9 @@ where
     }
 }
 
+/// Used to receive the full contents of a body and convert it into a `hyper::body::Frame<hyper::body::Bytes>`
 struct BodyHandler {
+    /// The body being handled
     b: hyper::body::Incoming,
 }
 
@@ -394,8 +400,8 @@ async fn handle<'a>(
         let body = match file {
             Ok(c) => {
                 let p = std::path::PathBuf::from(sys_path);
-                match p.extension() {
-                    Some(ext) => match ext.to_str().unwrap() {
+                if let Some(ext) = p.extension() {
+                    match ext.to_str().unwrap() {
                         "css" => {
                             response.headers.append(
                                 "Content-Type",
@@ -409,8 +415,7 @@ async fn handle<'a>(
                             );
                         }
                         _ => {}
-                    },
-                    None => {}
+                    }
                 }
                 http_body_util::Full::new(hyper::body::Bytes::from(c))
             }
