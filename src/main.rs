@@ -243,20 +243,17 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// The config path to override the default with
+    /// The name of the instance
     #[arg(short, long)]
-    config: Option<String>,
+    name: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let dirs = directories::ProjectDirs::from("com", "UglyOldBob", "Iot").unwrap();
-    let config_path = if let Some(p) = args.config {
-        std::path::PathBuf::from(p)
-    } else {
-        dirs.config_dir().to_path_buf()
-    };
+    let config_path = std::path::PathBuf::from("./");
+
+    let name = args.name.unwrap_or("default".to_string());
 
     println!("Load config from {:?}", config_path);
 
@@ -270,7 +267,7 @@ async fn main() {
     ca::ca_register(&mut router);
 
     let mut settings_con = Vec::new();
-    let mut f = tokio::fs::File::open(config_path.join("config.toml"))
+    let mut f = tokio::fs::File::open(config_path.join(format!("{}-config.toml", name)))
         .await
         .unwrap();
     f.read_to_end(&mut settings_con).await.unwrap();
@@ -279,10 +276,25 @@ async fn main() {
 
     let mut password: Option<String> = None;
 
-    #[cfg(all(target_os = "linux", feature = "systemd"))]
-    {
-        password = Some("moron".to_string());
-        println!("Linux specific password get");
+    if password.is_none() {
+        let mut pw = Vec::new();
+        let mut f = tokio::fs::File::open(config_path.join(format!("{}-credentials.bin", name)))
+            .await
+            .unwrap();
+        f.read_to_end(&mut pw).await.unwrap();
+        let mut pw = String::from_utf8(pw).unwrap();
+        loop {
+            if pw.ends_with('\n') {
+                pw.pop();
+                continue;
+            }
+            if pw.ends_with('\r') {
+                pw.pop();
+                continue;
+            }
+            break;
+        }
+        password = Some(pw);
     }
 
     if password.is_none() {
@@ -303,7 +315,7 @@ async fn main() {
     #[cfg(feature = "tpm2")]
     {
         let mut tpm_data = Vec::new();
-        let mut f = tokio::fs::File::open(config_path.join("password.bin"))
+        let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
             .await
             .unwrap();
         f.read_to_end(&mut tpm_data).await.unwrap();

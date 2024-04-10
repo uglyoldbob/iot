@@ -6,6 +6,12 @@ use prompt::Prompting;
 
 use crate::ca::CaConfiguration;
 
+#[cfg(target_os = "linux")]
+/// Returns the default config file.
+pub fn default_config_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("/etc/rust-iot/")
+}
+
 /// The main configuration for the application
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {

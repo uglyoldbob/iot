@@ -8,9 +8,8 @@ edition = "2021"
 assets = [["content/css/*", "etc/rust-iot/content/css/", "600" ],
         ["target/release/rust-iot", "usr/bin/rust-iot", "755"],
         ["target/release/rust-iot-construct", "usr/bin/rust-iot-construct", "755"],
-        ["content/js/*", "etc/rust-iot/content/js/", "600"]
+        ["content/js/*", "etc/rust-iot/content/js/", "600"],
         ]
-systemd-units = { unit-scripts = "./", enable = true, start = true }
 
 [dependencies]
 async-sqlite = "0.2.2"
@@ -19,7 +18,6 @@ cms = "0.2.3"
 const-oid = "0.9.6"
 cryptoki = "0.6.2"
 der = "0.7.8"
-directories = "5.0.1"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
@@ -111,9 +109,11 @@ git = "https://github.com/uglyoldbob/rust-tss-esapi.git"
 optional = true
 features = ["bundled", "generate-bindings"]
 
+[target.'cfg(unix)'.dependencies]
+nix = "0.28.0"
+
 [features]
-default = [ "systemd" ]
-systemd = []
+default = [ ]
 tpm2 = [ "dep:tss-esapi" ]
 
 [[bin]]

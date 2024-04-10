@@ -1,8 +1,0 @@
-[Unit]
-Description=Iot Certificate Authority and Iot Manager
-
-[Service]
-ExecStart=/usr/bin/rust-iot
-
-[Install]
-WantedBy=multi-user.target

@@ -29,18 +29,31 @@ struct Args {
     /// The path answers should be saved to, if desired
     #[arg(short, long)]
     save_answers: Option<PathBuf>,
+
+    /// The name of the config being created
+    #[arg(short, long)]
+    name: Option<String>,
+
+    /// Path for where the service file description goes, to start up the service
+    #[arg(short, long)]
+    service: Option<PathBuf>,
+
+    /// The user to run the service under, pki is the default username
+    #[arg(short, long)]
+    user: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
-    let dirs = directories::ProjectDirs::from("com", "UglyOldBob", "Iot").unwrap();
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
     } else {
-        dirs.config_dir().to_path_buf()
+        crate::main_config::default_config_path()
     };
+
+    let name = args.name.unwrap_or("default".to_string());
 
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
@@ -68,7 +81,7 @@ async fn main() {
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
 
-    let mut f = tokio::fs::File::create(config_path.join("config.toml"))
+    let mut f = tokio::fs::File::create(config_path.join(format!("{}-config.toml", name)))
         .await
         .unwrap();
 
@@ -96,7 +109,7 @@ async fn main() {
         let epdata = protected_password.data();
         let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
-        let mut f2 = tokio::fs::File::create(config_path.join("password.bin"))
+        let mut f2 = tokio::fs::File::create(config_path.join(format!("{}-password.bin", name)))
             .await
             .unwrap();
         f2.write_all(&tpmblob.data())
@@ -110,6 +123,15 @@ async fn main() {
     #[cfg(not(feature = "tpm2"))]
     {
         let password_combined = password.as_bytes();
+
+        let mut fpw =
+            tokio::fs::File::create(config_path.join(format!("{}-credentials.bin", name)))
+                .await
+                .unwrap();
+        fpw.write_all(password.to_string().as_bytes())
+            .await
+            .expect("Failed to write credentials");
+
         let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
 
         f.write_all(&econfig)
@@ -117,4 +139,41 @@ async fn main() {
             .expect("Failed to write configuration file");
     }
     ca::Ca::init(&config).await;
+
+    let username = args.user.unwrap_or("pki".to_string());
+
+    #[cfg(target_os = "unix")]
+    {
+        let user_obj = nix::unistd::User::from_name(username);
+        let user_uid = user_obj.uid;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut con = String::new();
+        con.push_str(&format!(
+            "[Unit]
+Description=Iot Certificate Authority and Iot Manager
+
+[Service]
+User={2}
+WorkingDirectory={0}
+ExecStart=/usr/bin/rust-iot --name={1}
+
+[Install]
+WantedBy=multi-user.target
+        ",
+            config_path.display(),
+            name,
+            username
+        ));
+
+        if let Some(p) = args.service {
+            let pb = p.join(format!("rust-iot-{}.service", name));
+            let mut fpw = tokio::fs::File::create(pb).await.unwrap();
+            fpw.write_all(con.as_bytes())
+                .await
+                .expect("Failed to write service file");
+        }
+    }
 }
