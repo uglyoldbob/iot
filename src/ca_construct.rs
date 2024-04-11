@@ -52,14 +52,27 @@ impl CaCertificateStorage {
     }
 }
 
+impl PkiInstance {
+    /// Init a pki Instance from the given settings
+    pub async fn init(settings: &crate::ca::PkiConfigurationEnum, options: OwnerOptions) -> Self {
+        match settings {
+            PkiConfigurationEnum::Pki(_pki_config) => todo!(),
+            PkiConfigurationEnum::Ca(ca_config) => {
+                let ca = crate::ca::Ca::init(ca_config, options).await;
+                Self::Ca(ca)
+            }
+        }
+    }
+}
+
 impl Ca {
     /// Create a Self from the application configuration
     pub async fn init_from_config(
-        settings: &crate::MainConfiguration,
+        settings: &crate::ca::CaConfiguration,
         options: OwnerOptions,
     ) -> Self {
-        settings.ca.path.destroy().await;
-        let mut medium = settings.ca.path.build(Some(options)).await;
+        settings.path.destroy().await;
+        let mut medium = settings.path.build(Some(options)).await;
         medium.init().await;
         Self {
             medium,
@@ -67,16 +80,14 @@ impl Ca {
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
-            admin_access: Zeroizing::new(settings.ca.admin_access_password.to_string()),
+            admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
         }
     }
 
-    pub async fn init(settings: &crate::MainConfiguration, options: OwnerOptions) -> Self {
+    pub async fn init(settings: &crate::ca::CaConfiguration, options: OwnerOptions) -> Self {
         let mut ca = Self::init_from_config(settings, options).await;
 
-        let table = &settings.ca;
-
-        if table.root {
+        if settings.root {
             use pkcs8::EncodePrivateKey;
             println!("Generating a root certificate for ca operations");
 
@@ -86,13 +97,13 @@ impl Ca {
             let private_key_der = private_key.to_pkcs8_der().unwrap();
             let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
 
-            let san: Vec<String> = table.san.to_owned();
+            let san: Vec<String> = settings.san.to_owned();
             let mut certparams = rcgen::CertificateParams::new(san).unwrap();
             certparams.distinguished_name = rcgen::DistinguishedName::new();
 
-            let cn = &table.common_name;
-            let days = table.days;
-            let chain_length = table.chain_length;
+            let cn = &settings.common_name;
+            let days = settings.days;
+            let chain_length = settings.chain_length;
 
             certparams
                 .distinguished_name
@@ -114,7 +125,9 @@ impl Ca {
                 "root".to_string(),
                 0,
             );
-            cacert.save_to_medium(&mut ca, &table.root_password).await;
+            cacert
+                .save_to_medium(&mut ca, &settings.root_password)
+                .await;
             ca.root_cert = Ok(cacert);
             println!("Generating OCSP responder certificate");
             let mut key_usage_oids = Vec::new();
@@ -140,7 +153,7 @@ impl Ca {
                 .unwrap();
             ocsp_cert.medium = ca.medium.clone();
             ocsp_cert
-                .save_to_medium(&mut ca, &table.ocsp_password)
+                .save_to_medium(&mut ca, &settings.ocsp_password)
                 .await;
             ca.ocsp_signer = Ok(ocsp_cert);
 
@@ -168,7 +181,7 @@ impl Ca {
                 .unwrap();
             admin_cert.medium = ca.medium.clone();
             admin_cert
-                .save_to_medium(&mut ca, &table.admin_password)
+                .save_to_medium(&mut ca, &settings.admin_password)
                 .await;
             ca.admin = Ok(admin_cert);
         } else {

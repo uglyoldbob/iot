@@ -29,7 +29,7 @@ pub struct CaConfiguration {
     pub root: bool,
     /// The subject alternate names for the certificate authority.
     pub san: Vec<String>,
-    /// The common name of the certificate authrity
+    /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
     pub days: u32,
@@ -45,6 +45,12 @@ pub struct CaConfiguration {
     pub root_password: prompt::Password2,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
+    /// The externally accessible https port, if accessible by https
+    pub https_port: Option<u16>,
+    /// The externally accessible http port, if accessible by http
+    pub http_port: Option<u16>,
+    /// The proxy configuration for this authority
+    pub proxy: Option<String>,
 }
 
 impl Default for CaConfiguration {
@@ -68,6 +74,9 @@ impl CaConfiguration {
             ocsp_password: prompt::Password2::new("".to_string()),
             root_password: prompt::Password2::new("".to_string()),
             ocsp_signature: false,
+            http_port: None,
+            https_port: None,
+            proxy: None,
         }
     }
 }
@@ -536,6 +545,58 @@ impl CaCertificate {
     }
 }
 
+/// The configuration of a general pki instance.
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub struct PkiConfiguration {
+    /// A dummmy value so the struct is not empty
+    bob: u8,
+}
+
+///A generic configuration for a pki or certificate authority.
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub enum PkiConfigurationEnum {
+    /// A generic Pki configuration
+    Pki(PkiConfiguration),
+    /// A standard certificate authority configuration
+    Ca(CaConfiguration),
+}
+
+impl PkiConfigurationEnum {
+    /// Construct a new ca, defaulting to a Ca configuration
+    pub fn new() -> Self {
+        Self::Ca(CaConfiguration::new())
+    }
+}
+
+/// A normal pki object, containing one or more Certificate authorities
+pub struct Pki {
+    /// All of the root certificate authorities
+    roots: Vec<Ca>,
+    /// All of the intermediate certificate authorities
+    intermediates: Vec<Ca>,
+}
+
+/// An instance of either a pki or ca.
+pub enum PkiInstance {
+    /// A generic pki instance
+    Pki(Pki),
+    /// A single certificate authority instance
+    Ca(Ca),
+}
+
+impl PkiInstance {
+    /// Load an instance of self from the settings.
+    pub async fn load(settings: &crate::MainConfiguration) -> Self {
+        match &settings.pki {
+            PkiConfigurationEnum::Pki(_pki_config) => todo!(),
+            PkiConfigurationEnum::Ca(ca_config) => {
+                let ca = Ca::load(ca_config).await;
+                Self::Ca(ca)
+            }
+        }
+    }
+}
+
 /// The actual ca object
 pub struct Ca {
     /// Where certificates are stored
@@ -595,25 +656,23 @@ impl Ca {
     }
 
     /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_urls(settings: &crate::MainConfiguration) -> Vec<String> {
+    pub fn get_ocsp_urls(settings: &crate::ca::CaConfiguration) -> Vec<String> {
         let mut urls = Vec::new();
 
-        let table = &settings.ca;
-        for san in &table.san {
+        for san in &settings.san {
             let san: &str = san.as_str();
 
             let mut url = String::new();
             let mut port_override = None;
-            if settings.https.enabled {
+            if let Some(p) = settings.https_port {
                 let default_port = 443;
-                let p = settings.get_https_port();
                 if p != default_port {
                     port_override = Some(p);
                 }
                 url.push_str("https://");
-            } else if settings.http.enabled {
+            }
+            if let Some(p) = settings.http_port {
                 let default_port = 80;
-                let p = settings.get_http_port();
                 if p != default_port {
                     port_override = Some(p);
                 }
@@ -627,11 +686,7 @@ impl Ca {
                 url.push_str(&format!(":{}", p));
             }
 
-            let proxy = if let Some(p) = &settings.general.proxy {
-                p
-            } else {
-                ""
-            };
+            let proxy = if let Some(p) = &settings.proxy { p } else { "" };
 
             url.push_str(proxy);
             url.push_str("/ca/ocsp");
@@ -680,15 +735,13 @@ impl Ca {
     }
 
     /// Load ca stuff
-    pub async fn load(settings: &crate::MainConfiguration) -> Self {
+    pub async fn load(settings: &crate::ca::CaConfiguration) -> Self {
         let mut ca = Self::from_config(settings).await;
 
-        let table = &settings.ca;
-
         // These will error when the ca needs to be built
-        let _ = ca.load_ocsp_cert(&table.ocsp_password).await;
-        let _ = ca.load_admin_cert(&table.admin_password).await;
-        let _ = ca.load_root_ca_cert(&table.root_password).await;
+        let _ = ca.load_ocsp_cert(&settings.ocsp_password).await;
+        let _ = ca.load_admin_cert(&settings.admin_password).await;
+        let _ = ca.load_root_ca_cert(&settings.root_password).await;
         ca
     }
 
@@ -755,15 +808,15 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    pub async fn from_config(settings: &crate::MainConfiguration) -> Self {
-        let medium = settings.ca.path.build(None).await;
+    pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Self {
+        let medium = settings.path.build(None).await;
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
-            admin_access: Zeroizing::new(settings.ca.admin_access_password.to_string()),
+            admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
         }
     }
 

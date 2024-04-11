@@ -84,8 +84,8 @@ pub struct HttpContext {
     pub pool: Option<mysql::Pool>,
     /// The application settings
     pub settings: Arc<crate::MainConfiguration>,
-    /// The ca object
-    pub ca: Arc<futures::lock::Mutex<crate::ca::Ca>>,
+    /// The pki object
+    pub pki: Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
 }
 
 /// Represents extra context for a web service
@@ -134,8 +134,8 @@ pub struct WebPageContext {
     pub user_certs: UserCerts,
     /// The application settings
     pub settings: Arc<crate::MainConfiguration>,
-    /// The ca object
-    pub ca: Arc<futures::lock::Mutex<crate::ca::Ca>>,
+    /// The pki object
+    pub pki: Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
 }
 
 /// Represents the contents of a post request
@@ -370,7 +370,7 @@ async fn handle<'a>(
         pool: mysql,
         user_certs,
         settings: context.settings.clone(),
-        ca: context.ca.clone(),
+        pki: context.pki.clone(),
     };
 
     let path = rparts.uri.path();
@@ -681,7 +681,7 @@ pub async fn https_webserver(
         &tls_config.cert_file,
         &tls_config.key_password,
         client_certs,
-        &hc.ca,
+        &hc.pki,
         require_cert,
     )
     .map_err(|e| ServiceError::Other(e.to_string()))?;

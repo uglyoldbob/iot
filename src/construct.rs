@@ -160,7 +160,7 @@ async fn main() {
     #[cfg(target_family = "unix")]
     let options = ca::OwnerOptions::new(user_uid.as_raw());
 
-    ca::Ca::init(&config, options).await;
+    ca::PkiInstance::init(&config.pki, options).await;
 
     #[cfg(target_os = "linux")]
     {

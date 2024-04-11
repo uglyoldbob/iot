@@ -341,9 +341,13 @@ async fn main() {
     {
         let password_combined = password.as_bytes();
         let pconfig = tpm2::decrypt(settings_con, password_combined);
+        println!("Config {}", std::str::from_utf8(&pconfig).unwrap());
         let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
         if settings2.is_err() {
-            panic!("Failed to parse configuration file");
+            panic!(
+                "Failed to parse configuration file {}",
+                settings2.err().unwrap()
+            );
         }
         settings = settings2.unwrap();
     }
@@ -368,9 +372,9 @@ async fn main() {
 
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
-    let ca = ca::Ca::load(&settings).await;
+    let pki = ca::PkiInstance::load(&settings).await;
 
-    let ca = Arc::new(futures::lock::Mutex::new(ca));
+    let pki = Arc::new(futures::lock::Mutex::new(pki));
 
     let mut hc = HttpContext {
         dirmap: router,
@@ -379,7 +383,7 @@ async fn main() {
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
-        ca,
+        pki,
     };
 
     if let Some(mysql_conn_s) = &mut mysql_conn_s {

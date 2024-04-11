@@ -144,8 +144,8 @@ pub struct MainConfigurationAnswers {
     pub https: HttpsSettings,
     /// Settings for the database
     pub database: DatabaseSettings,
-    /// The table for ca settings
-    pub ca: crate::ca::CaConfiguration,
+    /// The settings for a pki
+    pub pki: crate::ca::PkiConfigurationEnum,
 }
 
 /// The main configuration of the application
@@ -163,8 +163,8 @@ pub struct MainConfiguration {
     pub database: DatabaseSettings,
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
-    /// The table for ca settings
-    pub ca: crate::ca::CaConfiguration,
+    /// The settings for a pki
+    pub pki: crate::ca::PkiConfigurationEnum,
 }
 
 impl Default for MainConfiguration {
@@ -183,7 +183,7 @@ impl MainConfiguration {
             https: HttpsSettings::new(),
             database: DatabaseSettings::new(),
             client_certs: None,
-            ca: CaConfiguration::new(),
+            pki: crate::ca::PkiConfigurationEnum::new(),
         }
     }
 
@@ -194,7 +194,7 @@ impl MainConfiguration {
         self.http = answers.http.clone();
         self.https = answers.https.clone();
         self.database = answers.database.clone();
-        self.ca = answers.ca.clone();
+        self.pki = answers.pki.clone();
     }
 
     /// Fill out the configuration by asking the user for input, using standard input and output

@@ -71,7 +71,7 @@ pub fn load_certificate<P>(
     certfile: P,
     pass: &str,
     rcs: Option<RootCertStore>,
-    lca: &Arc<futures::lock::Mutex<crate::ca::Ca>>,
+    pki: &Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
     require_cert: bool,
 ) -> Result<Arc<ServerConfig>, Error>
 where
@@ -106,8 +106,11 @@ where
     if rcs.is_none() {
         let client_cert_der = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
-                let ca = lca.lock().await;
-                let cert = ca.root_ca_cert().unwrap();
+                let pki = pki.lock().await;
+                let cert = match std::ops::Deref::deref(&pki) {
+                    crate::ca::PkiInstance::Pki(pki) => todo!(),
+                    crate::ca::PkiInstance::Ca(ca) => ca.root_ca_cert().unwrap(),
+                };
                 cert.certificate_der()
             })
         });
