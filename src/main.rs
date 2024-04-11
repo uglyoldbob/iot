@@ -340,7 +340,6 @@ async fn main() {
     {
         let password_combined = password.as_bytes();
         let pconfig = tpm2::decrypt(settings_con, password_combined);
-        println!("Config {}", std::str::from_utf8(&pconfig).unwrap());
         let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
         if settings2.is_err() {
             panic!(
