@@ -185,7 +185,7 @@ impl Ca {
             let admin_csr = ca.generate_signing_request(
                 CertificateSigningMethod::RsaSha256,
                 "admin".to_string(),
-                "Administrator".to_string(),
+                format!("{} Administrator", settings.common_name),
                 Vec::new(),
                 extensions,
                 id,

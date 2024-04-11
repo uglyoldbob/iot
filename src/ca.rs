@@ -1058,65 +1058,76 @@ async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn handle_ca_get_cert(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+
+    if let Ok(cert_der) = ca.root_ca_cert() {
+        let ty = if s.get.contains_key("type") {
+            s.get.get("type").unwrap().to_owned()
+        } else {
+            "der".to_string()
+        };
+
+        match ty.as_str() {
+            "der" => {
+                response.headers.append(
+                    "Content-Type",
+                    HeaderValue::from_static("application/x509-ca-cert"),
+                );
+                response.headers.append(
+                    "Content-Disposition",
+                    HeaderValue::from_static("attachment; filename=ca.cer"),
+                );
+                cert = Some(cert_der.cert.to_owned());
+            }
+            "pem" => {
+                response.headers.append(
+                    "Content-Type",
+                    HeaderValue::from_static("application/x-pem-file"),
+                );
+                response.headers.append(
+                    "Content-Disposition",
+                    HeaderValue::from_static("attachment; filename=ca.pem"),
+                );
+                if let Ok(pem) = cert_der.public_pem() {
+                    cert = Some(pem.as_bytes().to_vec());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    } else {
+        http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+    };
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
 /// Runs the page for fetching the ca certificate for the certificate authority being run
 async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_get_cert(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let response = hyper::Response::new("dummy");
-            let (mut response, _dummybody) = response.into_parts();
-
-            let mut cert: Option<Vec<u8>> = None;
-
-            if let Ok(cert_der) = ca.root_ca_cert() {
-                let ty = if s.get.contains_key("type") {
-                    s.get.get("type").unwrap().to_owned()
-                } else {
-                    "der".to_string()
-                };
-
-                match ty.as_str() {
-                    "der" => {
-                        response.headers.append(
-                            "Content-Type",
-                            HeaderValue::from_static("application/x509-ca-cert"),
-                        );
-                        response.headers.append(
-                            "Content-Disposition",
-                            HeaderValue::from_static("attachment; filename=ca.cer"),
-                        );
-                        cert = Some(cert_der.cert.to_owned());
-                    }
-                    "pem" => {
-                        response.headers.append(
-                            "Content-Type",
-                            HeaderValue::from_static("application/x-pem-file"),
-                        );
-                        response.headers.append(
-                            "Content-Disposition",
-                            HeaderValue::from_static("attachment; filename=ca.pem"),
-                        );
-                        if let Ok(pem) = cert_der.public_pem() {
-                            cert = Some(pem.as_bytes().to_vec());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            let body = if let Some(cert) = cert {
-                http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
-            } else {
-                http_body_util::Full::new(hyper::body::Bytes::from("missing"))
-            };
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
-        }
+        PkiInstance::Ca(ca) => handle_ca_get_cert(ca, &s, String::new()).await,
     }
 }
 
@@ -1326,8 +1337,8 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
             router.register("/pki", pki_main_page);
             router.register("/pki/", pki_main_page);
             for name in pki.roots.keys() {
-                let path = format!("/pki/{}/ca", name);
-                router.register(&path, ca_main_page);
+                router.register(&format!("/pki/{}/ca", name), ca_main_page);
+                router.register(&format!("/pki/{}/ca/get_ca.rs", name), ca_get_cert);
             }
         }
         PkiInstance::Ca(_ca) => {
