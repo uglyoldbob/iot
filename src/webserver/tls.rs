@@ -108,7 +108,10 @@ where
             tokio::runtime::Handle::current().block_on(async {
                 let pki = pki.lock().await;
                 let cert = match std::ops::Deref::deref(&pki) {
-                    crate::ca::PkiInstance::Pki(pki) => todo!(),
+                    crate::ca::PkiInstance::Pki(pki) => {
+                        let ca = pki.get_client_certifier().await;
+                        ca.root_ca_cert().unwrap()
+                    }
                     crate::ca::PkiInstance::Ca(ca) => ca.root_ca_cert().unwrap(),
                 };
                 cert.certificate_der()

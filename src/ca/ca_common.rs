@@ -202,7 +202,7 @@ impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
     /// # Argumments
     /// * options - The optional arguments used to set applicable file permissions
-    pub async fn build(&self, options: Option<OwnerOptions>) -> CaCertificateStorage {
+    pub async fn build(&self, options: Option<&OwnerOptions>) -> CaCertificateStorage {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
             CaCertificateStorageBuilder::Sqlite(p) => {
@@ -548,8 +548,10 @@ impl CaCertificate {
 /// The configuration of a general pki instance.
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct PkiConfiguration {
-    /// A dummmy value so the struct is not empty
-    bob: u8,
+    /// List of local ca
+    pub local_ca: std::collections::HashMap<String, CaConfiguration>,
+    /// The name of the ca responsible for validating user certificates
+    pub client_certifier: String,
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -571,9 +573,30 @@ impl PkiConfigurationEnum {
 /// A normal pki object, containing one or more Certificate authorities
 pub struct Pki {
     /// All of the root certificate authorities
-    roots: Vec<Ca>,
-    /// All of the intermediate certificate authorities
-    intermediates: Vec<Ca>,
+    pub roots: std::collections::HashMap<String, Ca>,
+    /// The name of the ca responsible for validating user certificates
+    pub client_certifier: String,
+}
+
+impl Pki {
+    /// Load pki stuff
+    pub async fn load(settings: &crate::ca::PkiConfiguration) -> Self {
+        let mut hm = std::collections::HashMap::new();
+        for (name, config) in &settings.local_ca {
+            let ca = crate::ca::Ca::load(config).await;
+            hm.insert(name.to_owned(), ca);
+        }
+        Self {
+            roots: hm,
+            client_certifier: settings.client_certifier.to_owned(),
+        }
+    }
+
+    /// Retrieve the ca associated with verifying client certificates
+    pub async fn get_client_certifier(&self) -> &Ca {
+        let n = &self.client_certifier;
+        self.roots.get(n).unwrap()
+    }
 }
 
 /// An instance of either a pki or ca.
@@ -588,7 +611,10 @@ impl PkiInstance {
     /// Load an instance of self from the settings.
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {
-            PkiConfigurationEnum::Pki(_pki_config) => todo!(),
+            PkiConfigurationEnum::Pki(pki_config) => {
+                let pki = crate::ca::Pki::load(pki_config).await;
+                Self::Pki(pki)
+            }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = Ca::load(ca_config).await;
                 Self::Ca(ca)

@@ -52,13 +52,30 @@ impl CaCertificateStorage {
     }
 }
 
+impl Pki {
+    pub async fn init(settings: &crate::ca::PkiConfiguration, options: OwnerOptions) -> Self {
+        let mut hm = std::collections::HashMap::new();
+        for (name, config) in &settings.local_ca {
+            let ca = crate::ca::Ca::init(config, &options).await;
+            hm.insert(name.to_owned(), ca);
+        }
+        Self {
+            roots: hm,
+            client_certifier: settings.client_certifier.to_owned(),
+        }
+    }
+}
+
 impl PkiInstance {
     /// Init a pki Instance from the given settings
     pub async fn init(settings: &crate::ca::PkiConfigurationEnum, options: OwnerOptions) -> Self {
         match settings {
-            PkiConfigurationEnum::Pki(_pki_config) => todo!(),
+            PkiConfigurationEnum::Pki(pki_config) => {
+                let pki = crate::ca::Pki::init(pki_config, options).await;
+                Self::Pki(pki)
+            }
             PkiConfigurationEnum::Ca(ca_config) => {
-                let ca = crate::ca::Ca::init(ca_config, options).await;
+                let ca = crate::ca::Ca::init(ca_config, &options).await;
                 Self::Ca(ca)
             }
         }
@@ -69,7 +86,7 @@ impl Ca {
     /// Create a Self from the application configuration
     pub async fn init_from_config(
         settings: &crate::ca::CaConfiguration,
-        options: OwnerOptions,
+        options: &OwnerOptions,
     ) -> Self {
         settings.path.destroy().await;
         let mut medium = settings.path.build(Some(options)).await;
@@ -84,7 +101,7 @@ impl Ca {
         }
     }
 
-    pub async fn init(settings: &crate::ca::CaConfiguration, options: OwnerOptions) -> Self {
+    pub async fn init(settings: &crate::ca::CaConfiguration, options: &OwnerOptions) -> Self {
         let mut ca = Self::init_from_config(settings, options).await;
 
         if settings.root {

@@ -264,7 +264,6 @@ async fn main() {
     router.register("", main_redirect);
     router.register("/", main_redirect);
     router.register("/main.rs", main_page);
-    ca::ca_register(&mut router);
 
     let mut settings_con = Vec::new();
     let mut f = tokio::fs::File::open(config_path.join(format!("{}-config.toml", name)))
@@ -353,6 +352,9 @@ async fn main() {
     }
 
     let settings = Arc::new(settings);
+    let pki = ca::PkiInstance::load(&settings).await;
+
+    ca::ca_register(&pki, &mut router);
 
     let mysql_pw = &settings.database.password;
     let mysql_user = &settings.database.username;
@@ -371,8 +373,6 @@ async fn main() {
     let mut mysql_pool = mysql_temp.ok();
 
     let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
-
-    let pki = ca::PkiInstance::load(&settings).await;
 
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 

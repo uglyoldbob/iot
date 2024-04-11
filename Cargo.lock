@@ -2237,7 +2237,7 @@ dependencies = [
 [[package]]
 name = "prompt"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#5d2b95705bd3b14395a00d92386225345820a9e2"
+source = "git+https://github.com/uglyoldbob/prompt.git#094aad2c3728fa2733eec8de234fc6113b94ba98"
 dependencies = [
  "prompt_derive",
  "rpassword",
@@ -2247,7 +2247,7 @@ dependencies = [
 [[package]]
 name = "prompt_derive"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#5d2b95705bd3b14395a00d92386225345820a9e2"
+source = "git+https://github.com/uglyoldbob/prompt.git#094aad2c3728fa2733eec8de234fc6113b94ba98"
 dependencies = [
  "proc-macro2",
  "quote",

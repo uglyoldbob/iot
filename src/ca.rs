@@ -215,11 +215,41 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// The main landing page for a pki object
+async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
+    let mut pki = s.pki.lock().await;
+    if let PkiInstance::Pki(pki) = std::ops::DerefMut::deref_mut(&mut pki) {
+        let mut html = html::root::Html::builder();
+        html.head(|h| generic_head(h, &s)).body(|b| {
+            b.text("This is the pki page").line_break(|a| a);
+            b.text(pki.client_certifier.to_owned()).line_break(|a| a);
+            b
+        });
+        let html = html.build();
+
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+        webserver::WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie,
+        }
+    } else {
+        let response = hyper::Response::new("dummy");
+        let (response, body) = response.into_parts();
+        webserver::WebResponse {
+            response: hyper::http::Response::from_parts(response, body.into()),
+            cookie: s.logincookie,
+        }
+    }
+}
+
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
+            println!("The url is {}", s.page.display());
             todo!();
         }
         PkiInstance::Ca(ca) => {
@@ -1272,18 +1302,29 @@ fn generic_head<'a>(
 }
 
 /// Register handlers into the specified webrouter.
-pub fn ca_register(router: &mut WebRouter) {
-    router.register("/ca", ca_main_page);
-    router.register("/ca/", ca_main_page);
-    router.register("/ca/get_ca.rs", ca_get_cert);
-    router.register("/ca/view_cert.rs", ca_view_user_cert);
-    router.register("/ca/view_all_certs.rs", ca_view_all_certs);
-    router.register("/ca/get_cert.rs", ca_get_user_cert);
-    router.register("/ca/ocsp", ca_ocsp_responder);
-    router.register("/ca/request.rs", ca_request);
-    router.register("/ca/submit_request.rs", ca_submit_request);
-    router.register("/ca/list.rs", ca_list_requests);
-    router.register("/ca/request_sign.rs", ca_sign_request);
-    router.register("/ca/request_reject.rs", ca_reject_request);
-    router.register("/ca/get_admin.rs", ca_get_admin);
+pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
+    match pki {
+        PkiInstance::Pki(pki) => {
+            router.register("/pki", pki_main_page);
+            for name in pki.roots.keys() {
+                let path = format!("/pki/{}", name);
+                router.register(&path, ca_main_page);
+            }
+        }
+        PkiInstance::Ca(_ca) => {
+            router.register("/ca", ca_main_page);
+            router.register("/ca/", ca_main_page);
+            router.register("/ca/get_ca.rs", ca_get_cert);
+            router.register("/ca/view_cert.rs", ca_view_user_cert);
+            router.register("/ca/view_all_certs.rs", ca_view_all_certs);
+            router.register("/ca/get_cert.rs", ca_get_user_cert);
+            router.register("/ca/ocsp", ca_ocsp_responder);
+            router.register("/ca/request.rs", ca_request);
+            router.register("/ca/submit_request.rs", ca_submit_request);
+            router.register("/ca/list.rs", ca_list_requests);
+            router.register("/ca/request_sign.rs", ca_sign_request);
+            router.register("/ca/request_reject.rs", ca_reject_request);
+            router.register("/ca/get_admin.rs", ca_get_admin);
+        }
+    }
 }

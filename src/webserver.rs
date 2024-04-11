@@ -120,6 +120,8 @@ impl UserCerts {
 
 /// Represents the context necessary to render a webpage
 pub struct WebPageContext {
+    /// The actual page requested
+    pub page: std::path::PathBuf,
     /// The proxy sub-directory
     pub proxy: String,
     /// The map of all post arguments
@@ -362,17 +364,6 @@ async fn handle<'a>(
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 
-    let p = WebPageContext {
-        post: post_data,
-        get: get_map,
-        proxy: context.proxy.as_ref().unwrap_or(&String::new()).to_owned(),
-        logincookie: ourcookie.clone(),
-        pool: mysql,
-        user_certs,
-        settings: context.settings.clone(),
-        pki: context.pki.clone(),
-    };
-
     let path = rparts.uri.path();
     let proxy = if let Some(p) = &context.proxy {
         p.to_owned()
@@ -385,6 +376,18 @@ async fn handle<'a>(
     let sys_path = context.root.to_owned() + &fixed_path;
 
     println!("Lookup {}", fixed_path);
+
+    let p = WebPageContext {
+        page: <std::path::PathBuf as std::str::FromStr>::from_str(&fixed_path).unwrap(),
+        post: post_data,
+        get: get_map,
+        proxy: context.proxy.as_ref().unwrap_or(&String::new()).to_owned(),
+        logincookie: ourcookie.clone(),
+        pool: mysql,
+        user_certs,
+        settings: context.settings.clone(),
+        pki: context.pki.clone(),
+    };
 
     let body = if context.dirmap.r.contains_key(&fixed_path.to_string()) {
         let (_key, fun) = context
