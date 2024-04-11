@@ -125,7 +125,7 @@ async fn main() {
         {
             std::os::unix::fs::chown(p, Some(user_uid.as_raw), None);
             let mut perms = std::fs::metadata(p).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
             std::fs::set_permissions(p, perms);
         }
 
@@ -146,7 +146,7 @@ async fn main() {
         {
             std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None).unwrap();
             let mut perms = std::fs::metadata(&p).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
             std::fs::set_permissions(p, perms).unwrap();
         }
 
@@ -156,7 +156,11 @@ async fn main() {
             .await
             .expect("Failed to write configuration file");
     }
-    ca::Ca::init(&config).await;
+
+    #[cfg(target_family = "unix")]
+    let options = ca::OwnerOptions::new(user_uid.as_raw());
+
+    ca::Ca::init(&config, options).await;
 
     #[cfg(target_os = "linux")]
     {

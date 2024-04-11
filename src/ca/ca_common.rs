@@ -8,6 +8,18 @@ use zeroize::Zeroizing;
 
 use crate::{oid::*, pkcs12::BagAttribute};
 
+/// Get the list of sqlite files from the base filename for a sqlite database
+pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
+    let name = p.file_name().unwrap().to_owned();
+    let mut p2 = p.clone();
+    p2.pop();
+    vec![
+        p.to_owned(),
+        p2.join(format!("{}-shm", name.to_str().unwrap())),
+        p2.join(format!("{}-wal", name.to_str().unwrap())),
+    ]
+}
+
 /// The items used to configure a certificate authority
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
@@ -148,13 +160,69 @@ pub enum CaCertificateStorageBuilder {
     Sqlite(PathBuf),
 }
 
+/// Contains the options for setting ownership in a generic way
+pub struct OwnerOptions {
+    #[cfg(target_family = "unix")]
+    /// The unix based user id
+    uid: u32,
+}
+
+impl OwnerOptions {
+    /// Construct a new Self
+    #[cfg(target_family = "unix")]
+    pub fn new(uid: u32) -> Self {
+        Self { uid }
+    }
+
+    /// Set the owner of a single file
+    pub async fn set_owner(&self, p: PathBuf) {
+        if p.exists() {
+            println!("Setting ownership of {}", p.display());
+            #[cfg(target_family = "unix")]
+            {
+                std::os::unix::fs::chown(&p, Some(self.uid), None).unwrap();
+                let mut perms = std::fs::metadata(&p).unwrap().permissions();
+                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+                std::fs::set_permissions(p, perms).unwrap();
+            }
+        }
+    }
+}
+
 impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
-    pub async fn build(&self) -> CaCertificateStorage {
+    /// # Argumments
+    /// * options - The optional arguments used to set applicable file permissions
+    pub async fn build(&self, options: Option<OwnerOptions>) -> CaCertificateStorage {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
             CaCertificateStorageBuilder::Sqlite(p) => {
+                println!("Building sqlite with {}", p.display());
                 let mut count = 0;
+                let mut pool;
+                loop {
+                    pool = async_sqlite::PoolBuilder::new()
+                        .path(p)
+                        .journal_mode(async_sqlite::JournalMode::Wal)
+                        .open()
+                        .await;
+                    if pool.is_err() {
+                        count += 1;
+                        if count > 10 {
+                            panic!("Failed to create database");
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                let pool = pool.unwrap();
+                pool.close_blocking().unwrap();
+                if let Some(o) = options {
+                    let paths = get_sqlite_paths(p);
+                    for p in paths {
+                        o.set_owner(p).await;
+                    }
+                }
                 let mut pool;
                 loop {
                     pool = async_sqlite::PoolBuilder::new()
@@ -688,7 +756,7 @@ impl Ca {
 
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::MainConfiguration) -> Self {
-        let medium = settings.ca.path.build().await;
+        let medium = settings.ca.path.build(None).await;
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),

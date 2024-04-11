@@ -10,27 +10,13 @@ impl CaCertificateStorageBuilder {
         match self {
             CaCertificateStorageBuilder::Nowhere => {}
             CaCertificateStorageBuilder::Sqlite(p) => {
-                let mut p = p.clone();
-
-                if p.exists() {
-                    println!("Removing {}", p.display());
-                    std::fs::remove_file(&p).expect("Failed to delete database");
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                }
-
-                let name = p.file_name().unwrap().to_owned();
-                p.pop();
-                let name2 = p.join(format!("{}-shm", name.to_str().unwrap()));
-                if name2.exists() {
-                    println!("Removing {}", name2.display());
-                    std::fs::remove_file(name2).expect("Failed to delete file");
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                }
-                let name2 = p.join(format!("{}-wal", name.to_str().unwrap()));
-                if name2.exists() {
-                    println!("Removing {}", name2.display());
-                    std::fs::remove_file(name2).expect("Failed to delete file");
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                let paths = get_sqlite_paths(p);
+                for p in paths {
+                    if p.exists() {
+                        println!("Removing {}", p.display());
+                        std::fs::remove_file(&p).expect("Failed to delete");
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
                 }
             }
         }
@@ -38,6 +24,7 @@ impl CaCertificateStorageBuilder {
 }
 
 impl CaCertificateStorage {
+    /// Initialize the storage medium
     pub async fn init(&mut self) {
         match self {
             CaCertificateStorage::Nowhere => {}
@@ -67,9 +54,12 @@ impl CaCertificateStorage {
 
 impl Ca {
     /// Create a Self from the application configuration
-    pub async fn init_from_config(settings: &crate::MainConfiguration) -> Self {
+    pub async fn init_from_config(
+        settings: &crate::MainConfiguration,
+        options: OwnerOptions,
+    ) -> Self {
         settings.ca.path.destroy().await;
-        let mut medium = settings.ca.path.build().await;
+        let mut medium = settings.ca.path.build(Some(options)).await;
         medium.init().await;
         Self {
             medium,
@@ -81,8 +71,8 @@ impl Ca {
         }
     }
 
-    pub async fn init(settings: &crate::MainConfiguration) -> Self {
-        let mut ca = Self::init_from_config(settings).await;
+    pub async fn init(settings: &crate::MainConfiguration, options: OwnerOptions) -> Self {
+        let mut ca = Self::init_from_config(settings, options).await;
 
         let table = &settings.ca;
 
