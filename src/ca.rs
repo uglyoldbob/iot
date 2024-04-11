@@ -222,7 +222,16 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
         let mut html = html::root::Html::builder();
         html.head(|h| generic_head(h, &s)).body(|b| {
             b.text("This is the pki page").line_break(|a| a);
-            b.text(pki.client_certifier.to_owned()).line_break(|a| a);
+            for (name, _ca) in &pki.roots {
+                b.text(format!("{}: Valid from ? to ?, type ?", name))
+                    .line_break(|a| a);
+                b.anchor(|ab| {
+                    ab.text("Visit this CA");
+                    ab.href(format!("/{}pki/{}/ca", s.proxy, name));
+                    ab
+                })
+                .line_break(|lb| lb);
+            }
             b
         });
         let html = html.build();
@@ -244,74 +253,83 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn handle_ca_main_page(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        if admin {
+            b.text("You are admin").line_break(|a| a);
+        }
+        b.anchor(|ab| {
+            ab.text("Download CA certificate as der");
+            ab.href(format!("/{}{}ca/get_ca.rs?type=der", s.proxy, pki));
+            ab.target("_blank");
+            ab
+        });
+        b.line_break(|lb| lb);
+        b.anchor(|ab| {
+            ab.text("Download CA certificate as pem");
+            ab.href(format!("/{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
+            ab.target("_blank");
+            ab
+        });
+        b.line_break(|lb| lb);
+        b.anchor(|ab| {
+            ab.text("Request a signature on a certificate");
+            ab.href(format!("/{}{}ca/request.rs", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        if admin {
+            b.anchor(|ab| {
+                ab.text("List pending requests");
+                ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                ab
+            });
+            b.line_break(|lb| lb);
+            b.anchor(|ab| {
+                ab.text("List all certificates");
+                ab.href(format!("/{}{}ca/view_all_certs.rs", s.proxy, pki));
+                ab
+            });
+            b.line_break(|lb| lb);
+        }
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
 ///The main landing page for the certificate authority
 async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            println!("The url is {}", s.page.display());
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_main_page(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut admin = false;
-            let cs = s.user_certs.all_certs();
-            for cert in cs {
-                if ca.is_admin(cert).await {
-                    admin = true;
-                }
-            }
-
-            let mut html = html::root::Html::builder();
-            html.head(|h| generic_head(h, &s)).body(|b| {
-                if admin {
-                    b.text("You are admin").line_break(|a| a);
-                }
-                b.anchor(|ab| {
-                    ab.text("Download CA certificate as der");
-                    ab.href(format!("/{}ca/get_ca.rs?type=der", s.proxy));
-                    ab.target("_blank");
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b.anchor(|ab| {
-                    ab.text("Download CA certificate as pem");
-                    ab.href(format!("/{}ca/get_ca.rs?type=pem", s.proxy));
-                    ab.target("_blank");
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b.anchor(|ab| {
-                    ab.text("Request a signature on a certificate");
-                    ab.href(format!("/{}ca/request.rs", s.proxy));
-                    ab
-                });
-                b.line_break(|lb| lb);
-                if admin {
-                    b.anchor(|ab| {
-                        ab.text("List pending requests");
-                        ab.href(format!("/{}ca/list.rs", s.proxy));
-                        ab
-                    });
-                    b.line_break(|lb| lb);
-                    b.anchor(|ab| {
-                        ab.text("List all certificates");
-                        ab.href(format!("/{}ca/view_all_certs.rs", s.proxy));
-                        ab
-                    });
-                    b.line_break(|lb| lb);
-                }
-                b
-            });
-            let html = html.build();
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
-        }
+        PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s, String::new()).await,
     }
 }
 
@@ -1306,8 +1324,9 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
     match pki {
         PkiInstance::Pki(pki) => {
             router.register("/pki", pki_main_page);
+            router.register("/pki/", pki_main_page);
             for name in pki.roots.keys() {
-                let path = format!("/pki/{}", name);
+                let path = format!("/pki/{}/ca", name);
                 router.register(&path, ca_main_page);
             }
         }
