@@ -254,9 +254,17 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
         html.head(|h| generic_head(h, &s).title(|t| t.text("PKI")))
             .body(|b| {
                 b.text("This is the pki page").line_break(|a| a);
-                for (name, _ca) in &pki.roots {
-                    b.text(format!("{}: Valid from ? to ?, type ?", name))
+                for (name, ca) in &pki.roots {
+                    let validity = ca.get_validity();
+                    if let Some(valid) = validity {
+                        b.text(format!(
+                            "{}: Valid from {} to {}",
+                            name, valid.not_before, valid.not_after
+                        ))
                         .line_break(|a| a);
+                    }
+
+                    b.text("CERT TYPE HERE").line_break(|a| a);
                     b.anchor(|ab| {
                         ab.text("Visit this CA");
                         ab.href(format!("/{}pki/{}/ca", s.proxy, name));

@@ -416,6 +416,12 @@ pub struct CaCertificate {
 }
 
 impl CaCertificate {
+    /// Retrieve the certificate in x509_cert::Certificate format
+    pub fn x509_cert(&self) -> x509_cert::Certificate {
+        use der::Decode;
+        x509_cert::Certificate::from_der(&self.cert).unwrap()
+    }
+
     /// Load a caCertificate instance from der data of the certificate
     pub fn from_existing(
         algorithm: CertificateSigningMethod,
@@ -646,6 +652,16 @@ pub struct Ca {
 }
 
 impl Ca {
+    /// Get the dates the ca is valid
+    pub fn get_validity(&self) -> Option<x509_cert::time::Validity> {
+        if let Ok(root) = &self.root_cert {
+            let cert = root.x509_cert();
+            Some(cert.tbs_certificate.validity)
+        } else {
+            None
+        }
+    }
+
     /// Marks the specified csr as done
     pub async fn mark_csr_done(&mut self, id: u64) {
         match &self.medium {
