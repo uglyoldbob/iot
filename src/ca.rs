@@ -10,6 +10,7 @@ use crate::oid::*;
 pub mod ca_usage;
 pub use ca_usage::*;
 
+/// Handle a request submission for a certificate authority
 async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let mut valid_csr = false;
     let mut mycsr_pem = None;
@@ -93,6 +94,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Page for a user to generate a request for a certificate authority
 async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut html = html::root::Html::builder();
@@ -283,6 +285,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// The main page for a certificate authority
 async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
@@ -361,6 +364,7 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Reject a specified request for a certificate authority
 async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
@@ -425,6 +429,7 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Sign a specified request for a certificate authority
 async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut admin = false;
@@ -532,6 +537,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Get the pending signing requests for a certificate authority
 async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
@@ -698,6 +704,7 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// View all certificates for a certificate authority
 async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
@@ -786,6 +793,7 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// View a user certificate for a certificate authority
 async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
@@ -985,6 +993,7 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Get a user certificate for a certificate authority
 async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
@@ -1062,6 +1071,7 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Get the admin certificate for a certificate authority
 async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
@@ -1137,6 +1147,7 @@ async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Get a ca cert for a certificate authrity
 async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
@@ -1319,6 +1330,7 @@ async fn build_ocsp_response(
     ocsp::response::OcspResponse::new_success(bytes)
 }
 
+/// Run an ocsp response for a ca
 async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let ocsp_request = s.post.ocsp();
 

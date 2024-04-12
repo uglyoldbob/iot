@@ -28,7 +28,7 @@ List of future changes
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
-- [ ] Implement pki object containing a vector of ca.
+- [x] Implement pki object containing a vector of ca.
 - [x] Allows the https client cert verifier to require a cert, useful for proxied setups.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
@@ -40,6 +40,6 @@ List of future changes
 - [ ] Feature gate the sqlite backend
 - [x] Remove the filesystem backend
 - [ ] Add more database backends, feature gated
-- [ ] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
+- [x] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
 - [ ] Add certificate viewer for users.
-- [ ] Enable using systemd to start the service.
+- [x] Enable using systemd to start the service.

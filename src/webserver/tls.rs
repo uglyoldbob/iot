@@ -104,20 +104,25 @@ where
     };
 
     if rcs.is_none() {
-        let client_cert_der = tokio::task::block_in_place(|| {
+        tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 let pki = pki.lock().await;
-                let cert = match std::ops::Deref::deref(&pki) {
+                match std::ops::Deref::deref(&pki) {
                     crate::ca::PkiInstance::Pki(pki) => {
-                        let ca = pki.get_client_certifier().await;
-                        ca.root_ca_cert().unwrap()
+                        for ca in pki.get_client_certifiers().await {
+                            let cert = ca.root_ca_cert().unwrap();
+                            let cert_der = cert.certificate_der();
+                            rcs2.add(cert_der.into()).unwrap();
+                        }
                     }
-                    crate::ca::PkiInstance::Ca(ca) => ca.root_ca_cert().unwrap(),
+                    crate::ca::PkiInstance::Ca(ca) => {
+                        let cert = ca.root_ca_cert().unwrap();
+                        let cert_der = cert.certificate_der();
+                        rcs2.add(cert_der.into()).unwrap();
+                    }
                 };
-                cert.certificate_der()
             })
         });
-        rcs2.add(client_cert_der.into()).unwrap();
     }
 
     //todo fill out the rcs struct

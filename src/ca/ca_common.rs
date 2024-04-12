@@ -562,8 +562,6 @@ impl CaCertificate {
 pub struct PkiConfiguration {
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, CaConfiguration>,
-    /// The name of the ca responsible for validating user certificates
-    pub client_certifier: String,
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -586,8 +584,6 @@ impl PkiConfigurationEnum {
 pub struct Pki {
     /// All of the root certificate authorities
     pub roots: std::collections::HashMap<String, Ca>,
-    /// The name of the ca responsible for validating user certificates
-    pub client_certifier: String,
 }
 
 impl Pki {
@@ -598,16 +594,12 @@ impl Pki {
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
         }
-        Self {
-            roots: hm,
-            client_certifier: settings.client_certifier.to_owned(),
-        }
+        Self { roots: hm }
     }
 
-    /// Retrieve the ca associated with verifying client certificates
-    pub async fn get_client_certifier(&self) -> &Ca {
-        let n = &self.client_certifier;
-        self.roots.get(n).unwrap()
+    /// Retrieve the certificate authorities associated with verifying client certificates
+    pub async fn get_client_certifiers(&self) -> std::collections::hash_map::Values<String, Ca> {
+        self.roots.values()
     }
 }
 

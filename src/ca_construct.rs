@@ -59,10 +59,7 @@ impl Pki {
             let ca = crate::ca::Ca::init(config, &options).await;
             hm.insert(name.to_owned(), ca);
         }
-        Self {
-            roots: hm,
-            client_certifier: settings.client_certifier.to_owned(),
-        }
+        Self { roots: hm }
     }
 }
 
