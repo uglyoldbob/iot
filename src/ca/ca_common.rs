@@ -400,7 +400,7 @@ impl CaCertificateStorage {
 #[derive(Clone)]
 pub struct CaCertificate {
     /// The algorithm used for the ceertificate
-    algorithm: CertificateSigningMethod,
+    pub algorithm: CertificateSigningMethod,
     /// Where the certificate is stored
     pub medium: CaCertificateStorage,
     /// The public certificate in der format

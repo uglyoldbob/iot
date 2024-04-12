@@ -263,8 +263,11 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
                         ))
                         .line_break(|a| a);
                     }
+                    if let Ok(cert) = ca.root_ca_cert() {
+                        b.text(format!("CERT TYPE {:?}", cert.algorithm))
+                            .line_break(|a| a);
+                    }
 
-                    b.text("CERT TYPE HERE").line_break(|a| a);
                     b.anchor(|ab| {
                         ab.text("Visit this CA");
                         ab.href(format!("/{}pki/{}/ca", s.proxy, name));
