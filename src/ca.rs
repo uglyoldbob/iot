@@ -10,78 +10,93 @@ use crate::oid::*;
 pub mod ca_usage;
 pub use ca_usage::*;
 
+async fn handle_ca_submit_request(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut valid_csr = false;
+    let mut mycsr_pem = None;
+    let mut id = None;
+
+    let f = s.post.form();
+    if let Some(form) = f {
+        use der::DecodePem;
+        if let Some(pem) = form.get_first("csr") {
+            mycsr_pem = Some(pem.to_owned());
+            let cert = x509_cert::request::CertReq::from_pem(pem);
+            if let Ok(csr) = cert {
+                valid_csr = ca.verify_request(&csr).await.is_ok();
+                if valid_csr {
+                    let newid = ca.get_new_request_id().await;
+                    if let Some(newid) = newid {
+                        let csrr = CsrRequest {
+                            cert: pem.to_string(),
+                            name: form.get_first("name").unwrap().to_string(),
+                            email: form.get_first("email").unwrap().to_string(),
+                            phone: form.get_first("phone").unwrap().to_string(),
+                            id: newid,
+                        };
+                        let _ = ca.save_csr(&csrr).await;
+                    }
+                    id = newid;
+                }
+            }
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        if valid_csr {
+            b.text("Your request has been submitted").line_break(|f| f);
+            b.anchor(|ab| {
+                ab.text("View status of request");
+                ab.href(format!(
+                    "/{}{}ca/view_cert.rs?id={}",
+                    s.proxy,
+                    pki,
+                    id.unwrap()
+                ));
+                ab
+            });
+            b.line_break(|lb| lb);
+        } else {
+            b.text("Your request was considered invalid")
+                .line_break(|f| f);
+            if let Some(pem) = mycsr_pem {
+                b.preformatted_text(|c| c.text(pem)).line_break(|a| a);
+            }
+        }
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
 /// The page that allows users to submit a signing request.
 async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_submit_request(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut valid_csr = false;
-            let mut mycsr_pem = None;
-            let mut id = None;
-
-            let f = s.post.form();
-            if let Some(form) = f {
-                use der::DecodePem;
-                if let Some(pem) = form.get_first("csr") {
-                    mycsr_pem = Some(pem.to_owned());
-                    let cert = x509_cert::request::CertReq::from_pem(pem);
-                    if let Ok(csr) = cert {
-                        valid_csr = ca.verify_request(&csr).await.is_ok();
-                        if valid_csr {
-                            let newid = ca.get_new_request_id().await;
-                            if let Some(newid) = newid {
-                                let csrr = CsrRequest {
-                                    cert: pem.to_string(),
-                                    name: form.get_first("name").unwrap().to_string(),
-                                    email: form.get_first("email").unwrap().to_string(),
-                                    phone: form.get_first("phone").unwrap().to_string(),
-                                    id: newid,
-                                };
-                                let _ = ca.save_csr(&csrr).await;
-                            }
-                            id = newid;
-                        }
-                    }
-                }
-            }
-
-            let mut html = html::root::Html::builder();
-            html.head(|h| generic_head(h, &s)).body(|b| {
-                if valid_csr {
-                    b.text("Your request has been submitted").line_break(|f| f);
-                    b.anchor(|ab| {
-                        ab.text("View status of request");
-                        ab.href(format!("/{}ca/view_cert.rs?id={}", s.proxy, id.unwrap()));
-                        ab
-                    });
-                    b.line_break(|lb| lb);
-                } else {
-                    b.text("Your request was considered invalid")
-                        .line_break(|f| f);
-                    if let Some(pem) = mycsr_pem {
-                        b.preformatted_text(|c| c.text(pem)).line_break(|a| a);
-                    }
-                }
-                b
-            });
-            let html = html.build();
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
-        }
+        PkiInstance::Ca(ca) => handle_ca_submit_request(ca, &s, String::new()).await,
     }
 }
 
-/// The page that allows a user to generate a signing request.
-async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext, pki: String) -> webserver::WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| {
         generic_head(h, &s)
@@ -113,7 +128,7 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
             div.division(|div| {
                 div.form(|f| {
                     f.name("request");
-                    f.action(format!("/{}ca/submit_request.rs", s.proxy));
+                    f.action(format!("/{}{}ca/submit_request.rs", s.proxy, pki));
                     f.method("post");
                     f.text("Your Name")
                         .line_break(|a| a)
@@ -211,7 +226,23 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
     webserver::WebResponse {
         response: hyper::http::Response::from_parts(response, body),
-        cookie: s.logincookie,
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// The page that allows a user to generate a signing request.
+async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_request(ca, &s, format!("pki/{}/", name)).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_request(ca, &s, String::new()).await,
     }
 }
 
@@ -333,58 +364,162 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+async fn handle_ca_reject_request(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
+    if let Some(id) = s.get.get("id") {
+        let id = str::parse::<u64>(id);
+        let reject = s.get.get("rejection").unwrap();
+        if let Ok(id) = id {
+            csr_check = ca.reject_csr_by_id(id, reject).await;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        match csr_check {
+            Ok(_der) => {
+                b.text("The request has been rejected").line_break(|a| a);
+            }
+            Err(e) => match e {
+                CertificateSigningError::CsrDoesNotExist => {
+                    b.text("The certificate signing request does not exist")
+                        .line_break(|a| a);
+                }
+                CertificateSigningError::FailedToDeleteRequest => {
+                    b.text("Unable to delete request").line_break(|a| a);
+                }
+            },
+        }
+        b.anchor(|ab| {
+            ab.text("List pending requests");
+            ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
 /// Reject a csr with a specified reason
 async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_reject_request(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
-            if let Some(id) = s.get.get("id") {
-                let id = str::parse::<u64>(id);
-                let reject = s.get.get("rejection").unwrap();
-                if let Ok(id) = id {
-                    csr_check = ca.reject_csr_by_id(id, reject).await;
-                }
-            }
+        PkiInstance::Ca(ca) => handle_ca_reject_request(ca, &s, String::new()).await,
+    }
+}
 
-            let mut html = html::root::Html::builder();
+async fn handle_ca_sign_request(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
 
-            html.head(|h| generic_head(h, &s)).body(|b| {
-                match csr_check {
-                    Ok(_der) => {
-                        b.text("The request has been rejected").line_break(|a| a);
+    let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
+    if admin {
+        if let Some(id) = s.get.get("id") {
+            let id = str::parse::<u64>(id);
+            if let Ok(id) = id {
+                if let Some(csrr) = ca.get_csr_by_id(id).await {
+                    use der::Encode;
+                    let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
+                    let der = der.to_der().unwrap();
+                    let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
+                    let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
+                    match a {
+                        Ok(mut csr) => {
+                            csr.params.not_before = time::OffsetDateTime::now_utc();
+                            csr.params.not_after =
+                                csr.params.not_before + time::Duration::days(365);
+                            let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
+                            csr.params.serial_number = Some(sn);
+                            let cert_to_sign = CaCertificateToBeSigned {
+                                algorithm: CertificateSigningMethod::RsaSha256,
+                                medium: ca.medium.clone(),
+                                csr,
+                                pkey: None,
+                                name: "".into(),
+                                id,
+                            };
+
+                            println!("Ready to sign the csr");
+                            let ca_cert = ca.root_ca_cert().unwrap();
+                            let cert = ca_cert.sign_csr(cert_to_sign, &ca).unwrap();
+                            let der = cert.cert;
+                            ca.mark_csr_done(id).await;
+                            ca.save_user_cert(id, &der, &snb).await;
+                            csr_check = Ok(der);
+                        }
+                        Err(e) => {
+                            println!("Error decoding csr to sign: {:?}", e);
+                        }
                     }
-                    Err(e) => match e {
-                        CertificateSigningError::CsrDoesNotExist => {
-                            b.text("The certificate signing request does not exist")
-                                .line_break(|a| a);
-                        }
-                        CertificateSigningError::FailedToDeleteRequest => {
-                            b.text("Unable to delete request").line_break(|a| a);
-                        }
-                    },
                 }
-                b.anchor(|ab| {
-                    ab.text("List pending requests");
-                    ab.href(format!("/{}ca/list.rs", s.proxy));
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b
-            });
-            let html = html.build();
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
             }
         }
+    }
+
+    let mut html = html::root::Html::builder();
+
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        match csr_check {
+            Ok(_der) => {
+                b.text("The request has been signed").line_break(|a| a);
+            }
+            Err(e) => match e {
+                CertificateSigningError::CsrDoesNotExist => {
+                    b.text("The certificate signing request does not exist")
+                        .line_break(|a| a);
+                }
+                CertificateSigningError::FailedToDeleteRequest => {
+                    b.text("Failed to delete request").line_break(|a| a);
+                }
+            },
+        }
+        b.anchor(|ab| {
+            ab.text("List pending requests");
+            ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -393,96 +528,162 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_sign_request(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut admin = false;
-            let cs = s.user_certs.all_certs();
-            for cert in cs {
-                if ca.is_admin(cert).await {
-                    admin = true;
-                }
-            }
+        PkiInstance::Ca(ca) => handle_ca_sign_request(ca, &s, String::new()).await,
+    }
+}
 
-            let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
-            if admin {
-                if let Some(id) = s.get.get("id") {
-                    let id = str::parse::<u64>(id);
-                    if let Ok(id) = id {
-                        if let Some(csrr) = ca.get_csr_by_id(id).await {
-                            use der::Encode;
-                            let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
-                            let der = der.to_der().unwrap();
-                            let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
-                            let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
-                            match a {
-                                Ok(mut csr) => {
-                                    csr.params.not_before = time::OffsetDateTime::now_utc();
-                                    csr.params.not_after =
-                                        csr.params.not_before + time::Duration::days(365);
-                                    let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
-                                    csr.params.serial_number = Some(sn);
-                                    let cert_to_sign = CaCertificateToBeSigned {
-                                        algorithm: CertificateSigningMethod::RsaSha256,
-                                        medium: ca.medium.clone(),
-                                        csr,
-                                        pkey: None,
-                                        name: "".into(),
-                                        id,
-                                    };
+async fn handle_ca_list_requests(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
 
-                                    println!("Ready to sign the csr");
-                                    let ca_cert = ca.root_ca_cert().unwrap();
-                                    let cert = ca_cert.sign_csr(cert_to_sign, &ca).unwrap();
-                                    let der = cert.cert;
-                                    ca.mark_csr_done(id).await;
-                                    ca.save_user_cert(id, &der, &snb).await;
-                                    csr_check = Ok(der);
+    let csrr = if let Some(id) = s.get.get("id") {
+        let id = str::parse::<u64>(id);
+        if let Ok(id) = id {
+            ca.get_csr_by_id(id).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut csr_list: Vec<(CsrRequest, u64)> = Vec::new();
+    ca.csr_processing(|_index, csr, id| {
+        csr_list.push((csr, id));
+    })
+    .await;
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, &s)).body(|b| {
+        if let Some(id) = s.get.get("id") {
+            if let Some(csrr) = csrr {
+                use der::DecodePem;
+                let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                if let Ok(csr) = csr {
+                    let csr_names: Vec<String> = csr
+                        .info
+                        .subject
+                        .0
+                        .iter()
+                        .map(|n| format!("{}", n))
+                        .collect();
+                    let t = csr_names.join(", ");
+                    b.anchor(|ab| {
+                        ab.text("Back to all requests");
+                        ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.text(t).line_break(|a| a);
+                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                    for attr in csr.info.attributes.iter() {
+                        for p in attr.values.iter() {
+                            let pa = CsrAttribute::with_oid_and_any(
+                                Oid::from_const(attr.oid),
+                                p.to_owned(),
+                            );
+                            match pa {
+                                CsrAttribute::ExtendedKeyUsage(ek) => {
+                                    for key_use in ek {
+                                        b.text(format!("\tUsage: {:?}", key_use)).line_break(|a| a);
+                                    }
                                 }
-                                Err(e) => {
-                                    println!("Error decoding csr to sign: {:?}", e);
+                                CsrAttribute::ChallengePassword(p) => {
+                                    b.text(format!("\tChallenge password: {}", p))
+                                        .line_break(|a| a);
+                                }
+                                CsrAttribute::UnstructuredName(n) => {
+                                    b.text(format!("\tChallenge name: {}", n)).line_break(|a| a);
+                                }
+                                CsrAttribute::Unrecognized(oid, _a) => {
+                                    b.text(format!("\tUnrecognized: {:?}", oid))
+                                        .line_break(|a| a);
                                 }
                             }
                         }
                     }
+                    b.anchor(|ab| {
+                        ab.text("Sign this request");
+                        ab.href(format!("/{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.form(|f| {
+                        f.action(format!("/{}{}ca/request_reject.rs", s.proxy, pki));
+                        f.text("Reject reason")
+                            .line_break(|a| a)
+                            .input(|i| i.type_("hidden").id("id").name("id").value(id.to_string()))
+                            .input(|i| i.type_("text").id("rejection").name("rejection"))
+                            .line_break(|a| a);
+                        f.input(|i| i.type_("submit").value("Reject this request"))
+                            .line_break(|a| a);
+                        f
+                    });
                 }
             }
-
-            let mut html = html::root::Html::builder();
-
-            html.head(|h| generic_head(h, &s)).body(|b| {
-                match csr_check {
-                    Ok(_der) => {
-                        b.text("The request has been signed").line_break(|a| a);
+        } else {
+            if admin {
+                b.text("List all pending requests");
+                b.line_break(|a| a);
+                let mut index_shown = 0;
+                for (csrr, id) in csr_list {
+                    use der::DecodePem;
+                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                    if let Ok(csr) = csr {
+                        if index_shown > 0 {
+                            b.thematic_break(|a| a);
+                        }
+                        index_shown += 1;
+                        let csr_names: Vec<String> = csr
+                            .info
+                            .subject
+                            .0
+                            .iter()
+                            .map(|n| format!("{}", n))
+                            .collect();
+                        let t = csr_names.join(", ");
+                        b.anchor(|ab| {
+                            ab.text("View this request");
+                            ab.href(format!("/{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                            ab
+                        })
+                        .line_break(|a| a);
+                        b.text(t).line_break(|a| a);
+                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                     }
-                    Err(e) => match e {
-                        CertificateSigningError::CsrDoesNotExist => {
-                            b.text("The certificate signing request does not exist")
-                                .line_break(|a| a);
-                        }
-                        CertificateSigningError::FailedToDeleteRequest => {
-                            b.text("Failed to delete request").line_break(|a| a);
-                        }
-                    },
                 }
-                b.anchor(|ab| {
-                    ab.text("List pending requests");
-                    ab.href(format!("/{}ca/list.rs", s.proxy));
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b
-            });
-            let html = html.build();
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
             }
         }
+        b
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -491,155 +692,88 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_list_requests(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut admin = false;
-            let cs = s.user_certs.all_certs();
-            for cert in cs {
-                if ca.is_admin(cert).await {
-                    admin = true;
-                }
-            }
+        PkiInstance::Ca(ca) => handle_ca_list_requests(ca, &s, String::new()).await,
+    }
+}
 
-            let csrr = if let Some(id) = s.get.get("id") {
-                let id = str::parse::<u64>(id);
-                if let Ok(id) = id {
-                    ca.get_csr_by_id(id).await
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+async fn handle_ca_view_all_certs(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
 
-            let mut csr_list: Vec<(CsrRequest, u64)> = Vec::new();
-            ca.csr_processing(|_index, csr, id| {
-                csr_list.push((csr, id));
+    let mut csr_list: Vec<(x509_cert::Certificate, u64)> = Vec::new();
+    if admin {
+        ca.certificate_processing(|_index, cert, id| {
+            csr_list.push((cert, id));
+        })
+        .await;
+    }
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, &s)
+            .script(|sb| {
+                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb
             })
-            .await;
-
-            let mut html = html::root::Html::builder();
-            html.head(|h| generic_head(h, &s)).body(|b| {
-                if let Some(id) = s.get.get("id") {
-                    if let Some(csrr) = csrr {
-                        use der::DecodePem;
-                        let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                        if let Ok(csr) = csr {
-                            let csr_names: Vec<String> = csr
-                                .info
-                                .subject
-                                .0
-                                .iter()
-                                .map(|n| format!("{}", n))
-                                .collect();
-                            let t = csr_names.join(", ");
-                            b.anchor(|ab| {
-                                ab.text("Back to all requests");
-                                ab.href(format!("/{}ca/list.rs", s.proxy));
-                                ab
-                            })
-                            .line_break(|a| a);
-                            b.text(t).line_break(|a| a);
-                            b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                            b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                            b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
-                            for attr in csr.info.attributes.iter() {
-                                for p in attr.values.iter() {
-                                    let pa = CsrAttribute::with_oid_and_any(
-                                        Oid::from_const(attr.oid),
-                                        p.to_owned(),
-                                    );
-                                    match pa {
-                                        CsrAttribute::ExtendedKeyUsage(ek) => {
-                                            for key_use in ek {
-                                                b.text(format!("\tUsage: {:?}", key_use))
-                                                    .line_break(|a| a);
-                                            }
-                                        }
-                                        CsrAttribute::ChallengePassword(p) => {
-                                            b.text(format!("\tChallenge password: {}", p))
-                                                .line_break(|a| a);
-                                        }
-                                        CsrAttribute::UnstructuredName(n) => {
-                                            b.text(format!("\tChallenge name: {}", n))
-                                                .line_break(|a| a);
-                                        }
-                                        CsrAttribute::Unrecognized(oid, _a) => {
-                                            b.text(format!("\tUnrecognized: {:?}", oid))
-                                                .line_break(|a| a);
-                                        }
-                                    }
-                                }
-                            }
-                            b.anchor(|ab| {
-                                ab.text("Sign this request");
-                                ab.href(format!("/{}ca/request_sign.rs?id={}", s.proxy, id));
-                                ab
-                            })
-                            .line_break(|a| a);
-                            b.form(|f| {
-                                f.action(format!("/{}ca/request_reject.rs", s.proxy));
-                                f.text("Reject reason")
-                                    .line_break(|a| a)
-                                    .input(|i| {
-                                        i.type_("hidden").id("id").name("id").value(id.to_string())
-                                    })
-                                    .input(|i| i.type_("text").id("rejection").name("rejection"))
-                                    .line_break(|a| a);
-                                f.input(|i| i.type_("submit").value("Reject this request"))
-                                    .line_break(|a| a);
-                                f
-                            });
-                        }
-                    }
-                } else {
-                    if admin {
-                        b.text("List all pending requests");
-                        b.line_break(|a| a);
-                        let mut index_shown = 0;
-                        for (csrr, id) in csr_list {
-                            use der::DecodePem;
-                            let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                            if let Ok(csr) = csr {
-                                if index_shown > 0 {
-                                    b.thematic_break(|a| a);
-                                }
-                                index_shown += 1;
-                                let csr_names: Vec<String> = csr
-                                    .info
-                                    .subject
-                                    .0
-                                    .iter()
-                                    .map(|n| format!("{}", n))
-                                    .collect();
-                                let t = csr_names.join(", ");
-                                b.anchor(|ab| {
-                                    ab.text("View this request");
-                                    ab.href(format!("/{}ca/list.rs?id={}", s.proxy, id));
-                                    ab
-                                })
-                                .line_break(|a| a);
-                                b.text(t).line_break(|a| a);
-                                b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                                b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                                b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
-                            }
-                        }
-                    }
-                }
-                b
-            });
-            let html = html.build();
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
+            .script(|sb| {
+                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb
+            })
+    })
+    .body(|b| {
+        if admin {
+            b.heading_1(|h| h.text("Current Certificates"))
+                .line_break(|a| a);
+            for c in csr_list {
+                b.thematic_break(|a| a);
+                b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
+                    .line_break(|a| a);
+                b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
+                    .line_break(|a| a);
+                b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
+                    .line_break(|a| a);
+                b.anchor(|ab| {
+                    ab.text("View details");
+                    ab.href(format!("/{}{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
+                    ab
+                });
+                b.line_break(|lb| lb);
             }
         }
+        b.thematic_break(|a| a);
+        b.anchor(|ab| {
+            ab.text("Back to main page");
+            ab.href(format!("/{}{}ca", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -648,77 +782,199 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_view_all_certs(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut admin = false;
-            let cs = s.user_certs.all_certs();
-            for cert in cs {
-                if ca.is_admin(cert).await {
-                    admin = true;
-                }
+        PkiInstance::Ca(ca) => handle_ca_view_all_certs(ca, &s, String::new()).await,
+    }
+}
+
+async fn handle_ca_view_user_cert(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+    let mut csr = None;
+    let mut rejection = None;
+    let mut myid = 0;
+
+    if let Some(id) = s.get.get("id") {
+        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
+        if let Ok(id) = id {
+            cert = ca.get_user_cert(id).await;
+            if cert.is_none() {
+                csr = ca.get_csr_by_id(id).await;
             }
-
-            let mut csr_list: Vec<(x509_cert::Certificate, u64)> = Vec::new();
-            if admin {
-                ca.certificate_processing(|_index, cert, id| {
-                    csr_list.push((cert, id));
-                })
-                .await;
+            if csr.is_none() {
+                rejection = Some(ca.get_rejection_reason_by_id(id).await);
             }
+            myid = id;
+        }
+    }
 
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-
-            let mut html = html::root::Html::builder();
-            html.head(|h| {
-                generic_head(h, &s)
-                    .script(|sb| {
-                        sb.src(format!("/{}js/forge.min.js", s.proxy));
-                        sb
-                    })
-                    .script(|sb| {
-                        sb.src(format!("/{}js/certgen.js", s.proxy));
-                        sb
-                    })
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, &s)
+            .script(|sb| {
+                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb
             })
-            .body(|b| {
-                if admin {
-                    b.heading_1(|h| h.text("Current Certificates"))
+            .script(|sb| {
+                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb
+            })
+    })
+    .body(|b| {
+        if let Some(cert_der) = cert {
+            use der::Decode;
+            let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
+                x509_cert::Certificate::from_der(&cert_der);
+            match cert {
+                Ok(cert) => {
+                    let csr_names: Vec<String> = cert
+                        .tbs_certificate
+                        .subject
+                        .0
+                        .iter()
+                        .map(|n| format!("{}", n))
+                        .collect();
+                    let t = csr_names.join(", ");
+                    b.text(t).line_break(|a| a);
+                    if admin {
+                        b.text(format!(
+                            "Valid from {} to {}",
+                            cert.tbs_certificate.validity.not_before,
+                            cert.tbs_certificate.validity.not_after
+                        ))
                         .line_break(|a| a);
-                    for c in csr_list {
-                        b.thematic_break(|a| a);
-                        b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
-                            .line_break(|a| a);
-                        b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
-                            .line_break(|a| a);
-                        b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
-                            .line_break(|a| a);
-                        b.anchor(|ab| {
-                            ab.text("View details");
-                            ab.href(format!("/{}ca/view_cert.rs?id={}", s.proxy, c.1));
-                            ab
-                        });
-                        b.line_break(|lb| lb);
                     }
+                    if let Some(extensions) = &cert.tbs_certificate.extensions {
+                        for e in extensions {
+                            let ca = CertAttribute::with_oid_and_data(
+                                e.extn_id.into(),
+                                e.extn_value.to_owned(),
+                            );
+                            match ca {
+                                CertAttribute::ExtendedKeyUsage(ek) => {
+                                    for key_use in ek {
+                                        b.text(format!("\tUsage: {:?}", key_use)).line_break(|a| a);
+                                    }
+                                }
+                                CertAttribute::Unrecognized(oid, a) => {
+                                    b.text(format!("\tUnrecognized: {:?} {:02X?}", oid, a))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::SubjectAlternativeName(names) => {
+                                    b.text(format!("Alternate names: {}", names.join(",")))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::SubjectKeyIdentifier(i) => {
+                                    let p: Vec<String> =
+                                        i.iter().map(|a| format!("{:02X}", a)).collect();
+                                    b.text(format!("Subject key identifer: {}", p.join(":")))
+                                        .line_break(|a| a);
+                                }
+                                CertAttribute::BasicContraints { ca, path_len } => {
+                                    b.text(format!(
+                                        "Basic Contraints: CA:{}, Path length {}",
+                                        ca, path_len
+                                    ))
+                                    .line_break(|a| a);
+                                }
+                                CertAttribute::AuthorityInfoAccess(aias) => {
+                                    for aia in aias {
+                                        b.text(format!("Authority Information Access: {:?}", aia))
+                                            .line_break(|a| a);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    b.button(|b| b.text("Build certificate").onclick("build_cert()"));
+                    b.form(|form| {
+                        form.input(|i| i.type_("file").id("file-selector"))
+                            .line_break(|a| a);
+                        form.text("Password for private key").line_break(|a| a);
+                        form.input(|i| i.type_("password").id("password"));
+                        form.line_break(|a| a);
+                        form.text("Password for certificate").line_break(|a| a);
+                        form.input(|i| i.type_("password").id("cert-password"));
+                        form.line_break(|a| a);
+                        form
+                    });
+                    b.division(|div| {
+                        div.class("hidden");
+                        div.anchor(|a| {
+                            a.id("get_request").text(format!(
+                                "/{}{}ca/get_cert.rs?id={}&type=pem",
+                                s.proxy, pki, myid
+                            ))
+                        });
+                        div
+                    });
+                    b.line_break(|lb| lb);
                 }
-                b.thematic_break(|a| a);
-                b.anchor(|ab| {
-                    ab.text("Back to main page");
-                    ab.href(format!("/{}ca", s.proxy));
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b
-            });
-            let html = html.build();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
+                Err(e) => {
+                    println!("Error reading certificate {:?}", e);
+                }
+            }
+        } else if csr.is_some() {
+            b.text(format!(
+                "Your request is pending at {}",
+                time::OffsetDateTime::now_utc()
+            ))
+            .line_break(|a| a);
+        } else if let Some(reason) = rejection {
+            match reason {
+                Some(reason) => {
+                    if reason.is_empty() {
+                        b.text("Your request is rejected: No reason given")
+                            .line_break(|a| a);
+                    } else {
+                        b.text(format!("Your request is rejected: {}", reason))
+                            .line_break(|a| a);
+                    }
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
+                None => {
+                    b.text("Your request is rejected: No reason given")
+                        .line_break(|a| a);
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
             }
         }
+        b.anchor(|ab| {
+            ab.text("Back to main page");
+            ab.href(format!("/{}{}ca", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -727,195 +983,79 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_view_user_cert(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let mut admin = false;
-            let cs = s.user_certs.all_certs();
-            for cert in cs {
-                if ca.is_admin(cert).await {
-                    admin = true;
+        PkiInstance::Ca(ca) => handle_ca_view_user_cert(ca, &s, String::new()).await,
+    }
+}
+
+async fn handle_ca_get_user_cert(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+
+    if let Some(id) = s.get.get("id") {
+        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
+        if let Ok(id) = id {
+            if let Some(cert_der) = ca.get_user_cert(id).await {
+                let ty = if s.get.contains_key("type") {
+                    s.get.get("type").unwrap().to_owned()
+                } else {
+                    "der".to_string()
+                };
+
+                match ty.as_str() {
+                    "der" => {
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x509-ca-cert"),
+                        );
+                        let name = format!("attachment; filename={}.der", id);
+                        response
+                            .headers
+                            .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
+                        cert = Some(cert_der);
+                    }
+                    "pem" => {
+                        use der::Decode;
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x-pem-file"),
+                        );
+                        let name = format!("attachment; filename={}.pem", id);
+                        response
+                            .headers
+                            .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
+                        let pem = der::Document::from_der(&cert_der)
+                            .unwrap()
+                            .to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
+                            .unwrap();
+                        cert = Some(pem.as_bytes().to_vec());
+                    }
+                    _ => {}
                 }
-            }
-
-            let response = hyper::Response::new("dummy");
-            let (response, _dummybody) = response.into_parts();
-
-            let mut cert: Option<Vec<u8>> = None;
-            let mut csr = None;
-            let mut rejection = None;
-            let mut myid = 0;
-
-            if let Some(id) = s.get.get("id") {
-                let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
-                if let Ok(id) = id {
-                    cert = ca.get_user_cert(id).await;
-                    if cert.is_none() {
-                        csr = ca.get_csr_by_id(id).await;
-                    }
-                    if csr.is_none() {
-                        rejection = Some(ca.get_rejection_reason_by_id(id).await);
-                    }
-                    myid = id;
-                }
-            }
-
-            let mut html = html::root::Html::builder();
-            html.head(|h| {
-                generic_head(h, &s)
-                    .script(|sb| {
-                        sb.src(format!("/{}js/forge.min.js", s.proxy));
-                        sb
-                    })
-                    .script(|sb| {
-                        sb.src(format!("/{}js/certgen.js", s.proxy));
-                        sb
-                    })
-            })
-            .body(|b| {
-                if let Some(cert_der) = cert {
-                    use der::Decode;
-                    let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
-                        x509_cert::Certificate::from_der(&cert_der);
-                    match cert {
-                        Ok(cert) => {
-                            let csr_names: Vec<String> = cert
-                                .tbs_certificate
-                                .subject
-                                .0
-                                .iter()
-                                .map(|n| format!("{}", n))
-                                .collect();
-                            let t = csr_names.join(", ");
-                            b.text(t).line_break(|a| a);
-                            if admin {
-                                b.text(format!(
-                                    "Valid from {} to {}",
-                                    cert.tbs_certificate.validity.not_before,
-                                    cert.tbs_certificate.validity.not_after
-                                ))
-                                .line_break(|a| a);
-                            }
-                            if let Some(extensions) = &cert.tbs_certificate.extensions {
-                                for e in extensions {
-                                    let ca = CertAttribute::with_oid_and_data(
-                                        e.extn_id.into(),
-                                        e.extn_value.to_owned(),
-                                    );
-                                    match ca {
-                                        CertAttribute::ExtendedKeyUsage(ek) => {
-                                            for key_use in ek {
-                                                b.text(format!("\tUsage: {:?}", key_use))
-                                                    .line_break(|a| a);
-                                            }
-                                        }
-                                        CertAttribute::Unrecognized(oid, a) => {
-                                            b.text(format!("\tUnrecognized: {:?} {:02X?}", oid, a))
-                                                .line_break(|a| a);
-                                        }
-                                        CertAttribute::SubjectAlternativeName(names) => {
-                                            b.text(format!("Alternate names: {}", names.join(",")))
-                                                .line_break(|a| a);
-                                        }
-                                        CertAttribute::SubjectKeyIdentifier(i) => {
-                                            let p: Vec<String> =
-                                                i.iter().map(|a| format!("{:02X}", a)).collect();
-                                            b.text(format!(
-                                                "Subject key identifer: {}",
-                                                p.join(":")
-                                            ))
-                                            .line_break(|a| a);
-                                        }
-                                        CertAttribute::BasicContraints { ca, path_len } => {
-                                            b.text(format!(
-                                                "Basic Contraints: CA:{}, Path length {}",
-                                                ca, path_len
-                                            ))
-                                            .line_break(|a| a);
-                                        }
-                                        CertAttribute::AuthorityInfoAccess(aias) => {
-                                            for aia in aias {
-                                                b.text(format!(
-                                                    "Authority Information Access: {:?}",
-                                                    aia
-                                                ))
-                                                .line_break(|a| a);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            b.button(|b| b.text("Build certificate").onclick("build_cert()"));
-                            b.form(|form| {
-                                form.input(|i| i.type_("file").id("file-selector"))
-                                    .line_break(|a| a);
-                                form.text("Password for private key").line_break(|a| a);
-                                form.input(|i| i.type_("password").id("password"));
-                                form.line_break(|a| a);
-                                form.text("Password for certificate").line_break(|a| a);
-                                form.input(|i| i.type_("password").id("cert-password"));
-                                form.line_break(|a| a);
-                                form
-                            });
-                            b.division(|div| {
-                                div.class("hidden");
-                                div.anchor(|a| {
-                                    a.id("get_request").text(format!(
-                                        "/{}ca/get_cert.rs?id={}&type=pem",
-                                        s.proxy, myid
-                                    ))
-                                });
-                                div
-                            });
-                            b.line_break(|lb| lb);
-                        }
-                        Err(e) => {
-                            println!("Error reading certificate {:?}", e);
-                        }
-                    }
-                } else if csr.is_some() {
-                    b.text(format!(
-                        "Your request is pending at {}",
-                        time::OffsetDateTime::now_utc()
-                    ))
-                    .line_break(|a| a);
-                } else if let Some(reason) = rejection {
-                    match reason {
-                        Some(reason) => {
-                            if reason.is_empty() {
-                                b.text("Your request is rejected: No reason given")
-                                    .line_break(|a| a);
-                            } else {
-                                b.text(format!("Your request is rejected: {}", reason))
-                                    .line_break(|a| a);
-                            }
-                            b.text(format!("{}", time::OffsetDateTime::now_utc()))
-                                .line_break(|a| a);
-                        }
-                        None => {
-                            b.text("Your request is rejected: No reason given")
-                                .line_break(|a| a);
-                            b.text(format!("{}", time::OffsetDateTime::now_utc()))
-                                .line_break(|a| a);
-                        }
-                    }
-                }
-                b.anchor(|ab| {
-                    ab.text("Back to main page");
-                    ab.href(format!("/{}ca", s.proxy));
-                    ab
-                });
-                b.line_break(|lb| lb);
-                b
-            });
-            let html = html.build();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
             }
         }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    } else {
+        http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+    };
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -924,70 +1064,76 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_get_user_cert(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let response = hyper::Response::new("dummy");
-            let (mut response, _dummybody) = response.into_parts();
+        PkiInstance::Ca(ca) => handle_ca_get_user_cert(ca, &s, String::new()).await,
+    }
+}
 
-            let mut cert: Option<Vec<u8>> = None;
+async fn handle_ca_get_admin(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
 
-            if let Some(id) = s.get.get("id") {
-                let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
-                if let Ok(id) = id {
-                    if let Some(cert_der) = ca.get_user_cert(id).await {
-                        let ty = if s.get.contains_key("type") {
-                            s.get.get("type").unwrap().to_owned()
-                        } else {
-                            "der".to_string()
-                        };
+    let mut cert: Option<Vec<u8>> = None;
 
-                        match ty.as_str() {
-                            "der" => {
-                                response.headers.append(
-                                    "Content-Type",
-                                    HeaderValue::from_static("application/x509-ca-cert"),
-                                );
-                                let name = format!("attachment; filename={}.der", id);
-                                response.headers.append(
-                                    "Content-Disposition",
-                                    HeaderValue::from_str(&name).unwrap(),
-                                );
-                                cert = Some(cert_der);
-                            }
-                            "pem" => {
-                                use der::Decode;
-                                response.headers.append(
-                                    "Content-Type",
-                                    HeaderValue::from_static("application/x-pem-file"),
-                                );
-                                let name = format!("attachment; filename={}.pem", id);
-                                response.headers.append(
-                                    "Content-Disposition",
-                                    HeaderValue::from_str(&name).unwrap(),
-                                );
-                                let pem = der::Document::from_der(&cert_der)
-                                    .unwrap()
-                                    .to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
-                                    .unwrap();
-                                cert = Some(pem.as_bytes().to_vec());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            let body = if let Some(cert) = cert {
-                http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
-            } else {
-                http_body_util::Full::new(hyper::body::Bytes::from("missing"))
-            };
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
+    let p = s.post.form();
+    if let Some(p) = p {
+        let token = p.get_first("token").unwrap();
+        if token == ca.admin_access.as_str() {
+            let cert_der = ca.get_admin_cert().await;
+            response.headers.append(
+                "Content-Type",
+                HeaderValue::from_static("application/x-pkcs12"),
+            );
+            response.headers.append(
+                "Content-Disposition",
+                HeaderValue::from_static("attachment; filename=admin.p12"),
+            );
+            cert = Some(cert_der);
         }
+    }
+
+    let body = if let Some(cert) = cert {
+        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    } else {
+        let mut html = html::root::Html::builder();
+        html.head(|h| {
+            generic_head(h, &s)
+                .script(|sb| {
+                    sb.src(format!("/{}js/forge.min.js", s.proxy));
+                    sb
+                })
+                .script(|sb| {
+                    sb.src(format!("/{}js/certgen.js", s.proxy));
+                    sb
+                })
+        })
+        .body(|b| {
+            b.form(|f| {
+                f.method("POST");
+                f.text("Access key for admin certificate")
+                    .line_break(|a| a)
+                    .input(|i| i.type_("password").name("token").id("token"))
+                    .line_break(|a| a);
+                f.input(|i| i.type_("submit")).line_break(|a| a);
+                f
+            });
+            b
+        });
+        http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()))
+    };
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
     }
 }
 
@@ -996,65 +1142,14 @@ async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_get_admin(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let response = hyper::Response::new("dummy");
-            let (mut response, _dummybody) = response.into_parts();
-
-            let mut cert: Option<Vec<u8>> = None;
-
-            let p = s.post.form();
-            if let Some(p) = p {
-                let token = p.get_first("token").unwrap();
-                if token == ca.admin_access.as_str() {
-                    let cert_der = ca.get_admin_cert().await;
-                    response.headers.append(
-                        "Content-Type",
-                        HeaderValue::from_static("application/x-pkcs12"),
-                    );
-                    response.headers.append(
-                        "Content-Disposition",
-                        HeaderValue::from_static("attachment; filename=admin.p12"),
-                    );
-                    cert = Some(cert_der);
-                }
-            }
-
-            let body = if let Some(cert) = cert {
-                http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
-            } else {
-                let mut html = html::root::Html::builder();
-                html.head(|h| {
-                    generic_head(h, &s)
-                        .script(|sb| {
-                            sb.src(format!("/{}js/forge.min.js", s.proxy));
-                            sb
-                        })
-                        .script(|sb| {
-                            sb.src(format!("/{}js/certgen.js", s.proxy));
-                            sb
-                        })
-                })
-                .body(|b| {
-                    b.form(|f| {
-                        f.method("POST");
-                        f.text("Access key for admin certificate")
-                            .line_break(|a| a)
-                            .input(|i| i.type_("password").name("token").id("token"))
-                            .line_break(|a| a);
-                        f.input(|i| i.type_("submit")).line_break(|a| a);
-                        f
-                    });
-                    b
-                });
-                http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()))
-            };
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
-        }
+        PkiInstance::Ca(ca) => handle_ca_get_admin(ca, &s, String::new()).await,
     }
 }
 
@@ -1244,65 +1339,69 @@ async fn build_ocsp_response(
     ocsp::response::OcspResponse::new_success(bytes)
 }
 
+async fn handle_ca_ocsp_responder(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    pki: String,
+) -> webserver::WebResponse {
+    let ocsp_request = s.post.ocsp();
+
+    let mut ocsp_requirements = OcspRequirements::new();
+    let ocsp_response = if let Some(ocsp) = ocsp_request {
+        let config = &ca.config;
+        ocsp_requirements.signature = config.ocsp_signature;
+
+        if ocsp_requirements.signature {
+            match ocsp.optional_signature {
+                None => ocsp::response::OcspResponse::new_non_success(
+                    ocsp::response::OcspRespStatus::SigRequired,
+                )
+                .unwrap(),
+                Some(s) => {
+                    println!("Signature is {:?}", s);
+                    todo!("Verify signature");
+                    //build_ocsp_response(&mut ca, ocsp).await
+                }
+            }
+        } else {
+            build_ocsp_response(ca, ocsp).await
+        }
+    } else {
+        println!("Did not parse ocsp request");
+        ocsp::response::OcspResponse::new_non_success(ocsp::response::OcspRespStatus::MalformedReq)
+            .unwrap()
+    };
+
+    let der = ocsp_response.to_der().unwrap();
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.headers.append(
+        "Content-Type",
+        HeaderValue::from_static("application/ocsp-response"),
+    );
+
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(der));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
 /// Run the ocsp responder
 async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
-            todo!();
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_ocsp_responder(ca, &s, format!("pki/{}/", name)).await
         }
-        PkiInstance::Ca(ca) => {
-            let ocsp_request = s.post.ocsp();
-
-            let mut ocsp_requirements = OcspRequirements::new();
-            let ocsp_response = if let Some(ocsp) = ocsp_request {
-                let config = &s.settings.pki;
-                match config {
-                    PkiConfigurationEnum::Pki(_pki_config) => todo!(),
-                    PkiConfigurationEnum::Ca(ca_config) => {
-                        ocsp_requirements.signature = ca_config.ocsp_signature;
-
-                        if ocsp_requirements.signature {
-                            match ocsp.optional_signature {
-                                None => ocsp::response::OcspResponse::new_non_success(
-                                    ocsp::response::OcspRespStatus::SigRequired,
-                                )
-                                .unwrap(),
-                                Some(s) => {
-                                    println!("Signature is {:?}", s);
-                                    todo!("Verify signature");
-                                    //build_ocsp_response(&mut ca, ocsp).await
-                                }
-                            }
-                        } else {
-                            build_ocsp_response(ca, ocsp).await
-                        }
-                    }
-                }
-            } else {
-                println!("Did not parse ocsp request");
-                ocsp::response::OcspResponse::new_non_success(
-                    ocsp::response::OcspRespStatus::MalformedReq,
-                )
-                .unwrap()
-            };
-
-            let der = ocsp_response.to_der().unwrap();
-
-            let response = hyper::Response::new("dummy");
-            let (mut response, _dummybody) = response.into_parts();
-
-            response.headers.append(
-                "Content-Type",
-                HeaderValue::from_static("application/ocsp-response"),
-            );
-
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(der));
-            webserver::WebResponse {
-                response: hyper::http::Response::from_parts(response, body),
-                cookie: s.logincookie,
-            }
-        }
+        PkiInstance::Ca(ca) => handle_ca_ocsp_responder(ca, &s, String::new()).await,
     }
 }
 
@@ -1338,19 +1437,42 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
             router.register("/pki/", pki_main_page);
             for name in pki.roots.keys() {
                 router.register(&format!("/pki/{}/ca", name), ca_main_page);
+                router.register(&format!("/pki/{}/ca/", name), ca_main_page);
                 router.register(&format!("/pki/{}/ca/get_ca.rs", name), ca_get_cert);
+                router.register(&format!("/pki/{}/ca/request.rs", name), ca_request);
+                router.register(
+                    &format!("/pki/{}/ca/submit_request.rs", name),
+                    ca_submit_request,
+                );
+                router.register(&format!("/pki/{}/ca/view_cert.rs", name), ca_view_user_cert);
+                router.register(
+                    &format!("/pki/{}/ca/view_all_certs.rs", name),
+                    ca_view_all_certs,
+                );
+                router.register(&format!("/pki/{}/ca/get_cert.rs", name), ca_get_user_cert);
+                router.register(&format!("/pki/{}/ca/ocsp", name), ca_ocsp_responder);
+                router.register(&format!("/pki/{}/ca/list.rs", name), ca_list_requests);
+                router.register(
+                    &format!("/pki/{}/ca/request_sign.rs", name),
+                    ca_sign_request,
+                );
+                router.register(
+                    &format!("/pki/{}/ca/request_reject.rs", name),
+                    ca_reject_request,
+                );
+                router.register(&format!("/pki/{}/ca/get_admin.rs", name), ca_get_admin);
             }
         }
         PkiInstance::Ca(_ca) => {
             router.register("/ca", ca_main_page);
             router.register("/ca/", ca_main_page);
             router.register("/ca/get_ca.rs", ca_get_cert);
+            router.register("/ca/request.rs", ca_request);
+            router.register("/ca/submit_request.rs", ca_submit_request);
             router.register("/ca/view_cert.rs", ca_view_user_cert);
             router.register("/ca/view_all_certs.rs", ca_view_all_certs);
             router.register("/ca/get_cert.rs", ca_get_user_cert);
             router.register("/ca/ocsp", ca_ocsp_responder);
-            router.register("/ca/request.rs", ca_request);
-            router.register("/ca/submit_request.rs", ca_submit_request);
             router.register("/ca/list.rs", ca_list_requests);
             router.register("/ca/request_sign.rs", ca_sign_request);
             router.register("/ca/request_reject.rs", ca_reject_request);

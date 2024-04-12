@@ -201,6 +201,7 @@ impl Ca {
                         stmt.execute([rejection.to_sql().unwrap()])
                     })
                     .await;
+                self.mark_csr_done(id).await;
                 match s {
                     Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
                     Ok(_) => Ok(()),

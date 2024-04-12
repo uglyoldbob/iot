@@ -56,7 +56,9 @@ impl Pki {
     pub async fn init(settings: &crate::ca::PkiConfiguration, options: OwnerOptions) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
-            let ca = crate::ca::Ca::init(config, &options).await;
+            let mut config = config.clone();
+            config.pki_name = Some(format!("pki/{}/", name));
+            let ca = crate::ca::Ca::init(&config, &options).await;
             hm.insert(name.to_owned(), ca);
         }
         Self {
@@ -98,6 +100,7 @@ impl Ca {
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
+            config: settings.to_owned(),
         }
     }
 

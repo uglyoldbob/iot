@@ -51,6 +51,8 @@ pub struct CaConfiguration {
     pub http_port: Option<u16>,
     /// The proxy configuration for this authority
     pub proxy: Option<String>,
+    /// The pki name for the authority, used when operating a pki
+    pub pki_name: Option<String>,
 }
 
 impl Default for CaConfiguration {
@@ -77,6 +79,7 @@ impl CaConfiguration {
             http_port: None,
             https_port: None,
             proxy: None,
+            pki_name: None,
         }
     }
 }
@@ -637,6 +640,8 @@ pub struct Ca {
     pub ocsp_urls: Vec<String>,
     /// The access token for the admin certificate
     pub admin_access: zeroize::Zeroizing<String>,
+    /// The configuration used to create this ca
+    pub config: CaConfiguration,
 }
 
 impl Ca {
@@ -843,6 +848,7 @@ impl Ca {
             admin: Err(CertificateLoadingError::DoesNotExist),
             ocsp_urls: Self::get_ocsp_urls(settings),
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
+            config: settings.to_owned(),
         }
     }
 
