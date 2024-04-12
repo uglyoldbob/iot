@@ -5,6 +5,7 @@ pub mod oid;
 pub mod pkcs12;
 mod tpm2;
 
+use ca::PkiConfiguration;
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
@@ -35,12 +36,16 @@ struct Args {
     name: Option<String>,
 
     /// Path for where the service file description goes, to start up the service
-    #[arg(short, long)]
+    #[arg(long)]
     service: Option<PathBuf>,
 
     /// The user to run the service under, pki is the default username
     #[arg(short, long)]
     user: Option<String>,
+
+    /// Use a randomly generated password
+    #[arg(long, default_value_t = false)]
+    generate_password: bool,
 }
 
 #[tokio::main]
@@ -85,6 +90,15 @@ async fn main() {
             .await
             .expect("Failed to write answers file");
     }
+
+    if let crate::ca::PkiConfigurationEnum::Pki(p) = &mut config.pki {
+        for (name, ca) in p.local_ca.iter_mut() {
+            if ca.pki_name.is_none() {
+                ca.pki_name = Some(format!("pki/{}/", name));
+            }
+        }
+    }
+
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
 
@@ -92,11 +106,23 @@ async fn main() {
         .await
         .unwrap();
 
-    let mut password: prompt::Password2;
-    loop {
-        password = prompt::Password2::prompt(None).unwrap();
-        if !password.is_empty() {
-            break;
+    let mut password: prompt::Password2 = prompt::Password2::new(String::new());
+
+    if args.generate_password {
+        let s: String =
+            rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+                .take(32)
+                .map(char::from)
+                .collect();
+        password = prompt::Password2::new(s);
+    }
+
+    if password.is_empty() {
+        loop {
+            password = prompt::Password2::prompt(None).unwrap();
+            if !password.is_empty() {
+                break;
+            }
         }
     }
 

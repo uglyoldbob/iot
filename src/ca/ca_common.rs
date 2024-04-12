@@ -62,6 +62,15 @@ impl Default for CaConfiguration {
 }
 
 impl CaConfiguration {
+    /// Get the pki name for the configuration
+    pub fn get_pki_name(&self) -> &str {
+        if let Some(p) = &self.pki_name {
+            p
+        } else {
+            ""
+        }
+    }
+
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
@@ -701,8 +710,7 @@ impl Ca {
                     port_override = Some(p);
                 }
                 url.push_str("https://");
-            }
-            if let Some(p) = settings.http_port {
+            } else if let Some(p) = settings.http_port {
                 let default_port = 80;
                 if p != default_port {
                     port_override = Some(p);
@@ -719,8 +727,11 @@ impl Ca {
 
             let proxy = if let Some(p) = &settings.proxy { p } else { "" };
 
+            let pki = settings.get_pki_name();
+            url.push_str("/");
             url.push_str(proxy);
-            url.push_str("/ca/ocsp");
+            url.push_str(pki);
+            url.push_str("ca/ocsp");
             urls.push(url);
         }
 

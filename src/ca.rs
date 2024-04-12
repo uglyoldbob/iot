@@ -10,11 +10,7 @@ use crate::oid::*;
 pub mod ca_usage;
 pub use ca_usage::*;
 
-async fn handle_ca_submit_request(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let mut valid_csr = false;
     let mut mycsr_pem = None;
     let mut id = None;
@@ -54,7 +50,7 @@ async fn handle_ca_submit_request(
                 ab.href(format!(
                     "/{}{}ca/view_cert.rs?id={}",
                     s.proxy,
-                    pki,
+                    ca.config.get_pki_name(),
                     id.unwrap()
                 ));
                 ab
@@ -90,13 +86,14 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_submit_request(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_submit_request(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_submit_request(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_submit_request(ca, &s).await,
     }
 }
 
-async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext, pki: String) -> webserver::WebResponse {
+async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
     let mut html = html::root::Html::builder();
     html.head(|h| {
         generic_head(h, &s)
@@ -240,9 +237,9 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_request(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_request(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_request(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_request(ca, &s).await,
     }
 }
 
@@ -284,11 +281,8 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
-async fn handle_ca_main_page(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -358,17 +352,14 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_main_page(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_main_page(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s).await,
     }
 }
 
-async fn handle_ca_reject_request(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if let Some(id) = s.get.get("id") {
         let id = str::parse::<u64>(id);
@@ -424,17 +415,14 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_reject_request(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_reject_request(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_reject_request(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_reject_request(ca, &s).await,
     }
 }
 
-async fn handle_ca_sign_request(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name().to_owned();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -533,17 +521,14 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_sign_request(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_sign_request(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_sign_request(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_sign_request(ca, &s).await,
     }
 }
 
-async fn handle_ca_list_requests(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -697,17 +682,14 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_list_requests(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_list_requests(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_list_requests(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_list_requests(ca, &s).await,
     }
 }
 
-async fn handle_ca_view_all_certs(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -787,17 +769,14 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_all_certs(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_view_all_certs(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_view_all_certs(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_view_all_certs(ca, &s).await,
     }
 }
 
-async fn handle_ca_view_user_cert(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -988,17 +967,13 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_user_cert(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_view_user_cert(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_view_user_cert(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_view_user_cert(ca, &s).await,
     }
 }
 
-async fn handle_ca_get_user_cert(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1069,17 +1044,13 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_user_cert(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_get_user_cert(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_get_user_cert(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_get_user_cert(ca, &s).await,
     }
 }
 
-async fn handle_ca_get_admin(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1147,17 +1118,13 @@ async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_admin(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_get_admin(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_get_admin(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_get_admin(ca, &s).await,
     }
 }
 
-async fn handle_ca_get_cert(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1220,9 +1187,9 @@ async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_cert(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_get_cert(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_get_cert(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_get_cert(ca, &s).await,
     }
 }
 
@@ -1339,11 +1306,7 @@ async fn build_ocsp_response(
     ocsp::response::OcspResponse::new_success(bytes)
 }
 
-async fn handle_ca_ocsp_responder(
-    ca: &mut Ca,
-    s: &WebPageContext,
-    pki: String,
-) -> webserver::WebResponse {
+async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let ocsp_request = s.post.ocsp();
 
     let mut ocsp_requirements = OcspRequirements::new();
@@ -1399,9 +1362,9 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_ocsp_responder(ca, &s, format!("pki/{}/", name)).await
+            handle_ca_ocsp_responder(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_ocsp_responder(ca, &s, String::new()).await,
+        PkiInstance::Ca(ca) => handle_ca_ocsp_responder(ca, &s).await,
     }
 }
 
