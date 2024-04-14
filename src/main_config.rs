@@ -12,6 +12,12 @@ pub fn default_config_path() -> std::path::PathBuf {
     std::path::PathBuf::from("/etc/rust-iot/")
 }
 
+#[cfg(target_os = "windows")]
+/// Returns the default config file.
+pub fn default_config_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("./")
+}
+
 /// The main configuration for the application
 #[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {

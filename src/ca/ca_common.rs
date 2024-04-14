@@ -195,6 +195,11 @@ impl OwnerOptions {
         Self { uid }
     }
 
+    #[cfg(target_family = "windows")]
+    pub fn new() -> Self {
+        Self {}
+    }
+
     /// Set the owner of a single file
     pub async fn set_owner(&self, p: PathBuf) {
         if p.exists() {

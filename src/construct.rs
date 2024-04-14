@@ -185,6 +185,8 @@ async fn main() {
 
     #[cfg(target_family = "unix")]
     let options = ca::OwnerOptions::new(user_uid.as_raw());
+    #[cfg(target_family = "windows")]
+    let options = ca::OwnerOptions::new();
 
     ca::PkiInstance::init(&config.pki, options).await;
 
