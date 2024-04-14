@@ -113,7 +113,7 @@ features = ["bundled", "generate-bindings"]
 nix = { version = "0.28.0", features = ["user"] }
 
 [features]
-default = [ ]
+default = ["tpm2" ]
 tpm2 = [ "dep:tss-esapi" ]
 
 [[bin]]

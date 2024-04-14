@@ -28,10 +28,7 @@ pub fn tpm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
 
 #[cfg(all(feature = "tpm2", target_os = "windows"))]
 pub fn tpm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
-    use std::str::FromStr;
-    let node = "tcti-tbs";
-    let dc = tss_esapi::tcti_ldr::DeviceConfig::from_str(node).unwrap();
-    let name = tss_esapi::tcti_ldr::TctiNameConf::Device(dc);
+    let name = tss_esapi::tcti_ldr::TctiNameConf::Tbs;
     name
 }
 
