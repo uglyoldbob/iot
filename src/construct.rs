@@ -142,14 +142,14 @@ async fn main() {
         let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
         let p = config_path.join(format!("{}-password.bin", name));
-        let mut f2 = tokio::fs::File::create(p).await.unwrap();
+        let mut f2 = tokio::fs::File::create(&p).await.unwrap();
         f2.write_all(&tpmblob.data())
             .await
             .expect("Failed to write protected password");
         #[cfg(target_family = "unix")]
         {
-            std::os::unix::fs::chown(p, Some(user_uid.as_raw), None);
-            let mut perms = std::fs::metadata(p).unwrap().permissions();
+            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None);
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
             std::fs::set_permissions(p, perms);
         }
@@ -191,8 +191,10 @@ async fn main() {
 
     #[cfg(target_os = "windows")]
     {
-        let mut controller = ceviche::controller::Controller::new("testing", "testing 2", "testing 3");
-        ceviche::controller::ControllerInterface::create(&mut controller).expect("Failed to create service");
+        let mut controller =
+            ceviche::controller::Controller::new("testing", "testing 2", "testing 3");
+        ceviche::controller::ControllerInterface::create(&mut controller)
+            .expect("Failed to create service");
     }
     #[cfg(target_os = "linux")]
     {

@@ -51,7 +51,8 @@ fn main() {
 
             ctrlc::set_handler(move || {
                 let _ = tx.send(ServiceEvent::Stop);
-            }).expect("Failed to register Ctrl-C handler");
+            })
+            .expect("Failed to register Ctrl-C handler");
 
             my_service_main(rx, tx2, vec![], true);
         }
