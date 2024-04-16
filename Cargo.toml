@@ -18,6 +18,7 @@ cms = "0.2.3"
 const-oid = "0.9.6"
 cryptoki = "0.6.2"
 der = "0.7.8"
+egui-multiwin = "0.3.1"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
@@ -104,17 +105,14 @@ features = ["rustls"]
 version = "1.36.0"
 features = ["full"]
 
-[dependencies.tss-esapi]
-git = "https://github.com/uglyoldbob/rust-tss-esapi.git"
-optional = true
-features = ["bundled", "generate-bindings"]
-
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.28.0", features = ["user"] }
+tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled"]}
 
 [target.'cfg(windows)'.dependencies]
 ceviche = "0.6.0"
 ctrlc = "3.4.4"
+tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "generate-bindings"]}
 
 [features]
 default = ["tpm2" ]
@@ -127,6 +125,10 @@ path = "src/main.rs"
 [[bin]]
 name = "rust-iot-construct"
 path = "src/construct.rs"
+
+[[bin]]
+name = "rust-iot-construct-gui"
+path = "src/construct-gui.rs"
 
 [[bin]]
 name = "test"

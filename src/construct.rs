@@ -5,7 +5,6 @@ pub mod oid;
 pub mod pkcs12;
 mod tpm2;
 
-use ca::PkiConfiguration;
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
