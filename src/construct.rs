@@ -116,25 +116,44 @@ async fn main() {
         .await
         .unwrap();
 
-    let mut password: prompt::Password2 = prompt::Password2::new(String::new());
+    let do_without_tpm2 = || async {
+        let mut password: prompt::Password2 = prompt::Password2::new(String::new());
 
-    if args.generate_password {
-        let s: String =
-            rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
-                .take(32)
-                .map(char::from)
-                .collect();
-        password = prompt::Password2::new(s);
-    }
+        if args.generate_password {
+            let s: String =
+                rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+                    .take(32)
+                    .map(char::from)
+                    .collect();
+            password = prompt::Password2::new(s);
+        }
 
-    if password.is_empty() {
-        loop {
-            password = prompt::Password2::prompt(None).unwrap();
-            if !password.is_empty() {
-                break;
+        if password.is_empty() {
+            loop {
+                password = prompt::Password2::prompt(None).unwrap();
+                if !password.is_empty() {
+                    break;
+                }
             }
         }
-    }
+
+        let password_combined = password.as_bytes();
+        let p = config_path.join(format!("{}-credentials.bin", name));
+        let mut fpw = tokio::fs::File::create(&p).await.unwrap();
+        fpw.write_all(password.to_string().as_bytes())
+            .await
+            .expect("Failed to write credentials");
+        #[cfg(target_family = "unix")]
+        {
+            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
+                .expect("Failled to set file owner");
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
+            std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
+        }
+
+        tpm2::encrypt(config_data.as_bytes(), password_combined)
+    };
 
     #[cfg(feature = "tpm2")]
     {
@@ -146,15 +165,17 @@ async fn main() {
             let protected_password =
                 tpm2::Password::build(&password2, std::num::NonZeroU32::new(2048).unwrap());
 
-            let password_combined = [password.as_bytes(), protected_password.password()].concat();
+            let password_combined = protected_password.password();
 
-            let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), &password_combined);
+            let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
 
             let epdata = protected_password.data();
             let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
             let p = config_path.join(format!("{}-password.bin", name));
-            let mut f2 = tokio::fs::File::create(&p).await.unwrap();
+            let mut f2 = tokio::fs::File::create(&p)
+                .await
+                .expect("Failed to create password file");
             f2.write_all(&tpmblob.data())
                 .await
                 .expect("Failed to write protected password");
@@ -172,22 +193,7 @@ async fn main() {
             if !args.allow_no_tpm2 {
                 panic!("Cannot continue without tpm2 support, try --allow-no-tpm2");
             }
-            let password_combined = password.as_bytes();
-            let p = config_path.join(format!("{}-credentials.bin", name));
-            let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-            fpw.write_all(password.to_string().as_bytes())
-                .await
-                .expect("Failed to write credentials");
-            #[cfg(target_family = "unix")]
-            {
-                std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                    .expect("Failled to set file owner");
-                let mut perms = std::fs::metadata(&p).unwrap().permissions();
-                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
-                std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
-            }
-
-            tpm2::encrypt(config_data.as_bytes(), password_combined)
+            do_without_tpm2().await
         };
 
         f.write_all(&econfig)
@@ -196,27 +202,7 @@ async fn main() {
     }
     #[cfg(not(feature = "tpm2"))]
     {
-        let password_combined = password.as_bytes();
-
-        let p = config_path.join(format!("{}-credentials.bin", name));
-        let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-        fpw.write_all(password.to_string().as_bytes())
-            .await
-            .expect("Failed to write credentials");
-        #[cfg(target_family = "unix")]
-        {
-            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                .expect("Failled to set file owner");
-            let mut perms = std::fs::metadata(&p).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
-            std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
-        }
-
-        let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
-
-        f.write_all(&econfig)
-            .await
-            .expect("Failed to write configuration file");
+        do_without_tpm2().await
     }
 
     #[cfg(target_family = "unix")]
