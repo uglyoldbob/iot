@@ -584,6 +584,12 @@ pub enum PkiConfigurationEnum {
     Ca(CaConfiguration),
 }
 
+impl Default for PkiConfigurationEnum {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PkiConfigurationEnum {
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {

@@ -321,20 +321,33 @@ async fn main() {
 
         let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
-        let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
+        if let Some(tpm2) = &mut tpm2 {
+            let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
 
-        let epdata = tpm2.decrypt(tpm_data).unwrap();
-        let protected_password = tpm2::Password::rebuild(&epdata);
+            let epdata = tpm2.decrypt(tpm_data).unwrap();
+            let protected_password = tpm2::Password::rebuild(&epdata);
 
-        let password_combined = [password.as_bytes(), protected_password.password()].concat();
+            let password_combined = [password.as_bytes(), protected_password.password()].concat();
 
-        let pconfig = tpm2::decrypt(settings_con, &password_combined);
+            let pconfig = tpm2::decrypt(settings_con, &password_combined);
 
-        let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
-        if settings2.is_err() {
-            panic!("Failed to parse configuration file");
+            let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+            if settings2.is_err() {
+                panic!("Failed to parse configuration file");
+            }
+            settings = settings2.unwrap();
+        } else {
+            let password_combined = password.as_bytes();
+            let pconfig = tpm2::decrypt(settings_con, password_combined);
+            let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+            if settings2.is_err() {
+                panic!(
+                    "Failed to parse configuration file {}",
+                    settings2.err().unwrap()
+                );
+            }
+            settings = settings2.unwrap();
         }
-        settings = settings2.unwrap();
     }
     #[cfg(not(feature = "tpm2"))]
     {

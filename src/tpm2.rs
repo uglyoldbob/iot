@@ -185,11 +185,8 @@ pub struct Tpm2 {
 #[cfg(feature = "tpm2")]
 impl Tpm2 {
     /// Contruct a new tpm, using the specified node to commmunicate to the tpm hardware
-    pub fn new(node: tss_esapi::tcti_ldr::TctiNameConf) -> Self {
-        use std::str::FromStr;
-        println!("tpms device name is -{:?}-", node);
-
-        let mut context = tss_esapi::Context::new(node).unwrap();
+    pub fn new(node: tss_esapi::tcti_ldr::TctiNameConf) -> Option<Self> {
+        let mut context = tss_esapi::Context::new(node).ok()?;
 
         let object_attributes = tss_esapi::attributes::ObjectAttributesBuilder::new()
             .with_fixed_tpm(true)
@@ -232,7 +229,7 @@ impl Tpm2 {
             })
             .unwrap();
 
-        Self { context, pkr }
+        Some(Self { context, pkr })
     }
 
     #[allow(dead_code)]
