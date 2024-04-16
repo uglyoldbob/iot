@@ -80,7 +80,13 @@ async fn main() {
     let mut config = main_config::MainConfiguration::new();
     if let Some(ipc) = args.ipc {
         println!("IPC NAME IS {}", ipc);
-        todo!();
+        let stream = interprocess::local_socket::LocalSocketStream::connect(ipc.clone()).unwrap();
+        println!("Waiting for answers");
+        let answers: MainConfigurationAnswers = bincode::deserialize_from(stream).unwrap();
+        println!("Providing answers");
+        config.provide_answers(&answers);
+        let p = std::path::Path::new(&ipc);
+        std::fs::remove_file(p).expect("Failed to clean up from ipc");
     } else if let Some(answers) = &args.answers {
         println!("Expect to read answers from {}", answers.to_str().unwrap());
         let answers_file = tokio::fs::read_to_string(answers)

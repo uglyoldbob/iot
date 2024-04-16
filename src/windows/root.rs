@@ -52,6 +52,8 @@ impl TrackedWindow for RootWindow {
         _window: &egui_multiwin::winit::window::Window,
         _clipboard: &mut egui_multiwin::arboard::Clipboard,
     ) -> RedrawResponse {
+        egui.egui_ctx.request_repaint();
+
         let mut quit = false;
 
         let mut windows_to_create = vec![];
@@ -80,12 +82,34 @@ impl TrackedWindow for RootWindow {
                 let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
                 ui.add(pe);
                 if ui.button("Build config").clicked() {
-                    let asdf = runas::Command::new("./target/debug/rust-iot-construct")
-                        .show(true)
-                        .gui(true)
-                        .arg(format!("--user={}", self.username))
-                        .status()
-                        .unwrap();
+                    let tfile = tempfile::NamedTempFile::new().unwrap();
+                    let ipc_name = tfile.path().to_owned();
+                    drop(tfile);
+                    println!("Name for ipc is {}", ipc_name.display());
+                    let local_socket =
+                        interprocess::local_socket::LocalSocketListener::bind(ipc_name.clone())
+                            .unwrap();
+                    println!("Launching process");
+                    let username = self.username.clone();
+                    std::thread::spawn(move || {
+                        let asdf = runas::Command::new("./target/debug/rust-iot-construct")
+                            .show(true)
+                            .gui(true)
+                            .arg(format!("--ipc={}", ipc_name.display()))
+                            .arg(format!("--user={}", username))
+                            .status()
+                            .unwrap();
+                        println!("{:?}", asdf.code());
+                    });
+                    println!("Waiting for connection from process");
+                    let mut stream = local_socket.accept().unwrap();
+                    println!("Sending answers");
+                    std::io::Write::write_all(
+                        &mut stream,
+                        &bincode::serialize(&self.answers).unwrap(),
+                    )
+                    .expect("Failed to send answers to build service");
+                    println!("Done sending answers");
                 }
             }
         });
