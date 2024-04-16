@@ -190,6 +190,11 @@ async fn main() {
 
     ca::PkiInstance::init(&config.pki, options).await;
 
+    #[cfg(target_os = "windows")]
+    {
+        let mut controller = ceviche::controller::Controller::new("testing", "testing 2", "testing 3");
+        ceviche::controller::ControllerInterface::create(&mut controller).expect("Failed to create service");
+    }
     #[cfg(target_os = "linux")]
     {
         let mut con = String::new();
