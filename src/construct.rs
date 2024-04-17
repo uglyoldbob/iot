@@ -65,6 +65,8 @@ async fn main() {
         crate::main_config::default_config_path()
     };
 
+    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
+
     let name = args.name.unwrap_or("default".to_string());
 
     let username = args.user.unwrap_or("pki".to_string());
