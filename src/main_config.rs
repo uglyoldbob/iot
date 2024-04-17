@@ -19,7 +19,7 @@ pub fn default_config_path() -> std::path::PathBuf {
 }
 
 /// The main configuration for the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {
     /// The name of the cookie to use.
     pub cookie: String,
@@ -29,13 +29,19 @@ pub struct GeneralSettings {
     pub static_content: String,
 }
 
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GeneralSettings {
     /// Construct a blank Self
     fn new() -> Self {
         Self {
             cookie: "".into(),
             proxy: None,
-            static_content: "".into(),
+            static_content: "./content".into(),
         }
     }
 }
