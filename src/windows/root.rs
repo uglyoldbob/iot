@@ -60,7 +60,7 @@ impl RootWindow {
                     width: 800.0,
                     height: 600.0,
                 })
-                .with_title("egui-multiwin root window"),
+                .with_title("Certificate Authority Service Builder"),
             options: egui_multiwin::tracked_window::TrackedWindowOptions {
                 vsync: false,
                 shader: None,
