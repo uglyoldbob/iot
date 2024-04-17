@@ -19,7 +19,7 @@ pub fn default_config_path() -> std::path::PathBuf {
 }
 
 /// The main configuration for the application
-#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct GeneralSettings {
     /// The name of the cookie to use.
     pub cookie: String,
@@ -47,7 +47,7 @@ impl GeneralSettings {
 }
 
 /// The admin configuration for the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct AdminSettings {
     /// The password for the administrator
     pub pass: prompt::Password2,
@@ -72,7 +72,7 @@ impl AdminSettings {
 }
 
 /// The http configuration for the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct HttpSettings {
     /// True when the http server should be enabled
     pub enabled: bool,
@@ -91,7 +91,7 @@ impl HttpSettings {
 }
 
 /// The https configuration for the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct HttpsSettings {
     /// True when the server is enabled
     pub enabled: bool,
@@ -119,7 +119,7 @@ impl HttpsSettings {
 }
 
 /// The database configuration for the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct DatabaseSettings {
     /// The username
     pub username: String,
@@ -144,7 +144,7 @@ impl DatabaseSettings {
 }
 
 /// The main configuration of the application
-#[derive(Clone, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct MainConfigurationAnswers {
     /// General settings
     pub general: GeneralSettings,

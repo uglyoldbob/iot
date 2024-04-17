@@ -112,6 +112,20 @@ async fn main() {
             if ca.pki_name.is_none() {
                 ca.pki_name = Some(format!("pki/{}/", name));
             }
+            if ca.http_port.is_none() && config.http.enabled {
+                ca.http_port = Some(config.http.port);
+            }
+            if ca.https_port.is_none() && config.https.enabled {
+                ca.https_port = Some(config.https.port);
+            }
+        }
+    }
+    if let crate::ca::PkiConfigurationEnum::Ca(ca) = &mut config.pki {
+        if ca.http_port.is_none() && config.http.enabled {
+            ca.http_port = Some(config.http.port);
+        }
+        if ca.https_port.is_none() && config.https.enabled {
+            ca.https_port = Some(config.https.port);
         }
     }
 

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
+    ca::PkiConfigurationEnum,
     egui_multiwin_dynamic::{
         multi_window::NewWindowRequest,
         tracked_window::{RedrawResponse, TrackedWindow},
@@ -15,6 +16,8 @@ use crate::AppCommon;
 enum Message {
     ///The schematic is being loaded
     HttpsCertificateName(std::path::PathBuf),
+    /// A path is selected for the certificate authority
+    CaPathSelected(crate::ca::CaCertificateStorageBuilder),
 }
 
 enum GeneratingMode {
@@ -84,18 +87,23 @@ impl TrackedWindow for RootWindow {
                 Message::HttpsCertificateName(n) => {
                     self.answers.https.certificate = n;
                 }
+                Message::CaPathSelected(p) => {
+                    if let PkiConfigurationEnum::Ca(ca) = &mut self.answers.pki {
+                        ca.path = p;
+                    }
+                }
             }
         }
 
         egui_multiwin::egui::CentralPanel::default().show(&egui.egui_ctx, |ui| {
             let mut m = self.generating.lock().unwrap();
-            match *m {
-                GeneratingMode::Idle => {
-                    ui.label("User to run service as");
-                    ui.text_edit_singleline(&mut self.username);
-                    ui.label("Cookie name");
-                    ui.text_edit_singleline(&mut self.answers.general.cookie);
-                    {
+            egui_multiwin::egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                match *m {
+                    GeneratingMode::Idle => {
+                        ui.label("User to run service as");
+                        ui.text_edit_singleline(&mut self.username);
+                        ui.label("Cookie name");
+                        ui.text_edit_singleline(&mut self.answers.general.cookie);
                         let mut proxy = self.answers.general.proxy.is_some();
                         ui.checkbox(&mut proxy, "Use proxy");
                         if proxy && self.answers.general.proxy.is_none() {
@@ -109,13 +117,15 @@ impl TrackedWindow for RootWindow {
                         }
                         ui.label("Static content");
                         ui.text_edit_singleline(&mut self.answers.general.static_content);
-                        ui.label("Administrator password");
-                        let p: &mut String = &mut self.answers.admin.pass;
-                        let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                        ui.add(pe);
-                        let p2: &mut String = self.answers.admin.pass.second();
-                        let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                        ui.add(pe);
+                        {
+                            ui.label("Administrator password");
+                            let p: &mut String = &mut self.answers.admin.pass;
+                            let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
+                            ui.add(pe);
+                            let p2: &mut String = self.answers.admin.pass.second();
+                            let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
+                            ui.add(pe);
+                        }
                         ui.heading("HTTP SERVER SETTINGS");
                         ui.checkbox(&mut self.answers.http.enabled, "Enabled");
                         if self.answers.http.enabled {
@@ -167,6 +177,124 @@ impl TrackedWindow for RootWindow {
                             let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
                             ui.add(pe);
                         }
+                        use strum::IntoEnumIterator;
+                        egui_multiwin::egui::ComboBox::from_label("Select a type!")
+                            .selected_text(self.answers.pki.display())
+                            .show_ui(ui, |ui| {
+                                for option in PkiConfigurationEnum::iter() {
+                                    if ui.selectable_label(false, option.display()).clicked() {
+                                        self.answers.pki = option;
+                                    }
+                                }
+                            });
+                        match &mut self.answers.pki {
+                            PkiConfigurationEnum::Pki(pki) => {
+                                ui.label("Not implemented yet");
+                            }
+                            PkiConfigurationEnum::Ca(ca) => {
+                                egui_multiwin::egui::ComboBox::from_label("Select a storage medium!")
+                                    .selected_text(ca.path.display())
+                                    .show_ui(ui, |ui| {
+                                        for option in crate::ca::CaCertificateStorageBuilder::iter() {
+                                            if ui.selectable_label(false, option.display()).clicked() {
+                                                ca.path = option;
+                                            }
+                                        }
+                                    });
+                                match &mut ca.path {
+                                    crate::ca::CaCertificateStorageBuilder::Nowhere => {
+                                        ui.label("No configurable options");
+                                    }
+                                    crate::ca::CaCertificateStorageBuilder::Sqlite(p) => {
+                                        if ui.button("Select database location").clicked() {
+                                            let f = rfd::AsyncFileDialog::new()
+                                                .add_filter("Sqlite database", &["sqlite"])
+                                                .set_title("Save Sqlite database")
+                                                .save_file();
+                                            let message_sender = self.message_channel.0.clone();
+                                            crate::execute(async move {
+                                                let file = f.await;
+                                                if let Some(file) = file {
+                                                    let fname = file.path().to_path_buf();
+                                                    let path = crate::ca::CaCertificateStorageBuilder::Sqlite(fname);
+                                                    message_sender
+                                                        .send(Message::CaPathSelected(path))
+                                                        .ok();
+                                                }
+                                            });
+                                        }
+                                    }
+                                }
+                                ui.checkbox(&mut ca.root, "Root authority");
+                                ui.label("Subject alternate names, one per line");
+                                let mut s = ca.san.join("\n");
+                                if ui.text_edit_multiline(&mut s).changed() {
+                                    let names = s.split("\n");
+                                    let names: Vec<&str> = names.collect();
+                                    let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+                                    ca.san = names;
+                                }
+                                ui.label("Common name of the authority");
+                                ui.text_edit_singleline(&mut ca.common_name);
+                                {
+                                    ui.label("Number of days the authority should last");
+                                    let mut s = format!("{}", ca.days);
+                                    if ui.text_edit_singleline(&mut s).changed() {
+                                        let v = s.parse();
+                                        if let Ok(v) = v {
+                                            ca.days = v;
+                                        }
+                                    }
+                                }
+                                {
+                                    ui.label("Maximum chain length for authorities");
+                                    let mut s = format!("{}", ca.chain_length);
+                                    if ui.text_edit_singleline(&mut s).changed() {
+                                        let v = s.parse();
+                                        if let Ok(v) = v {
+                                            ca.chain_length = v;
+                                        }
+                                    }
+                                }
+                                {
+                                    ui.label("Administrator access password");
+                                    let p: &mut String = &mut ca.admin_access_password;
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
+                                    ui.add(pe);
+                                    let p2: &mut String = ca.admin_access_password.second();
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
+                                    ui.add(pe);
+                                }
+                                {
+                                    ui.label("Administrator certificate password");
+                                    let p: &mut String = &mut ca.admin_password;
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
+                                    ui.add(pe);
+                                    let p2: &mut String = ca.admin_password.second();
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
+                                    ui.add(pe);
+                                }
+                                {
+                                    ui.label("Ocsp certificate password");
+                                    let p: &mut String = &mut ca.ocsp_password;
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
+                                    ui.add(pe);
+                                    let p2: &mut String = ca.ocsp_password.second();
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
+                                    ui.add(pe);
+                                }
+                                {
+                                    ui.label("Root certificate password");
+                                    let p: &mut String = &mut ca.root_password;
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
+                                    ui.add(pe);
+                                    let p2: &mut String = ca.root_password.second();
+                                    let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
+                                    ui.add(pe);
+                                }
+                                ui.checkbox(&mut ca.ocsp_signature, "Ocsp request requires signature");
+                            }
+                        }
 
                         let mut reason_no_generate = None;
                         if self.answers.admin.pass.is_empty() {
@@ -180,6 +308,22 @@ impl TrackedWindow for RootWindow {
                             && !self.answers.https.certpass.matches()
                         {
                             reason_no_generate = Some("HTTPS Certificate passwords do not match");
+                        }
+                        if reason_no_generate.is_none() {
+                            match &self.answers.pki {
+                                PkiConfigurationEnum::Pki(pki) => { }
+                                PkiConfigurationEnum::Ca(ca) => {
+                                    if !ca.admin_access_password.matches() {
+                                        reason_no_generate = Some("Admin access password does not match");
+                                    } else if !ca.admin_password.matches() {
+                                        reason_no_generate = Some("Admin password does not match");
+                                    } else if !ca.ocsp_password.matches() {
+                                        reason_no_generate = Some("Ocsp password does not match");
+                                    } else if !ca.root_password.matches() {
+                                        reason_no_generate = Some("Root password does not match");
+                                    }
+                                }
+                            }
                         }
                         if let Some(reason) = reason_no_generate {
                             ui.label("Not ready to generate service");
@@ -240,24 +384,24 @@ impl TrackedWindow for RootWindow {
                             }
                         }
                     }
-                }
-                GeneratingMode::Generating => {
-                    ui.label("Generating service configuration");
-                }
-                GeneratingMode::Error(code) => {
-                    ui.label(format!("There was an error generating the config {}", code));
-                    if ui.button("Try again").clicked() {
-                        *m = GeneratingMode::Idle;
+                    GeneratingMode::Generating => {
+                        ui.label("Generating service configuration");
+                    }
+                    GeneratingMode::Error(code) => {
+                        ui.label(format!("There was an error generating the config {}", code));
+                        if ui.button("Try again").clicked() {
+                            *m = GeneratingMode::Idle;
+                        }
+                    }
+                    GeneratingMode::Done => {
+                        ui.label("Finished generating service configuration");
+                        if ui.button("Generate another").clicked() {
+                            self.answers = MainConfigurationAnswers::default();
+                            *m = GeneratingMode::Idle;
+                        }
                     }
                 }
-                GeneratingMode::Done => {
-                    ui.label("Finished generating service configuration");
-                    if ui.button("Generate another").clicked() {
-                        self.answers = MainConfigurationAnswers::default();
-                        *m = GeneratingMode::Idle;
-                    }
-                }
-            }
+            });
         });
         RedrawResponse {
             quit,

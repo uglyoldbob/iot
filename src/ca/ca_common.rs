@@ -21,7 +21,7 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
 }
 
 /// The items used to configure a certificate authority
-#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
@@ -173,12 +173,24 @@ impl CertificateSigningMethod {
 }
 
 /// The information needed to construct a CaCertificateStorage
-#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize, strum::EnumIter,
+)]
 pub enum CaCertificateStorageBuilder {
     /// Certificates are stored nowhere
     Nowhere,
     /// Ca uses a sqlite database on a filesystem
     Sqlite(PathBuf),
+}
+
+impl CaCertificateStorageBuilder {
+    /// The gui friendly name for the type
+    pub fn display(&self) -> &str {
+        match self {
+            Self::Nowhere => "Nowhere",
+            Self::Sqlite(_) => "Sqlite Database",
+        }
+    }
 }
 
 /// Contains the options for setting ownership in a generic way
@@ -569,14 +581,16 @@ impl CaCertificate {
 }
 
 /// The configuration of a general pki instance.
-#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct PkiConfiguration {
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, CaConfiguration>,
 }
 
 ///A generic configuration for a pki or certificate authority.
-#[derive(Clone, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize, strum::EnumIter,
+)]
 pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
     Pki(PkiConfiguration),
@@ -594,6 +608,14 @@ impl PkiConfigurationEnum {
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
         Self::Ca(CaConfiguration::new())
+    }
+
+    /// The display name of the item for gui purposes
+    pub fn display(&self) -> &str {
+        match self {
+            Self::Pki(_) => "Pki",
+            Self::Ca(_) => "Certificate Authority",
+        }
     }
 }
 

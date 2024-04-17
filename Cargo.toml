@@ -107,6 +107,10 @@ git = "https://github.com/uglyoldbob/rust-runas.git"
 version = "1.0.197"
 features = ["derive"]
 
+[dependencies.strum]
+version = "0.26.2"
+features = ["derive"]
+
 [dependencies.tls-listener]
 version = "0.9.1"
 features = ["rustls"]
