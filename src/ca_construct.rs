@@ -5,24 +5,6 @@ use crate::oid::*;
 pub use ca_common::*;
 use zeroize::Zeroizing;
 
-impl CaCertificateStorageBuilder {
-    pub async fn destroy(&self) {
-        match self {
-            CaCertificateStorageBuilder::Nowhere => {}
-            CaCertificateStorageBuilder::Sqlite(p) => {
-                let paths = get_sqlite_paths(p);
-                for p in paths {
-                    if p.exists() {
-                        println!("Removing {}", p.display());
-                        std::fs::remove_file(&p).expect("Failed to delete");
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                    }
-                }
-            }
-        }
-    }
-}
-
 impl CaCertificateStorage {
     /// Initialize the storage medium
     pub async fn init(&mut self) {
@@ -85,7 +67,9 @@ impl Ca {
         settings: &crate::ca::CaConfiguration,
         options: &OwnerOptions,
     ) -> Self {
-        settings.path.destroy().await;
+        if settings.path.exists().await {
+            panic!("Storage medium already exists");
+        }
         let mut medium = settings.path.build(Some(options)).await;
         medium.init().await;
         Self {

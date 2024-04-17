@@ -61,9 +61,20 @@ async fn main() {
         crate::main_config::default_config_path()
     };
 
-    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
-
     let name = args.name.unwrap_or("default".to_string());
+
+    #[cfg(target_os = "linux")]
+    let systemd_path = PathBuf::from("/etc/systemd/system");
+    #[cfg(target_os = "linux")]
+    let pb = systemd_path.join(format!("rust-iot-{}.service", name));
+    #[cfg(target_os = "linux")]
+    {
+        if pb.exists() {
+            panic!("Service file already exists");
+        }
+    }
+
+    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     let username = args.user.unwrap_or("pki".to_string());
 
@@ -99,6 +110,9 @@ async fn main() {
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
         let answers = toml::to_string(&config).unwrap();
+        if pb.exists() {
+            panic!("Answers file already exists")
+        }
         let mut f = tokio::fs::File::create(pb).await.unwrap();
         f.write_all(answers.as_bytes())
             .await
@@ -129,10 +143,11 @@ async fn main() {
 
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
-
-    let mut f = tokio::fs::File::create(config_path.join(format!("{}-config.toml", name)))
-        .await
-        .unwrap();
+    let config_file = config_path.join(format!("{}-config.toml", name));
+    if config_file.exists() {
+        panic!("Configuration file already exists");
+    }
+    let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
     let do_without_tpm2 = || async {
         let mut password: prompt::Password2 = prompt::Password2::new(String::new());
@@ -157,6 +172,9 @@ async fn main() {
 
         let password_combined = password.as_bytes();
         let p = config_path.join(format!("{}-credentials.bin", name));
+        if p.exists() {
+            panic!("Credendials file already exists");
+        }
         let mut fpw = tokio::fs::File::create(&p).await.unwrap();
         fpw.write_all(password.to_string().as_bytes())
             .await
@@ -191,6 +209,9 @@ async fn main() {
             let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
 
             let p = config_path.join(format!("{}-password.bin", name));
+            if p.exists() {
+                panic!("Password file aready exists");
+            }
             let mut f2 = tokio::fs::File::create(&p)
                 .await
                 .expect("Failed to create password file");
@@ -237,6 +258,7 @@ async fn main() {
         ceviche::controller::ControllerInterface::create(&mut controller)
             .expect("Failed to create service");
     }
+
     #[cfg(target_os = "linux")]
     {
         let mut con = String::new();
@@ -256,8 +278,6 @@ WantedBy=multi-user.target
             name,
             username
         ));
-        let systemd_path = PathBuf::from("/etc/systemd/system");
-        let pb = systemd_path.join(format!("rust-iot-{}.service", name));
         println!("Saving service file as {}", pb.display());
         let mut fpw = tokio::fs::File::create(pb).await.unwrap();
         fpw.write_all(con.as_bytes())

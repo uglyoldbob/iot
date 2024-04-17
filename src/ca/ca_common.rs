@@ -184,6 +184,14 @@ pub enum CaCertificateStorageBuilder {
 }
 
 impl CaCertificateStorageBuilder {
+    /// Returns true if the item already exists
+    pub fn exists(&self) -> bool {
+        match self {
+            Self::Nowhere => false,
+            Self::Sqlite(p) => p.exists(),
+        }
+    }
+
     /// The gui friendly name for the type
     pub fn display(&self) -> &str {
         match self {
