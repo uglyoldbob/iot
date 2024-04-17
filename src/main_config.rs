@@ -119,7 +119,7 @@ impl HttpsSettings {
 }
 
 /// The database configuration for the application
-#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct DatabaseSettings {
     /// The username
     pub username: String,
@@ -131,14 +131,20 @@ pub struct DatabaseSettings {
     pub url: String,
 }
 
+impl Default for DatabaseSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DatabaseSettings {
     /// Construct a blank Self
     fn new() -> Self {
         Self {
-            username: "".into(),
-            password: prompt::Password2::new("".into()),
-            name: "".into(),
-            url: "".into(),
+            username: "dummy".into(),
+            password: prompt::Password2::new("dummy".into()),
+            name: "dummy".into(),
+            url: "dummy".into(),
         }
     }
 }
@@ -161,7 +167,7 @@ pub struct MainConfigurationAnswers {
 }
 
 /// The main configuration of the application
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MainConfiguration {
     /// General settings
     pub general: GeneralSettings,

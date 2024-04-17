@@ -246,12 +246,21 @@ struct Args {
     /// The name of the instance
     #[arg(short, long)]
     name: Option<String>,
+
+    /// The config path to override the default with
+    #[arg(short, long)]
+    config: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let config_path = std::path::PathBuf::from("./");
+    let config_path = if let Some(p) = args.config {
+        std::path::PathBuf::from(p)
+    } else {
+        crate::main_config::default_config_path()
+    };
+    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     let name = args.name.unwrap_or("default".to_string());
 
@@ -378,7 +387,6 @@ async fn main() {
     {
         settings = do_without_tpm2(settings_con).await;
     }
-
     let settings = Arc::new(settings);
     let pki = ca::PkiInstance::load(&settings).await;
 

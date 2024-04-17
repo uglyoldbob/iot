@@ -35,7 +35,7 @@ List of future changes
 - [ ] Make site mobile friendly
 - [ ] Verify tpm code works as intended.
 - [x] Fix tpm code on windows.
-- [ ] Only use tpm2 if it is detected.
+- [x] Only use tpm2 if it is detected.
 - [ ] Create indexing program for large proxied setups
 - [ ] Add ability to create example reverse proxy setups for common reverse proxies.
 - [ ] Feature gate the sqlite backend
@@ -45,4 +45,4 @@ List of future changes
 - [ ] Add certificate viewer for users.
 - [x] Enable using systemd to start the service.
 - [ ] Add code for windows service on the windows platform.
-- [ ] Add a gui configuration tool for building an instance.
+- [x] Add a gui configuration tool for building an instance.

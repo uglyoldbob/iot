@@ -29,6 +29,7 @@ enum GeneratingMode {
 
 pub struct RootWindow {
     answers: MainConfigurationAnswers,
+    service_name: String,
     username: String,
     generating: Arc<Mutex<GeneratingMode>>,
     message_channel: (
@@ -42,6 +43,7 @@ impl RootWindow {
         NewWindowRequest {
             window_state: super::MyWindows::Root(RootWindow {
                 answers: MainConfigurationAnswers::default(),
+                service_name: "default".into(),
                 username: whoami::username(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
                 message_channel: std::sync::mpsc::channel(),
@@ -102,6 +104,8 @@ impl TrackedWindow for RootWindow {
                     GeneratingMode::Idle => {
                         ui.label("User to run service as");
                         ui.text_edit_singleline(&mut self.username);
+                        ui.label("Name of the service");
+                        ui.text_edit_singleline(&mut self.service_name);
                         ui.label("Cookie name");
                         ui.text_edit_singleline(&mut self.answers.general.cookie);
                         let mut proxy = self.answers.general.proxy.is_some();
@@ -342,6 +346,7 @@ impl TrackedWindow for RootWindow {
                                 println!("Launching process");
                                 let username = self.username.clone();
                                 let mode = self.generating.clone();
+                                let sname = self.service_name.clone();
                                 std::thread::spawn(move || {
                                     {
                                         let mut m = mode.lock().unwrap();
@@ -353,6 +358,7 @@ impl TrackedWindow for RootWindow {
                                         .show(true)
                                         .gui(true)
                                         .arg(format!("--ipc={}", ipc_name.display()))
+                                        .arg(format!("--name={}", sname))
                                         .arg(format!("--user={}", username))
                                         .status()
                                         .unwrap();

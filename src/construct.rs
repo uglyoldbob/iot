@@ -38,10 +38,6 @@ struct Args {
     #[arg(short, long)]
     name: Option<String>,
 
-    /// Path for where the service file description goes, to start up the service
-    #[arg(long)]
-    service: Option<PathBuf>,
-
     /// The user to run the service under, pki is the default username
     #[arg(short, long)]
     user: Option<String>,
@@ -260,13 +256,12 @@ WantedBy=multi-user.target
             name,
             username
         ));
-
-        if let Some(p) = args.service {
-            let pb = p.join(format!("rust-iot-{}.service", name));
-            let mut fpw = tokio::fs::File::create(pb).await.unwrap();
-            fpw.write_all(con.as_bytes())
-                .await
-                .expect("Failed to write service file");
-        }
+        let systemd_path = PathBuf::from("/etc/systemd/system");
+        let pb = systemd_path.join(format!("rust-iot-{}.service", name));
+        println!("Saving service file as {}", pb.display());
+        let mut fpw = tokio::fs::File::create(pb).await.unwrap();
+        fpw.write_all(con.as_bytes())
+            .await
+            .expect("Failed to write service file");
     }
 }
