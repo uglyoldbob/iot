@@ -113,12 +113,20 @@ impl TrackedWindow for RootWindow {
 
         let check_ca = |ca: &crate::ca::CaConfiguration| {
             let mut reason_no_generate = None;
-            if !ca.admin_access_password.matches() {
+            if ca.admin_access_password.is_empty() {
+                reason_no_generate = Some("Admin access password is empty".to_string());
+            } else if !ca.admin_access_password.matches() {
                 reason_no_generate = Some("Admin access password does not match".to_string());
+            } else if ca.admin_password.is_empty() {
+                reason_no_generate = Some("Admin password is empty".to_string());
             } else if !ca.admin_password.matches() {
                 reason_no_generate = Some("Admin password does not match".to_string());
+            } else if ca.ocsp_password.is_empty() {
+                reason_no_generate = Some("Ocsp password is empty".to_string());
             } else if !ca.ocsp_password.matches() {
                 reason_no_generate = Some("Ocsp password does not match".to_string());
+            } else if ca.root_password.is_empty() {
+                reason_no_generate = Some("Root password is empty".to_string());
             } else if !ca.root_password.matches() {
                 reason_no_generate = Some("Root password does not match".to_string());
             }
