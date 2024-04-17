@@ -22,7 +22,6 @@ egui-multiwin = "0.3.1"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
-interprocess = "1.2.1"
 lazy_static = "1.4.0"
 oid = "0.2.1"
 pem = "3.0.3"
@@ -32,7 +31,6 @@ rand = "0.8.5"
 regex = "1.10.3"
 ring = "0.17.8"
 rsa = "0.9.6"
-runas = "1.2.0"
 rustls-pki-types = "1.4.1"
 scrypt = "0.11.0"
 sha1 = "0.10.6"
@@ -45,6 +43,7 @@ tokio-rustls = "0.25.0"
 toml = "0.8.11"
 url_encoded_data = "0.6.1"
 url-escape = "0.1.1"
+whoami = "1.5.1"
 x509-cert = "0.2.5"
 yasna = "0.5.2"
 zeroize = "1.7.0"
@@ -63,6 +62,10 @@ git = "https://github.com/uglyoldbob/html"
 [dependencies.hyper]
 version = "1.2.0"
 features = ["http1", "http2", "server"]
+
+[dependencies.interprocess]
+version = "1.2.1"
+features = ["tokio"]
 
 [dependencies.multipart]
 version = "0.18.0"
@@ -94,6 +97,10 @@ version = "0.13.0"
 git = "https://github.com/uglyoldbob/rcgen.git"
 branch = "main"
 features = ["ring", "pem", "x509-parser"]
+
+[dependencies.runas]
+version = "1.2.0"
+git = "https://github.com/uglyoldbob/rust-runas.git"
 
 [dependencies.serde]
 version = "1.0.197"
