@@ -4,6 +4,7 @@ mod main_config;
 pub mod oid;
 pub mod pkcs12;
 mod tpm2;
+mod service;
 
 pub use main_config::MainConfiguration;
 
@@ -55,6 +56,27 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
+    #[cfg(target_os = "windows")]
+    let log = std::fs::OpenOptions::new()
+        .truncate(true)
+        .read(true)
+        .create(true)
+        .write(true)
+        .open("C:/git/log.txt")
+        .unwrap();
+    #[cfg(target_os = "windows")]
+    let log2 = std::fs::OpenOptions::new()
+        .truncate(true)
+        .read(true)
+        .create(true)
+        .write(true)
+        .open("C:/git/log2.txt")
+        .unwrap();
+    #[cfg(target_os = "windows")]
+    let print_redirect = gag::Redirect::stdout(log).unwrap();
+    #[cfg(target_os = "windows")]
+    let print_redirect2 = gag::Redirect::stderr(log2).unwrap();
+
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
     } else {
@@ -63,15 +85,13 @@ async fn main() {
 
     let name = args.name.unwrap_or("default".to_string());
 
-    #[cfg(target_os = "linux")]
-    let systemd_path = PathBuf::from("/etc/systemd/system");
-    #[cfg(target_os = "linux")]
-    let pb = systemd_path.join(format!("rust-iot-{}.service", name));
-    #[cfg(target_os = "linux")]
-    {
-        if pb.exists() {
-            panic!("Service file already exists");
-        }
+    let mut service = service::Service::new(
+        format!("rust-iot-{}", name),
+        format!("Rust Iot {} Service", name),
+        format!("The {} PKI Service", name),
+    );
+    if service.exists() {
+        panic!("Service already exists");
     }
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
@@ -95,7 +115,7 @@ async fn main() {
         println!("Providing answers");
         config.provide_answers(&answers);
         let p = std::path::Path::new(&ipc);
-        std::fs::remove_file(p).expect("Failed to clean up from ipc");
+        let _ = std::fs::remove_file(p);
     } else if let Some(answers) = &args.answers {
         println!("Expect to read answers from {}", answers.to_str().unwrap());
         let answers_file = tokio::fs::read_to_string(answers)
@@ -250,38 +270,5 @@ async fn main() {
     let options = ca::OwnerOptions::new();
 
     ca::PkiInstance::init(&config.pki, options).await;
-
-    #[cfg(target_os = "windows")]
-    {
-        let mut controller =
-            ceviche::controller::Controller::new("testing", "testing 2", "testing 3");
-        ceviche::controller::ControllerInterface::create(&mut controller)
-            .expect("Failed to create service");
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let mut con = String::new();
-        con.push_str(&format!(
-            "[Unit]
-Description=Iot Certificate Authority and Iot Manager
-
-[Service]
-User={2}
-WorkingDirectory={0}
-ExecStart=/usr/bin/rust-iot --name={1}
-
-[Install]
-WantedBy=multi-user.target
-        ",
-            config_path.display(),
-            name,
-            username
-        ));
-        println!("Saving service file as {}", pb.display());
-        let mut fpw = tokio::fs::File::create(pb).await.unwrap();
-        fpw.write_all(con.as_bytes())
-            .await
-            .expect("Failed to write service file");
-    }
+    service.create();
 }

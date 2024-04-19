@@ -126,8 +126,8 @@ nix = { version = "0.28.0", features = ["user"] }
 tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled"]}
 
 [target.'cfg(windows)'.dependencies]
-ceviche = "0.6.0"
 ctrlc = "3.4.4"
+gag = "1.0.0"
 tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "generate-bindings"]}
 
 [features]
@@ -153,7 +153,3 @@ path = "src/test.rs"
 [[bin]]
 name = "test2"
 path = "src/test2.rs"
-
-[[bin]]
-name = "rust-iot-service"
-path = "src/service.rs"
