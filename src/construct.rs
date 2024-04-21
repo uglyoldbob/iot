@@ -3,8 +3,8 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
-mod tpm2;
 mod service;
+mod tpm2;
 
 pub use main_config::MainConfiguration;
 
@@ -85,10 +85,14 @@ async fn main() {
 
     let name = args.name.unwrap_or("default".to_string());
 
+    let mut exe = std::env::current_exe().unwrap();
+    exe.pop();
+
     let mut service = service::Service::new(
         format!("rust-iot-{}", name),
         format!("Rust Iot {} Service", name),
         format!("The {} PKI Service", name),
+        exe.join("rust-iot"),
     );
     if service.exists() {
         panic!("Service already exists");

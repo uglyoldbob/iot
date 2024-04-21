@@ -3831,6 +3831,7 @@ dependencies = [
  "url-escape",
  "url_encoded_data",
  "whoami",
+ "winapi",
  "x509-cert",
  "yasna",
  "zeroize",
