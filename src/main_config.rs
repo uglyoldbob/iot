@@ -4,8 +4,6 @@ use std::path::PathBuf;
 
 use prompt::Prompting;
 
-use crate::ca::CaConfiguration;
-
 #[cfg(target_os = "linux")]
 /// Returns the default config file.
 pub fn default_config_path() -> std::path::PathBuf {

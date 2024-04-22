@@ -150,7 +150,7 @@ impl TrackedWindow for RootWindow {
                 crate::ca::CaCertificateStorageBuilder::Nowhere => {
                     ui.label("No configurable options");
                 }
-                crate::ca::CaCertificateStorageBuilder::Sqlite(p) => {
+                crate::ca::CaCertificateStorageBuilder::Sqlite(_p) => {
                     if ui.button("Select database location").clicked() {
                         let f = rfd::AsyncFileDialog::new()
                             .add_filter("Sqlite database", &["sqlite"])
@@ -178,7 +178,7 @@ impl TrackedWindow for RootWindow {
             ui.label("Subject alternate names, one per line");
             let mut s = ca.san.join("\n");
             if ui.text_edit_multiline(&mut s).changed() {
-                let names = s.split("\n");
+                let names = s.split('\n');
                 let names: Vec<&str> = names.collect();
                 let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
                 ca.san = names;
@@ -365,11 +365,11 @@ impl TrackedWindow for RootWindow {
                                         }
                                     });
                                 if let Some(p) = &self.selected_pki_entry {
-                                    if pki.local_ca.contains_key(p) {
-                                        if ui.button("Delete current entry").clicked() {
-                                            pki.local_ca.remove(p);
-                                            self.selected_pki_entry = None;
-                                        }
+                                    if pki.local_ca.contains_key(p)
+                                        && ui.button("Delete current entry").clicked()
+                                    {
+                                        pki.local_ca.remove(p);
+                                        self.selected_pki_entry = None;
                                     }
                                 }
                                 if let Some(ca) = pki.local_ca.get_mut(&entry) {
@@ -415,63 +415,61 @@ impl TrackedWindow for RootWindow {
                         }
                         if let Some(reason) = reason_no_generate {
                             ui.label("Not ready to generate service");
-                            ui.label(format!("{}", reason));
-                        } else {
-                            if ui.button("Build config").clicked() {
-                                let tfile = tempfile::NamedTempFile::new().unwrap();
-                                let ipc_name = tfile.path().to_owned();
-                                drop(tfile);
-                                println!("Name for ipc is {}", ipc_name.display());
-                                let local_socket =
-                                    interprocess::local_socket::LocalSocketListener::bind(
-                                        ipc_name.clone(),
-                                    )
+                            ui.label(reason.to_string());
+                        } else if ui.button("Build config").clicked() {
+                            let tfile = tempfile::NamedTempFile::new().unwrap();
+                            let ipc_name = tfile.path().to_owned();
+                            drop(tfile);
+                            println!("Name for ipc is {}", ipc_name.display());
+                            let local_socket =
+                                interprocess::local_socket::LocalSocketListener::bind(
+                                    ipc_name.clone(),
+                                )
+                                .unwrap();
+                            println!("Launching process");
+                            let username = self.username.clone();
+                            let mode = self.generating.clone();
+                            let sname = self.service_name.clone();
+                            std::thread::spawn(move || {
+                                {
+                                    let mut m = mode.lock().unwrap();
+                                    *m = GeneratingMode::Generating;
+                                }
+                                let mut exe = std::env::current_exe().unwrap();
+                                exe.pop();
+                                let asdf = runas::Command::new(exe.join("rust-iot-construct"))
+                                    .show(true)
+                                    .gui(true)
+                                    .arg(format!("--ipc={}", ipc_name.display()))
+                                    .arg(format!("--name={}", sname))
+                                    .arg(format!("--user={}", username))
+                                    .status()
                                     .unwrap();
-                                println!("Launching process");
-                                let username = self.username.clone();
-                                let mode = self.generating.clone();
-                                let sname = self.service_name.clone();
-                                std::thread::spawn(move || {
+                                println!("{:?}", asdf.code());
+                                if asdf.success() {
                                     {
                                         let mut m = mode.lock().unwrap();
-                                        *m = GeneratingMode::Generating;
+                                        *m = GeneratingMode::Done;
                                     }
-                                    let mut exe = std::env::current_exe().unwrap();
-                                    exe.pop();
-                                    let asdf = runas::Command::new(exe.join("rust-iot-construct"))
-                                        .show(true)
-                                        .gui(true)
-                                        .arg(format!("--ipc={}", ipc_name.display()))
-                                        .arg(format!("--name={}", sname))
-                                        .arg(format!("--user={}", username))
-                                        .status()
-                                        .unwrap();
-                                    println!("{:?}", asdf.code());
-                                    if asdf.success() {
-                                        {
-                                            let mut m = mode.lock().unwrap();
-                                            *m = GeneratingMode::Done;
-                                        }
-                                    } else {
-                                        {
-                                            let mut m = mode.lock().unwrap();
-                                            *m = GeneratingMode::Error(asdf.code().unwrap());
-                                        }
+                                } else {
+                                    {
+                                        let mut m = mode.lock().unwrap();
+                                        *m = GeneratingMode::Error(asdf.code().unwrap());
                                     }
-                                });
-                                let answers = self.answers.clone();
-                                std::thread::spawn(move || {
-                                    println!("Waiting for connection from process");
-                                    let mut stream = local_socket.accept().unwrap();
-                                    println!("Sending answers");
-                                    std::io::Write::write_all(
-                                        &mut stream,
-                                        &bincode::serialize(&answers).unwrap(),
-                                    )
-                                    .expect("Failed to send answers to build service");
-                                    println!("Done sending answers");
-                                });
-                            }
+                                }
+                            });
+                            let answers = self.answers.clone();
+                            std::thread::spawn(move || {
+                                println!("Waiting for connection from process");
+                                let mut stream = local_socket.accept().unwrap();
+                                println!("Sending answers");
+                                std::io::Write::write_all(
+                                    &mut stream,
+                                    &bincode::serialize(&answers).unwrap(),
+                                )
+                                .expect("Failed to send answers to build service");
+                                println!("Done sending answers");
+                            });
                         }
                     }
                     GeneratingMode::Generating => {

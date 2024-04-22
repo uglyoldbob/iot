@@ -161,7 +161,7 @@ async fn main() {
             let protected_password = tpm2::Password::rebuild(&epdata);
             let password_combined = protected_password.password();
 
-            let pconfig = tpm2::decrypt(settings_con, &password_combined);
+            let pconfig = tpm2::decrypt(settings_con, password_combined);
 
             let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
             if settings2.is_err() {

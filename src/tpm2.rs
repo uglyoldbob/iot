@@ -22,8 +22,8 @@ pub fn tpm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
     use std::str::FromStr;
     let node = "/dev/tpmrm0";
     let dc = tss_esapi::tcti_ldr::DeviceConfig::from_str(node).unwrap();
-    let name = tss_esapi::tcti_ldr::TctiNameConf::Device(dc);
-    name
+
+    tss_esapi::tcti_ldr::TctiNameConf::Device(dc)
 }
 
 #[cfg(all(feature = "tpm2", target_os = "windows"))]
@@ -158,27 +158,35 @@ impl Password {
 
 #[cfg(feature = "tpm2")]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
+/// Represents a blob of data encrypted by tpm2
 pub struct TpmBlob {
+    /// The encrypted contents of the blob
     data: Vec<u8>,
+    /// The public key for the blob
     public: Public,
 }
 
 #[cfg(feature = "tpm2")]
 impl TpmBlob {
     #[allow(dead_code)]
+    /// Serialize self into a vector
     pub fn data(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
     #[allow(dead_code)]
+    /// Serialize self from a slice
     pub fn rebuild(data: &[u8]) -> Self {
         bincode::deserialize(data).unwrap()
     }
 }
 
 #[cfg(feature = "tpm2")]
+/// Represents the context for a usable tpm2 device
 pub struct Tpm2 {
+    /// The tpm2 context, required for tpm2 operations
     context: tss_esapi::Context,
+    /// The result of creating a tpm key
     pkr: CreatePrimaryKeyResult,
 }
 
@@ -233,6 +241,7 @@ impl Tpm2 {
     }
 
     #[allow(dead_code)]
+    /// Decrypt the given blob with the tpm
     pub fn decrypt(&mut self, blob: TpmBlob) -> Result<Vec<u8>, ()> {
         let edata = &blob.data;
         let enc_private = Private::from_bytes(edata).unwrap();
@@ -251,7 +260,7 @@ impl Tpm2 {
     }
 
     #[allow(dead_code)]
-    /// Ecnrypt some data
+    /// Ecnrypt some data into a blob
     pub fn encrypt(&mut self, data: &[u8]) -> Result<TpmBlob, ()> {
         // A sealed data object is a specialised form of a HMAC key. There are strict requirements for
         // the object attributes and algorithms to signal to the TPM that this is a sealed data object.
