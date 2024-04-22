@@ -286,4 +286,5 @@ async fn main() {
         username,
     );
     service.create(service_config).await;
+    service.start();
 }

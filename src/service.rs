@@ -195,6 +195,36 @@ impl Service {
         }
     }
 
+    /// Stop the service
+    pub fn stop(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            let o = std::process::Command::new("systemctl")
+                .arg("stop")
+                .arg(&self.name)
+                .output()
+                .unwrap();
+            if !o.status.success() {
+                panic!("Failed to stop service");
+            }
+        }
+    }
+
+    /// Start the service
+    pub fn start(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            let o = std::process::Command::new("systemctl")
+                .arg("start")
+                .arg(&self.name)
+                .output()
+                .unwrap();
+            if !o.status.success() {
+                panic!("Failed to stop service");
+            }
+        }
+    }
+
     /// Delete the service
     #[cfg(target_os = "linux")]
     pub async fn delete(&mut self) {

@@ -55,6 +55,7 @@ async fn main() {
     exe.pop();
 
     let mut service = service::Service::new(format!("rust-iot-{}", name));
+    service.stop();
     service.delete().await;
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
