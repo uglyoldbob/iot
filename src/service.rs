@@ -150,7 +150,7 @@ impl Service {
 
     /// Create the service
     #[cfg(target_os = "windows")]
-    pub fn create(&mut self) -> Result<(), ()> {
+    pub async fn create(&mut self, config: ServiceConfig) -> Result<(), ()> {
         let service_manager =
             windows::ServiceController::open(winapi::um::winsvc::SC_MANAGER_ALL_ACCESS); //TODO REMOVE RIGHTS NOT REQUIRED
         if let Some(service_manager) = service_manager {
@@ -158,12 +158,12 @@ impl Service {
                 winapi::um::winsvc::CreateServiceW(
                     service_manager.get_handle(),
                     windows::get_utf16(self.name.as_str()).as_ptr(),
-                    windows::get_utf16(self.display.as_str()).as_ptr(),
-                    self.desired_access,
-                    self.service_type,
-                    self.start_type,
-                    self.error_control,
-                    windows::get_utf16(self.binary.to_str().unwrap()).as_ptr(),
+                    windows::get_utf16(config.display.as_str()).as_ptr(),
+                    config.desired_access,
+                    config.service_type,
+                    config.start_type,
+                    config.error_control,
+                    windows::get_utf16(config.binary.to_str().unwrap()).as_ptr(),
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
@@ -174,7 +174,7 @@ impl Service {
             if service.is_null() {
                 return Err(());
             }
-            let mut description = windows::get_utf16(self.description.as_str());
+            let mut description = windows::get_utf16(config.description.as_str());
 
             let mut sd = winapi::um::winsvc::SERVICE_DESCRIPTIONW {
                 lpDescription: description.as_mut_ptr(),
@@ -195,34 +195,93 @@ impl Service {
         }
     }
 
+    #[cfg(target_os = "linux")]
     /// Stop the service
-    pub fn stop(&mut self) {
-        #[cfg(target_os = "linux")]
-        {
-            let o = std::process::Command::new("systemctl")
-                .arg("stop")
-                .arg(&self.name)
-                .output()
+    pub fn stop(&mut self) -> Result<(),()> {
+        let o = std::process::Command::new("systemctl")
+            .arg("stop")
+            .arg(&self.name)
+            .output()
+            .unwrap();
+        if !o.status.success() {
+            Err(())
+        }
+        else {
+            Ok(())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    /// Stop the service
+    pub fn stop(&mut self) -> Result<(),()> {
+        let service_manager =
+        windows::ServiceController::open(winapi::um::winsvc::SC_MANAGER_ALL_ACCESS); //TODO REMOVE RIGHTS NOT REQUIRED
+        if let Some(service_manager) = service_manager {
+            let service = service_manager
+                .open_service(&self.name, winapi::um::winsvc::SERVICE_ALL_ACCESS)
                 .unwrap();
-            if !o.status.success() {
-                panic!("Failed to stop service");
+            let mut service_status : winapi::um::winsvc::SERVICE_STATUS = winapi::um::winsvc::SERVICE_STATUS {
+                dwServiceType: winapi::um::winnt::SERVICE_WIN32_OWN_PROCESS,
+                dwCurrentState: winapi::um::winsvc::SERVICE_STOPPED,
+                dwControlsAccepted: 0,
+                dwWin32ExitCode: 0,
+                dwServiceSpecificExitCode: 0,
+                dwCheckPoint: 0,
+                dwWaitHint: 0,
+            };
+            if unsafe {
+                winapi::um::winsvc::ControlService(
+                    service.get_handle(),
+                    winapi::um::winsvc::SERVICE_CONTROL_STOP,
+                    &mut service_status,
+                )
+            } != 0
+            {
+                while unsafe {
+                    winapi::um::winsvc::QueryServiceStatus(
+                        service.get_handle(),
+                        &mut service_status,
+                    )
+                } != 0
+                {
+                    if service_status.dwCurrentState
+                        != winapi::um::winsvc::SERVICE_STOP_PENDING
+                    {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
             }
+
+            if unsafe { winapi::um::winsvc::DeleteService(service.get_handle()) } == 0 {
+                return Err(());
+            }
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
     /// Start the service
-    pub fn start(&mut self) {
-        #[cfg(target_os = "linux")]
-        {
-            let o = std::process::Command::new("systemctl")
-                .arg("start")
-                .arg(&self.name)
-                .output()
-                .unwrap();
-            if !o.status.success() {
-                panic!("Failed to stop service");
-            }
+    #[cfg(target_os = "linux")]
+    pub fn start(&mut self) -> Result<(),()> {
+        let o = std::process::Command::new("systemctl")
+            .arg("start")
+            .arg(&self.name)
+            .output()
+            .unwrap();
+        if !o.status.success() {
+            Err(())
         }
+        else {
+            Ok(())
+        }
+    }
+
+    /// Start the service
+    #[cfg(target_os = "windows")]
+    pub fn start(&mut self) -> Result<(),()> {
+        todo!();
     }
 
     /// Delete the service
@@ -231,6 +290,24 @@ impl Service {
         let pb = self.systemd_path().join(format!("{}.service", self.name));
         println!("Deleting {}", pb.display());
         std::fs::remove_file(pb).unwrap();
+    }
+
+    /// Delete the service
+    #[cfg(target_os = "windows")]
+    pub async fn delete(&mut self) -> Result<(), ()> {
+        let service_manager =
+            windows::ServiceController::open(winapi::um::winsvc::SC_MANAGER_ALL_ACCESS); //TODO REMOVE RIGHTS NOT REQUIRED
+        if let Some(service_manager) = service_manager {
+            let service = service_manager
+                .open_service(&self.name, winapi::um::winsvc::SERVICE_ALL_ACCESS)
+                .unwrap();
+            if unsafe { winapi::um::winsvc::DeleteService(service.get_handle()) } == 0 {
+                return Err(());
+            }
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// Reload system services if required
@@ -276,47 +353,5 @@ WantedBy=multi-user.target
             .await
             .expect("Failed to write service file");
         self.reload();
-    }
-
-    /// Delete the service
-    #[cfg(target_os = "windows")]
-    pub fn delete(&mut self) -> Result<(), ()> {
-        let service_manager =
-            windows::ServiceController::open(winapi::um::winsvc::SC_MANAGER_ALL_ACCESS); //TODO REMOVE RIGHTS NOT REQUIRED
-        if let Some(service_manager) = service_manager {
-            let service = service_manager
-                .open_service(&self.name, winapi::um::winsvc::SERVICE_ALL_ACCESS)
-                .unwrap();
-            if unsafe {
-                winapi::um::winsvc::ControlService(
-                    service.get_handle(),
-                    winapi::um::winsvc::SERVICE_CONTROL_STOP,
-                    &mut self.service_status,
-                )
-            } != 0
-            {
-                while unsafe {
-                    winapi::um::winsvc::QueryServiceStatus(
-                        service.get_handle(),
-                        &mut self.service_status,
-                    )
-                } != 0
-                {
-                    if self.service_status.dwCurrentState
-                        != winapi::um::winsvc::SERVICE_STOP_PENDING
-                    {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(250));
-                }
-            }
-
-            if unsafe { winapi::um::winsvc::DeleteService(service.get_handle()) } == 0 {
-                return Err(());
-            }
-            Ok(())
-        } else {
-            Err(())
-        }
     }
 }
