@@ -5,6 +5,9 @@ use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 mod windows;
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 #[cfg(target_os = "windows")]
 use winapi::shared::minwindef::DWORD;
 
@@ -13,6 +16,8 @@ pub struct Service {
     display: String,
     description: String,
     binary: PathBuf,
+    config_path: PathBuf,
+    username: String,
     #[cfg(target_os = "windows")]
     pub desired_access: DWORD,
     #[cfg(target_os = "windows")]
@@ -41,21 +46,40 @@ pub struct Service {
 
 impl Service {
     /// Construct a new self
-    pub fn new(name: String, display: String, description: String, binary: PathBuf) -> Self {
+    pub fn new(
+        username: String,
+        config_path: PathBuf,
+        name: String,
+        display: String,
+        description: String,
+        binary: PathBuf,
+    ) -> Self {
         Self {
             name,
             display,
             description,
             binary,
+            config_path,
+            username,
+            #[cfg(target_os = "windows")]
             desired_access: winapi::um::winsvc::SERVICE_ALL_ACCESS,
+            #[cfg(target_os = "windows")]
             service_type: winapi::um::winnt::SERVICE_WIN32_OWN_PROCESS,
+            #[cfg(target_os = "windows")]
             start_type: winapi::um::winnt::SERVICE_AUTO_START,
+            #[cfg(target_os = "windows")]
             error_control: winapi::um::winnt::SERVICE_ERROR_NORMAL,
+            #[cfg(target_os = "windows")]
             tag_id: 0,
+            #[cfg(target_os = "windows")]
             load_order_group: "".to_string(),
+            #[cfg(target_os = "windows")]
             dependencies: "".to_string(),
+            #[cfg(target_os = "windows")]
             account_name: "".to_string(),
+            #[cfg(target_os = "windows")]
             password: "".to_string(),
+            #[cfg(target_os = "windows")]
             service_status: winapi::um::winsvc::SERVICE_STATUS {
                 dwServiceType: winapi::um::winnt::SERVICE_WIN32_OWN_PROCESS,
                 dwCurrentState: winapi::um::winsvc::SERVICE_STOPPED,
@@ -65,15 +89,23 @@ impl Service {
                 dwCheckPoint: 0,
                 dwWaitHint: 0,
             },
+            #[cfg(target_os = "windows")]
             status_handle: std::ptr::null_mut(),
+            #[cfg(target_os = "windows")]
             controls_accepted: winapi::um::winsvc::SERVICE_ACCEPT_STOP,
         }
+    }
+
+    /// The systemd path for linux
+    #[cfg(target_os = "linux")]
+    pub fn systemd_path(&self) -> PathBuf {
+        PathBuf::from("/etc/systemd/system")
     }
 
     /// Does the service already exist?
     #[cfg(target_os = "linux")]
     pub fn exists(&self) -> bool {
-        let systemd_path = PathBuf::from("/etc/systemd/system");
+        let systemd_path = self.systemd_path();
         let pb = systemd_path.join(format!("{}.service", self.name));
         pb.exists()
     }
@@ -138,7 +170,9 @@ impl Service {
 
     /// Create the service
     #[cfg(target_os = "linux")]
-    pub fn create(&mut self) {
+    pub async fn create(&mut self) {
+        use tokio::io::AsyncWriteExt;
+
         let mut con = String::new();
         con.push_str(&format!(
             "[Unit]
@@ -147,15 +181,19 @@ Description=Iot Certificate Authority and Iot Manager
 [Service]
 User={2}
 WorkingDirectory={0}
-ExecStart=/usr/bin/rust-iot --name={1}
+ExecStart={3} --name={1}
 
 [Install]
 WantedBy=multi-user.target
         ",
-            config_path.display(),
-            name,
-            username
+            self.config_path.display(),
+            self.name,
+            self.username,
+            self.binary.display(),
         ));
+        let pb = self
+            .systemd_path()
+            .join(format!("rust-iot-{}.service", self.name));
         println!("Saving service file as {}", pb.display());
         let mut fpw = tokio::fs::File::create(pb).await.unwrap();
         fpw.write_all(con.as_bytes())

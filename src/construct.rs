@@ -85,10 +85,14 @@ async fn main() {
 
     let name = args.name.unwrap_or("default".to_string());
 
+    let username = args.user.unwrap_or("pki".to_string());
+
     let mut exe = std::env::current_exe().unwrap();
     exe.pop();
 
     let mut service = service::Service::new(
+        username.clone(),
+        config_path.clone(),
         format!("rust-iot-{}", name),
         format!("Rust Iot {} Service", name),
         format!("The {} PKI Service", name),
@@ -99,8 +103,6 @@ async fn main() {
     }
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
-
-    let username = args.user.unwrap_or("pki".to_string());
 
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&username).unwrap().unwrap();
@@ -274,5 +276,5 @@ async fn main() {
     let options = ca::OwnerOptions::new();
 
     ca::PkiInstance::init(&config.pki, options).await;
-    service.create();
+    service.create().await;
 }
