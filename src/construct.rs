@@ -97,14 +97,7 @@ async fn main() {
     let mut exe = std::env::current_exe().unwrap();
     exe.pop();
 
-    let mut service = service::Service::new(
-        username.clone(),
-        config_path.clone(),
-        format!("rust-iot-{}", name),
-        format!("Rust Iot {} Service", name),
-        format!("{} Iot Certificate Authority and Iot Manager", name),
-        exe.join("rust-iot"),
-    );
+    let mut service = service::Service::new(format!("rust-iot-{}", name));
     if service.exists() {
         panic!("Service already exists");
     }
@@ -283,5 +276,14 @@ async fn main() {
     let options = ca::OwnerOptions::new();
 
     ca::PkiInstance::init(&config.pki, options).await;
-    service.create().await;
+
+    let service_config = service::ServiceConfig::new(
+        format!("Rust Iot {} Service", name),
+        name.clone(),
+        format!("{} Iot Certificate Authority and Iot Manager", name),
+        exe.join("rust-iot"),
+        config_path.clone(),
+        username,
+    );
+    service.create(service_config).await;
 }

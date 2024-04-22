@@ -54,14 +54,7 @@ async fn main() {
     let mut exe = std::env::current_exe().unwrap();
     exe.pop();
 
-    let mut service = service::Service::new(
-        "pki".to_string(), // doesnt matter
-        config_path.clone(),
-        format!("rust-iot-{}", name),
-        format!("Rust Iot {} Service", name),
-        format!("The {} PKI Service", name),
-        exe.join("rust-iot"),
-    );
+    let mut service = service::Service::new(format!("rust-iot-{}", name));
     service.delete().await;
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");

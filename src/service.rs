@@ -12,12 +12,12 @@ mod linux;
 #[cfg(target_os = "windows")]
 use winapi::shared::minwindef::DWORD;
 
-/// Represents a service on the system
-pub struct Service {
-    /// The name of the service, as known by the operating system
-    name: String,
+/// The configuration for constructing a Service
+pub struct ServiceConfig {
     /// The display name of the service for the user.
     display: String,
+    /// The short name of the service
+    shortname: String,
     /// The description of the service as presented to the user
     description: String,
     /// The path to the service binary
@@ -52,19 +52,25 @@ pub struct Service {
     pub controls_accepted: DWORD,
 }
 
-impl Service {
-    /// Construct a new self
+impl ServiceConfig {
+    /// Build a new service config with reasonable defaults.
+    /// # Arguments
+    /// * display - The display name of the service
+    /// * description - The description of the service
+    /// * binary - The path to the binary that runs the service
+    /// * config_path - The configuration path for the service
+    /// * username - The username the service runs as
     pub fn new(
-        username: String,
-        config_path: PathBuf,
-        name: String,
         display: String,
+        shortname: String,
         description: String,
         binary: PathBuf,
+        config_path: PathBuf,
+        username: String,
     ) -> Self {
         Self {
-            name,
             display,
+            shortname,
             description,
             binary,
             config_path,
@@ -102,6 +108,19 @@ impl Service {
             #[cfg(target_os = "windows")]
             controls_accepted: winapi::um::winsvc::SERVICE_ACCEPT_STOP,
         }
+    }
+}
+
+/// Represents a service on the system
+pub struct Service {
+    /// The name of the service, as known by the operating system
+    name: String,
+}
+
+impl Service {
+    /// Construct a new self
+    pub fn new(name: String) -> Self {
+        Self { name }
     }
 
     /// The systemd path for linux
@@ -184,9 +203,21 @@ impl Service {
         std::fs::remove_file(pb).unwrap();
     }
 
+    /// Reload system services if required
+    #[cfg(target_os = "linux")]
+    pub fn reload(&mut self) {
+        let o = std::process::Command::new("systemctl")
+            .arg("daemon-reload")
+            .output()
+            .unwrap();
+        if !o.status.success() {
+            panic!("Failed to reload systemctl");
+        }
+    }
+
     /// Create the service
     #[cfg(target_os = "linux")]
-    pub async fn create(&mut self) {
+    pub async fn create(&mut self, config: ServiceConfig) {
         use tokio::io::AsyncWriteExt;
 
         let mut con = String::new();
@@ -202,11 +233,11 @@ ExecStart={3} --name={1}
 [Install]
 WantedBy=multi-user.target
 ",
-            self.config_path.display(),
-            self.name,
-            self.username,
-            self.binary.display(),
-            self.description,
+            config.config_path.display(),
+            config.shortname,
+            config.username,
+            config.binary.display(),
+            config.description,
         ));
         let pb = self.systemd_path().join(format!("{}.service", self.name));
         println!("Saving service file as {}", pb.display());
@@ -214,6 +245,7 @@ WantedBy=multi-user.target
         fpw.write_all(con.as_bytes())
             .await
             .expect("Failed to write service file");
+        self.reload();
     }
 
     /// Delete the service
