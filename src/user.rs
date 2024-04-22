@@ -24,13 +24,13 @@ pub struct User {
 pub fn get_user_info(conn: &mut mysql::PooledConn, user: String) -> Option<User> {
     let quer = "SELECT id, username, passhash, n, r, p FROM users WHERE username=? LIMIT 1";
 
-    let usertest = conn.exec_map(quer, (user,), |(id, username, passhash, n, r, p)| User {
-        id: id,
-        username: username,
-        hash: passhash,
-        p: p,
-        r: r,
-        n: n,
+    let usertest = conn.exec_map(quer, (user,), |(id, username, hash, n, r, p)| User {
+        id,
+        username,
+        hash,
+        p,
+        r,
+        n,
     });
     usertest.unwrap().pop()
 }
@@ -172,7 +172,6 @@ pub fn set_admin_login(conn: &mut mysql::PooledConn, settings: &crate::MainConfi
         if let Err(e) = result {
             println!("Failed to update/create admin account {}", e);
         }
-        ()
     } else {
         println!("Not updating admin account");
     }

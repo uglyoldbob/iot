@@ -183,7 +183,6 @@ You are logged in
                     .input(|ib| ib.type_("submit").value("Login").formmethod("post"))
                     .line_break(|fb| fb)
             });
-        } else {
         }
         b
     });
@@ -282,6 +281,7 @@ async fn main() {
 
     let settings: MainConfiguration;
 
+    #[cfg(not(feature = "tpm2"))]
     let mut password: Option<String> = None;
 
     #[cfg(not(feature = "tpm2"))]
@@ -372,7 +372,7 @@ async fn main() {
             let protected_password = tpm2::Password::rebuild(&epdata);
             let password_combined = protected_password.password();
 
-            let pconfig = tpm2::decrypt(settings_con, &password_combined);
+            let pconfig = tpm2::decrypt(settings_con, password_combined);
 
             let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
             if settings2.is_err() {

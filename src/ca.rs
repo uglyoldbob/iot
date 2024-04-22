@@ -43,7 +43,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
     }
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if valid_csr {
                 b.text("Your request has been submitted").line_break(|f| f);
@@ -99,7 +99,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     let pki = ca.config.get_pki_name();
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned()))
+        generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("/{}js/forge.min.js", s.proxy));
                 sb
@@ -308,7 +308,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     }
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if admin {
                 b.text("You are admin").line_break(|a| a);
@@ -389,7 +389,7 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
 
-    html.head(|h| generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             match csr_check {
                 Ok(_der) => {
@@ -480,7 +480,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
 
                             println!("Ready to sign the csr");
                             let ca_cert = ca.root_ca_cert().unwrap();
-                            let cert = ca_cert.sign_csr(cert_to_sign, &ca).unwrap();
+                            let cert = ca_cert.sign_csr(cert_to_sign, ca).unwrap();
                             let der = cert.cert;
                             ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der, &snb).await;
@@ -497,7 +497,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
 
     let mut html = html::root::Html::builder();
 
-    html.head(|h| generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             match csr_check {
                 Ok(_der) => {
@@ -577,7 +577,7 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
     .await;
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, &s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if let Some(id) = s.get.get("id") {
                 if let Some(csrr) = csrr {
@@ -651,38 +651,36 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         });
                     }
                 }
-            } else {
-                if admin {
-                    b.text("List all pending requests");
-                    b.line_break(|a| a);
-                    let mut index_shown = 0;
-                    for (csrr, id) in csr_list {
-                        use der::DecodePem;
-                        let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                        if let Ok(csr) = csr {
-                            if index_shown > 0 {
-                                b.thematic_break(|a| a);
-                            }
-                            index_shown += 1;
-                            let csr_names: Vec<String> = csr
-                                .info
-                                .subject
-                                .0
-                                .iter()
-                                .map(|n| format!("{}", n))
-                                .collect();
-                            let t = csr_names.join(", ");
-                            b.anchor(|ab| {
-                                ab.text("View this request");
-                                ab.href(format!("/{}{}ca/list.rs?id={}", s.proxy, pki, id));
-                                ab
-                            })
-                            .line_break(|a| a);
-                            b.text(t).line_break(|a| a);
-                            b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                            b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                            b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+            } else if admin {
+                b.text("List all pending requests");
+                b.line_break(|a| a);
+                let mut index_shown = 0;
+                for (csrr, id) in csr_list {
+                    use der::DecodePem;
+                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                    if let Ok(csr) = csr {
+                        if index_shown > 0 {
+                            b.thematic_break(|a| a);
                         }
+                        index_shown += 1;
+                        let csr_names: Vec<String> = csr
+                            .info
+                            .subject
+                            .0
+                            .iter()
+                            .map(|n| format!("{}", n))
+                            .collect();
+                        let t = csr_names.join(", ");
+                        b.anchor(|ab| {
+                            ab.text("View this request");
+                            ab.href(format!("/{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                            ab
+                        })
+                        .line_break(|a| a);
+                        b.text(t).line_break(|a| a);
+                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                     }
                 }
             }
@@ -739,7 +737,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, &s)
+        generic_head(h, s)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("/{}js/forge.min.js", s.proxy));
@@ -839,7 +837,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, &s)
+        generic_head(h, s)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("/{}js/forge.min.js", s.proxy));
@@ -1111,7 +1109,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     } else {
         let mut html = html::root::Html::builder();
         html.head(|h| {
-            generic_head(h, &s)
+            generic_head(h, s)
                 .title(|t| t.text(ca.config.common_name.to_owned()))
                 .script(|sb| {
                     sb.src(format!("/{}js/forge.min.js", s.proxy));

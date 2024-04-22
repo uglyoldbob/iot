@@ -5,9 +5,9 @@ use ring::signature::RSA_PKCS1_2048_8192_SHA256;
 use tokio::io::AsyncReadExt;
 use yasna::parse_der;
 
-pub async fn verify_request2<'a>(
-    csr: &'a x509_cert::request::CertReq,
-) -> Result<&'a x509_cert::request::CertReq, ()> {
+pub async fn verify_request2(
+    csr: &x509_cert::request::CertReq,
+) -> Result<&x509_cert::request::CertReq, ()> {
     let info = csr.info.to_der().unwrap();
     let pubkey = &csr.info.public_key;
     let signature = &csr.signature;

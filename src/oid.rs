@@ -19,10 +19,6 @@ impl PartialEq for Oid {
     fn eq(&self, other: &Self) -> bool {
         self.to_const() == other.to_const()
     }
-
-    fn ne(&self, other: &Self) -> bool {
-        self.to_const() != other.to_const()
-    }
 }
 
 impl From<const_oid::ObjectIdentifier> for Oid {

@@ -297,7 +297,6 @@ impl<'a> InternalPublicKey<'a> {
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
         self.key.verify(data, signature).map_err(|e| {
             println!("Error verifying signature 2 {:?}", e);
-            ()
         })
     }
 }
