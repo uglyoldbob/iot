@@ -9,6 +9,7 @@ assets = [["content/css/*", "etc/rust-iot/content/css/", "600" ],
         ["target/release/rust-iot", "usr/bin/rust-iot", "755"],
         ["target/release/rust-iot-construct", "usr/bin/rust-iot-construct", "755"],
         ["target/release/rust-iot-construct-gui", "usr/bin/rust-iot-construct-gui", "755"],
+        ["target/release/rust-iot-destroy", "usr/bin/rust-iot-destroy", "755"],
         ["content/js/*", "etc/rust-iot/content/js/", "600"],
         ]
 

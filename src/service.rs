@@ -171,9 +171,8 @@ impl Service {
     /// Delete the service
     #[cfg(target_os = "linux")]
     pub async fn delete(&mut self) {
-        let pb = self
-            .systemd_path()
-            .join(format!("rust-iot-{}.service", self.name));
+        let pb = self.systemd_path().join(format!("{}.service", self.name));
+        println!("Deleting {}", pb.display());
         std::fs::remove_file(pb).unwrap();
     }
 
@@ -185,7 +184,7 @@ impl Service {
         let mut con = String::new();
         con.push_str(&format!(
             "[Unit]
-Description=Iot Certificate Authority and Iot Manager
+Description={4}
 
 [Service]
 User={2}
@@ -194,15 +193,14 @@ ExecStart={3} --name={1}
 
 [Install]
 WantedBy=multi-user.target
-        ",
+",
             self.config_path.display(),
             self.name,
             self.username,
             self.binary.display(),
+            self.description,
         ));
-        let pb = self
-            .systemd_path()
-            .join(format!("rust-iot-{}.service", self.name));
+        let pb = self.systemd_path().join(format!("{}.service", self.name));
         println!("Saving service file as {}", pb.display());
         let mut fpw = tokio::fs::File::create(pb).await.unwrap();
         fpw.write_all(con.as_bytes())

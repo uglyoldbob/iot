@@ -95,7 +95,7 @@ async fn main() {
         config_path.clone(),
         format!("rust-iot-{}", name),
         format!("Rust Iot {} Service", name),
-        format!("The {} PKI Service", name),
+        format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
     );
     if service.exists() {

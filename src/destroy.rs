@@ -10,7 +10,7 @@ pub use main_config::MainConfiguration;
 
 use clap::Parser;
 use prompt::Prompting;
-use std::{io::Write, path::PathBuf};
+use std::io::Write;
 use tokio::io::AsyncReadExt;
 
 /// Arguments for creating an iot instance
@@ -21,9 +21,9 @@ struct Args {
     #[arg(short, long)]
     config: Option<String>,
 
-    /// The name of the config being created
+    /// The name of the config being deleted
     #[arg(short, long)]
-    name: Option<String>,
+    name: String,
 }
 
 #[tokio::main]
@@ -36,7 +36,7 @@ async fn main() {
         crate::main_config::default_config_path()
     };
 
-    let name = args.name.unwrap_or("default".to_string());
+    let name = args.name;
 
     println!("Enter yes two times to delete the configuration");
     let p: prompt::Password2 = prompt::Password2::prompt(Some("Delete?")).unwrap();
@@ -70,6 +70,7 @@ async fn main() {
 
     let mut settings: MainConfiguration;
 
+    #[cfg(not(feature = "tpm2"))]
     let mut password: Option<String> = None;
 
     #[cfg(not(feature = "tpm2"))]
@@ -179,11 +180,11 @@ async fn main() {
     match &mut settings.pki {
         ca::PkiConfigurationEnum::Pki(pki) => {
             for ca in pki.local_ca.values_mut() {
-                ca.destroy_backend();
+                ca.destroy_backend().await;
             }
         }
         ca::PkiConfigurationEnum::Ca(ca) => {
-            ca.destroy_backend();
+            ca.destroy_backend().await;
         }
     }
     drop(settings);
@@ -196,9 +197,8 @@ async fn main() {
 
     #[cfg(feature = "tpm2")]
     {
-        let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
-
-        if let Some(tpm2) = &mut tpm2 {
+        let tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+        if tpm2.is_some() {
             let p = config_path.join(format!("{}-password.bin", name));
             std::fs::remove_file(p).unwrap();
         } else {
