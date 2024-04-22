@@ -62,6 +62,18 @@ impl Default for CaConfiguration {
 }
 
 impl CaConfiguration {
+    /// Destroy the backend storage
+    pub async fn destroy_backend(&mut self) {
+        match &self.path {
+            CaCertificateStorageBuilder::Nowhere => {}
+            CaCertificateStorageBuilder::Sqlite(p) => {
+                for p in get_sqlite_paths(p) {
+                    std::fs::remove_file(p).unwrap();
+                }
+            }
+        }
+    }
+
     /// Get the pki name for the configuration
     pub fn get_pki_name(&self) -> &str {
         if let Some(p) = &self.pki_name {

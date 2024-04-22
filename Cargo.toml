@@ -148,6 +148,10 @@ name = "rust-iot-construct-gui"
 path = "src/construct-gui.rs"
 
 [[bin]]
+name = "rust-iot-destroy"
+path = "src/destroy.rs"
+
+[[bin]]
 name = "test"
 path = "src/test.rs"
 
