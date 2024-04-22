@@ -105,7 +105,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb.src(format!("/{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -744,7 +744,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb.src(format!("/{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -844,7 +844,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.js", s.proxy));
+                sb.src(format!("/{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -1116,7 +1116,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
                     sb
                 })
                 .script(|sb| {
-                    sb.src(format!("/{}js/certgen.js", s.proxy));
+                    sb.src(format!("/{}js/certgen.min.js", s.proxy));
                     sb
                 })
         })
