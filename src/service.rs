@@ -6,17 +6,25 @@ use std::path::PathBuf;
 mod windows;
 
 #[cfg(target_os = "linux")]
+/// Linux specific code
 mod linux;
 
 #[cfg(target_os = "windows")]
 use winapi::shared::minwindef::DWORD;
 
+/// Represents a service on the system
 pub struct Service {
+    /// The name of the service, as known by the operating system
     name: String,
+    /// The display name of the service for the user.
     display: String,
+    /// The description of the service as presented to the user
     description: String,
+    /// The path to the service binary
     binary: PathBuf,
+    /// The path to the configuration data for the service
     config_path: PathBuf,
+    /// The username that the service should run as
     username: String,
     #[cfg(target_os = "windows")]
     pub desired_access: DWORD,

@@ -1,4 +1,11 @@
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
+
+//! This binary is used to construct the elements necessary to operate an iot instance.
+
 #[path = "ca_construct.rs"]
+/// The ca module, with code used to construct a ca
 mod ca;
 mod main_config;
 pub mod oid;

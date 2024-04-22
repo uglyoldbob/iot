@@ -1,8 +1,15 @@
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
+
+//! This binary is a gui app used to construct the elements necessary to operate an iot instance.
+
 mod main_config;
 
 pub use main_config::MainConfiguration;
 
 #[path = "ca_construct.rs"]
+/// The ca module, with code used to construct a ca
 mod ca;
 pub mod oid;
 pub mod pkcs12;
@@ -10,6 +17,7 @@ mod tpm2;
 
 use egui_multiwin_dynamic::multi_window::{MultiWindow, NewWindowRequest};
 
+/// The gui library code
 pub mod egui_multiwin_dynamic {
     egui_multiwin::tracked_window!(
         crate::AppCommon,
@@ -27,9 +35,11 @@ mod windows;
 
 use windows::root;
 
+/// The common data for the gui
 pub struct AppCommon {}
 
 impl AppCommon {
+    /// Process events sent to the gui
     fn process_event(&mut self, _event: egui_multiwin::NoEvent) -> Vec<NewWindowRequest> {
         Vec::new()
     }

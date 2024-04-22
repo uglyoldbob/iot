@@ -22,20 +22,33 @@ enum Message {
     PkiPathSelected(String, crate::ca::CaCertificateStorageBuilder),
 }
 
+/// Specifies how the system should process input and provide feedback to the user
 enum GeneratingMode {
+    /// The system is ready to accept input from the user
     Idle,
+    /// The generation binary is currently running
     Generating,
+    /// There was an error in the generation program
     Error(i32),
+    /// Done generating an iot instance
     Done,
 }
 
+/// The struct for the root window
 pub struct RootWindow {
+    /// The answers to construct and pass to the construction binary
     answers: MainConfigurationAnswers,
+    /// The name of the service
     service_name: String,
+    /// The username to run the service as
     username: String,
+    /// The currently selected name of a ca on a pki instance
     selected_pki_entry: Option<String>,
+    /// The name to use for entering a specific ca on a pki instance.
     new_pki_entry: String,
+    /// The mode for showing when the instance is being generated
     generating: Arc<Mutex<GeneratingMode>>,
+    /// The message channel for sending and receiving messages from other threads. TODO use the egui_multiwin message passing stuff.
     message_channel: (
         std::sync::mpsc::Sender<Message>,
         std::sync::mpsc::Receiver<Message>,
@@ -43,6 +56,7 @@ pub struct RootWindow {
 }
 
 impl RootWindow {
+    /// Create a request for a new window
     pub fn request() -> NewWindowRequest {
         NewWindowRequest {
             window_state: super::MyWindows::Root(RootWindow {

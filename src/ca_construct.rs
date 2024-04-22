@@ -35,6 +35,7 @@ impl CaCertificateStorage {
 }
 
 impl Pki {
+    /// Initialize a Pki instance with the specified configuration and options for setting file ownerships (as required).
     pub async fn init(settings: &crate::ca::PkiConfiguration, options: OwnerOptions) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
@@ -83,6 +84,7 @@ impl Ca {
         }
     }
 
+    /// Initialize a Ca instance with the specified configuration and options for setting file ownerships (as required).
     pub async fn init(settings: &crate::ca::CaConfiguration, options: &OwnerOptions) -> Self {
         let mut ca = Self::init_from_config(settings, options).await;
 
@@ -239,6 +241,7 @@ impl Ca {
 }
 
 impl CertificateSigningMethod {
+    /// Generate a keypair
     fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
         match self {
             Self::RsaSha1 | Self::RsaSha256 => {
