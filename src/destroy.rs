@@ -3,6 +3,7 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
+mod service;
 mod tpm2;
 
 pub use main_config::MainConfiguration;
@@ -43,14 +44,18 @@ async fn main() {
         return;
     }
 
-    #[cfg(target_os = "linux")]
-    let systemd_path = PathBuf::from("/etc/systemd/system");
-    #[cfg(target_os = "linux")]
-    let pb = systemd_path.join(format!("rust-iot-{}.service", name));
-    #[cfg(target_os = "linux")]
-    {
-        std::fs::remove_file(pb).unwrap();
-    }
+    let mut exe = std::env::current_exe().unwrap();
+    exe.pop();
+
+    let mut service = service::Service::new(
+        "pki".to_string(), // doesnt matter
+        config_path.clone(),
+        format!("rust-iot-{}", name),
+        format!("Rust Iot {} Service", name),
+        format!("The {} PKI Service", name),
+        exe.join("rust-iot"),
+    );
+    service.delete().await;
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 

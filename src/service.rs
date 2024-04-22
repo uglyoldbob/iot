@@ -168,6 +168,15 @@ impl Service {
         }
     }
 
+    /// Delete the service
+    #[cfg(target_os = "linux")]
+    pub async fn delete(&mut self) {
+        let pb = self
+            .systemd_path()
+            .join(format!("rust-iot-{}.service", self.name));
+        std::fs::remove_file(pb).unwrap();
+    }
+
     /// Create the service
     #[cfg(target_os = "linux")]
     pub async fn create(&mut self) {
