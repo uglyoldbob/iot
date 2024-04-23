@@ -10,7 +10,6 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
-mod service;
 mod tpm2;
 
 pub use main_config::MainConfiguration;
@@ -283,8 +282,8 @@ async fn main() {
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
         config_path.clone(),
-        username,
+        Some(username),
     );
-    service.create(service_config).await;
+    service.create_async(service_config).await;
     service.start();
 }

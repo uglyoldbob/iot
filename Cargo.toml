@@ -109,6 +109,10 @@ git = "https://github.com/uglyoldbob/rust-runas.git"
 version = "1.0.197"
 features = ["derive"]
 
+[dependencies.service]
+git = "https://github.com/uglyoldbob/service.git"
+features = ["async"]
+
 [dependencies.strum]
 version = "0.26.2"
 features = ["derive"]

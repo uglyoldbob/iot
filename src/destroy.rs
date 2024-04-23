@@ -10,7 +10,6 @@ mod ca;
 mod main_config;
 pub mod oid;
 pub mod pkcs12;
-mod service;
 mod tpm2;
 
 pub use main_config::MainConfiguration;
@@ -56,7 +55,7 @@ async fn main() {
 
     let mut service = service::Service::new(format!("rust-iot-{}", name));
     service.stop();
-    service.delete().await;
+    service.delete_async().await;
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
