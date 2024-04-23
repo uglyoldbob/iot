@@ -276,7 +276,22 @@ async fn main() {
 
     let ca = ca::PkiInstance::init(&config.pki, options).await;
     if let Some(proxy) = ca.reverse_proxy() {
-        service::log::info!("Saving reverse proxy information to {}", proxy_name);
+        let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
+        service::log::info!("Saving reverse proxy information to {}", proxy_name.display());
+        let mut f2 = tokio::fs::File::create(&proxy_name)
+                .await
+                .expect("Failed to create reverse proxy file");
+        f2.write_all(proxy.as_bytes())
+            .await
+            .expect("Failed to write protected password");
+        #[cfg(target_family = "unix")]
+        {
+            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
+                .expect("Failled to set file owner");
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
+            std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
+        }
     }
 
     let service_config = service::ServiceConfig::new(
@@ -286,6 +301,8 @@ async fn main() {
         exe.join("rust-iot"),
         config_path.clone(),
         Some(username),
+        #[cfg(target_family = "windows")]
+        None,
     );
     service.create_async(service_config).await;
     service.start();
