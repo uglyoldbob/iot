@@ -253,8 +253,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    service::new_log(service::LogLevel::Trace);
-
     let args = Args::parse();
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
@@ -264,6 +262,9 @@ async fn main() {
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     let name = args.name.unwrap_or("default".to_string());
+
+    let service = service::Service::new(format!("rust-iot-{}", name));
+    service.new_log(service::LogLevel::Debug);
 
     service::log::debug!("Load config from {:?}", config_path);
 
