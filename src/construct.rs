@@ -274,7 +274,10 @@ async fn main() {
     #[cfg(target_family = "windows")]
     let options = ca::OwnerOptions::new();
 
-    ca::PkiInstance::init(&config.pki, options).await;
+    let ca = ca::PkiInstance::init(&config.pki, options).await;
+    if let Some(proxy) = ca.reverse_proxy() {
+        service::log::info!("Saving reverse proxy information to {}", proxy_name);
+    }
 
     let service_config = service::ServiceConfig::new(
         format!("Rust Iot {} Service", name),

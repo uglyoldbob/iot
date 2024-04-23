@@ -671,6 +671,11 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Build a example config for reverse proxy if applicable
+    pub fn reverse_proxy(&self) -> Option<String> {
+        None
+    }
+
     /// Load an instance of self from the settings.
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {
