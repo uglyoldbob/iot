@@ -44,3 +44,4 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Enable using systemd to start the service.
 - [ ] Add code for windows service on the windows platform.
 - [x] Add a gui configuration tool for building an instance.
+- [ ] Update print statements to use a custom logging crate

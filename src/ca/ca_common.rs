@@ -615,7 +615,7 @@ pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
     Pki(PkiConfiguration),
     /// A standard certificate authority configuration
-    Ca(CaConfiguration),
+    Ca(Box<CaConfiguration>),
 }
 
 impl Default for PkiConfigurationEnum {
@@ -627,7 +627,7 @@ impl Default for PkiConfigurationEnum {
 impl PkiConfigurationEnum {
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
-        Self::Ca(CaConfiguration::new())
+        Self::Ca(Box::new(CaConfiguration::new()))
     }
 
     /// The display name of the item for gui purposes

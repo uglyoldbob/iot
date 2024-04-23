@@ -3401,7 +3401,7 @@ dependencies = [
 [[package]]
 name = "prompt"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#6c943ae15a76ad37cdd717887cb8004be3b78ee3"
+source = "git+https://github.com/uglyoldbob/prompt.git#67207aa83efe11b6fc19533fe456e8cb953075f3"
 dependencies = [
  "prompt_derive",
  "rpassword",
@@ -3411,7 +3411,7 @@ dependencies = [
 [[package]]
 name = "prompt_derive"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#6c943ae15a76ad37cdd717887cb8004be3b78ee3"
+source = "git+https://github.com/uglyoldbob/prompt.git#67207aa83efe11b6fc19533fe456e8cb953075f3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3920,9 +3920,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ecd36cc4259e3e4514335c4a138c6b43171a8d61d8f5c9348f9fc7529416f247"
+checksum = "beb461507cee2c2ff151784c52762cf4d9ff6a61f3e80968600ed24fa837fa54"
 
 [[package]]
 name = "rustls-webpki"
