@@ -38,11 +38,11 @@ impl TlsConfig {
 /// * settings - The program configuration object.
 pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCertStore> {
     if let Some(section) = &settings.client_certs {
-        println!("Loading client certificate data");
+        service::log::info!("Loading client certificate data");
         let mut rcs = RootCertStore::empty();
 
         for s in section {
-            println!("\tClient cert {}", s);
+            service::log::info!("\tClient cert {}", s);
             let mut certbytes = vec![];
             let mut certf = File::open(s)
                 .unwrap_or_else(|e| panic!("Failed to open client certificate {}: {}", s, e));
@@ -56,7 +56,7 @@ pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCe
 
         Some(rcs)
     } else {
-        println!("Not loading any client certificate information");
+        service::log::info!("Not loading any custom client certificate information");
         None
     }
 }

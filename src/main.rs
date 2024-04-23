@@ -253,6 +253,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
+    service::new_log(service::LogLevel::Trace);
+
     let args = Args::parse();
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
@@ -263,7 +265,7 @@ async fn main() {
 
     let name = args.name.unwrap_or("default".to_string());
 
-    println!("Load config from {:?}", config_path);
+    service::log::debug!("Load config from {:?}", config_path);
 
     let mut router = webserver::WebRouter::new();
     router.register("/asdf", test_func);
@@ -403,8 +405,8 @@ async fn main() {
     let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
     let mysql_temp = mysql::Pool::new(mysql_opt);
     match mysql_temp {
-        Ok(ref _bla) => println!("I have a bla"),
-        Err(ref e) => println!("Error connecting to mysql: {}", e),
+        Ok(ref _bla) => service::log::info!("I have a bla"),
+        Err(ref e) => service::log::error!("Error connecting to mysql: {}", e),
     }
     let mut mysql_pool = mysql_temp.ok();
 
@@ -437,12 +439,10 @@ async fn main() {
     hc.cookiename = format!("/{}{}", proxy, settings.general.cookie);
 
     if let Some(proxy) = &hc.proxy {
-        println!("Using {} as the proxy path", proxy);
+        service::log::info!("Using {} as the proxy path", proxy);
     } else {
-        println!("Not using a proxy path");
+        service::log::info!("Not using a proxy path");
     }
-
-    //    println!("{} is {}", "bob", settings.getint("general","bob").unwrap_or(None).unwrap_or(32));
 
     let http_enable = settings.http.enabled;
     let https_enable = settings.https.enabled;
@@ -456,17 +456,17 @@ async fn main() {
 
     if http_enable {
         let http_port = settings.get_http_port();
-        println!("Listening http on port {}", http_port);
+        service::log::info!("Listening http on port {}", http_port);
 
         let hc_http = hc.clone();
         if let Err(e) = http_webserver(hc_http, http_port, &mut tasks).await {
-            println!("https web server errored {}", e);
+            service::log::error!("https web server errored {}", e);
         }
     }
 
     if https_enable {
         let https_port = settings.get_https_port();
-        println!("Listening https on port {}", https_port);
+        service::log::info!("Listening https on port {}", https_port);
 
         let tls_pass = settings.https.certpass.to_owned();
         let tls_cert = settings.https.certificate.to_owned();
@@ -484,17 +484,17 @@ async fn main() {
         )
         .await
         {
-            println!("https web server errored {}", e);
+            service::log::error!("https web server errored {}", e);
         }
     }
 
     futures::select! {
         r = tasks.join_next().fuse() => {
-            println!("A task exited {:?}, closing server in 5 seconds", r);
+            service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
             tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
         }
         _ = tokio::signal::ctrl_c().fuse() => {
         }
     }
-    println!("Closing server now");
+    service::log::error!("Closing server now");
 }

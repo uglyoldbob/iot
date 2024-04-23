@@ -332,7 +332,6 @@ async fn handle<'a>(
         for ck in cookies {
             let cookie = Cookie::parse(ck).unwrap();
             let (c1, c2) = cookie.name_value();
-            //println!("The cookie is {:?} {:?}", c1, c2);
             cookiemap.insert(c1.to_owned(), c2.to_owned());
         }
     }
@@ -375,7 +374,7 @@ async fn handle<'a>(
     let fixed_path = reg1.replace_all(path, "");
     let sys_path = context.root.to_owned() + &fixed_path;
 
-    println!("Lookup {}", fixed_path);
+    service::log::info!("Lookup {}", fixed_path);
 
     let p = WebPageContext {
         page: <std::path::PathBuf as std::str::FromStr>::from_str(&fixed_path).unwrap(),
@@ -624,7 +623,7 @@ pub async fn http_webserver(
     let webservice = WebService::new(hc, addr, handle);
 
     tasks.spawn(async move {
-        println!("Rust-iot server is running");
+        service::log::info!("Rust-iot server is running");
         loop {
             let (stream, _addr) = listener
                 .accept()
@@ -637,7 +636,7 @@ pub async fn http_webserver(
                     .serve_connection(io, svc)
                     .await
                 {
-                    println!("Error serving connection: {:?}", err);
+                    service::log::error!("Error serving connection: {:?}", err);
                 }
             });
         }
@@ -697,7 +696,7 @@ pub async fn https_webserver(
     let webservice = WebService::new(hc, addr, handle);
 
     tasks.spawn(async move {
-        println!("Rust-iot https server is running?");
+        service::log::info!("Rust-iot https server is running");
         loop {
             let la = listener
                 .accept()
@@ -705,7 +704,7 @@ pub async fn https_webserver(
                 .map_err(|e| ServiceError::Other(e.to_string()));
             let (stream, addr) = match la {
                 Err(e) => {
-                    println!("Error accepting connection {:?}", e);
+                    service::log::error!("Error accepting connection {:?}", e);
                     continue;
                 }
                 Ok(s) => s,
@@ -713,7 +712,7 @@ pub async fn https_webserver(
             let stream = acc.accept(stream).await;
             let mut stream = match stream {
                 Err(e) => {
-                    println!("Error accepting tls stream: {:?}", e);
+                    service::log::error!("Error accepting tls stream: {:?}", e);
                     continue;
                 }
                 Ok(s) => s,
@@ -739,7 +738,7 @@ pub async fn https_webserver(
                     .serve_connection(io, svc)
                     .await
                 {
-                    println!("Error serving connection: {:?}", err);
+                    service::log::error!("Error serving connection: {:?}", err);
                 }
             });
         }

@@ -478,7 +478,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                                 id,
                             };
 
-                            println!("Ready to sign the csr");
+                            service::log::info!("Ready to sign the csr");
                             let ca_cert = ca.root_ca_cert().unwrap();
                             let cert = ca_cert.sign_csr(cert_to_sign, ca).unwrap();
                             let der = cert.cert;
@@ -487,7 +487,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                             csr_check = Ok(der);
                         }
                         Err(e) => {
-                            println!("Error decoding csr to sign: {:?}", e);
+                            service::log::error!("Error decoding csr to sign: {:?}", e);
                         }
                     }
                 }
@@ -939,7 +939,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     b.line_break(|lb| lb);
                 }
                 Err(e) => {
-                    println!("Error reading certificate {:?}", e);
+                    service::log::error!("Error reading certificate {:?}", e);
                 }
             }
         } else if csr.is_some() {
@@ -1263,7 +1263,7 @@ async fn build_ocsp_response(
     };
 
     for r in req.tbs_request.request_list {
-        println!("Looking up a certificate");
+        service::log::info!("Looking up a certificate");
         let stat = ca.get_cert_status(&root_x509_cert, &r.certid).await;
         let resp = ocsp::response::OneResp {
             cid: r.certid,
@@ -1355,7 +1355,7 @@ async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 )
                 .unwrap(),
                 Some(s) => {
-                    println!("Signature is {:?}", s);
+                    service::log::info!("Signature is {:?}", s);
                     todo!("Verify signature");
                     //build_ocsp_response(&mut ca, ocsp).await
                 }
@@ -1364,7 +1364,7 @@ async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver:
             build_ocsp_response(ca, ocsp).await
         }
     } else {
-        println!("Did not parse ocsp request");
+        service::log::error!("Did not parse ocsp request");
         ocsp::response::OcspResponse::new_non_success(ocsp::response::OcspRespStatus::MalformedReq)
             .unwrap()
     };

@@ -227,7 +227,7 @@ impl Ca {
                 match cert {
                     Ok(c) => Some(c),
                     Err(e) => {
-                        println!("Error retrieving csr {:?}", e);
+                        service::log::error!("Error retrieving csr {:?}", e);
                         None
                     }
                 }
@@ -296,7 +296,7 @@ impl<'a> InternalPublicKey<'a> {
     /// * signature - The signature to check
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
         self.key.verify(data, signature).map_err(|e| {
-            println!("Error verifying signature 2 {:?}", e);
+            service::log::error!("Error verifying signature 2 {:?}", e);
         })
     }
 }

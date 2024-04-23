@@ -167,7 +167,7 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
         } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
             Ok(Self::Ecdsa)
         } else {
-            println!("The oid to convert is {:?}", value.oid);
+            service::log::error!("The oid to convert is {:?}", value.oid);
             Err(())
         }
     }
@@ -235,7 +235,7 @@ impl OwnerOptions {
     /// Set the owner of a single file
     pub async fn set_owner(&self, p: PathBuf) {
         if p.exists() {
-            println!("Setting ownership of {}", p.display());
+            service::log::info!("Setting ownership of {}", p.display());
             #[cfg(target_family = "unix")]
             {
                 std::os::unix::fs::chown(&p, Some(self.uid), None).unwrap();
@@ -255,7 +255,7 @@ impl CaCertificateStorageBuilder {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
             CaCertificateStorageBuilder::Sqlite(p) => {
-                println!("Building sqlite with {}", p.display());
+                service::log::info!("Building sqlite with {}", p.display());
                 let mut count = 0;
                 let mut pool;
                 loop {
@@ -387,7 +387,7 @@ impl CaCertificateStorage {
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
-                    println!("Inserting p12 {}", cert.id);
+                    service::log::info!("Inserting p12 {}", cert.id);
                     let name = name.to_owned();
                     p.conn(move |conn| {
                         let mut stmt = conn
@@ -808,7 +808,7 @@ impl Ca {
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
         let s_str: Vec<String> = serial.iter().map(|v| format!("{:02X}", v)).collect();
         let s_str = s_str.concat();
-        println!("Looking for serial number {}", s_str);
+        service::log::info!("Looking for serial number {}", s_str);
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::Sqlite(p) => {
@@ -825,11 +825,11 @@ impl Ca {
                     Ok(c) => {
                         use der::Decode;
                         let c = x509_cert::Certificate::from_der(&c).unwrap();
-                        println!("Found the cert");
+                        service::log::info!("Found the cert");
                         MaybeError::Ok(c)
                     }
                     Err(e) => {
-                        println!("Did not find the cert {:?}", e);
+                        service::log::error!("Did not find the cert {:?}", e);
                         MaybeError::None
                     }
                 }
@@ -957,10 +957,10 @@ impl Ca {
         let mut status = ocsp::response::CertStatusCode::Unknown;
 
         let hash = if oid == OID_HASH_SHA1.to_yasna() {
-            println!("Using sha1 for hashing");
+            service::log::info!("Using sha1 for hashing");
             HashType::Sha1
         } else {
-            println!("Unknown OID for hash is {:?}", oid);
+            service::log::error!("Unknown OID for hash is {:?}", oid);
             HashType::Unknown
         };
 
@@ -970,23 +970,13 @@ impl Ca {
         };
         let dnhash = hash.hash(&dn).unwrap();
 
-        println!(
-            "Compare {:02X?} and {:02X?}",
-            dnhash, certid.issuer_name_hash
-        );
-
         if dnhash == certid.issuer_name_hash {
             let key2 = root_cert
                 .tbs_certificate
                 .subject_public_key_info
                 .subject_public_key
                 .raw_bytes();
-            println!("The key to hash is {:02X?}", key2);
             let keyhash = hash.hash(key2).unwrap();
-            println!(
-                "Compare {:02X?} and {:02X?}",
-                keyhash, certid.issuer_key_hash
-            );
             if keyhash == certid.issuer_key_hash {
                 let cert = self.get_cert_by_serial(&certid.serial_num).await;
                 match cert {
