@@ -39,6 +39,7 @@ impl Pki {
     pub async fn init(settings: &crate::ca::PkiConfiguration, options: OwnerOptions) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
+            let config = &config.get_ca(&settings.proxy_config);
             let ca = crate::ca::Ca::init(config, &options).await;
             hm.insert(name.to_owned(), ca);
         }

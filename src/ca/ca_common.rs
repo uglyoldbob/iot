@@ -20,6 +20,79 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     ]
 }
 
+/// The items used to configure a local certificate authority in a pki configuration
+#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub struct LocalCaConfiguration {
+    /// Where to store the certificate authority
+    pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
+    pub root: bool,
+    /// The subject alternate names for the certificate authority.
+    pub san: Vec<String>,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: prompt::Password2,
+    /// The password to protect the admin p12 certificate document.
+    pub admin_password: prompt::Password2,
+    /// The password to protect the ocsp p12 certificate document.
+    pub ocsp_password: prompt::Password2,
+    /// The password to protect the root p12 certificate document.
+    pub root_password: prompt::Password2,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+}
+
+impl Default for LocalCaConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LocalCaConfiguration {
+    /// Construct a blank Self.
+    pub fn new() -> Self {
+        Self {
+            path: CaCertificateStorageBuilder::Nowhere,
+            root: true,
+            san: Vec::new(),
+            common_name: "".to_string(),
+            days: 1,
+            chain_length: 0,
+            admin_access_password: prompt::Password2::new("".to_string()),
+            admin_password: prompt::Password2::new("".to_string()),
+            ocsp_password: prompt::Password2::new("".to_string()),
+            root_password: prompt::Password2::new("".to_string()),
+            ocsp_signature: false,
+        }
+    }
+
+    ///Get a CaConfiguration from a LocalCaConfiguration
+    pub fn get_ca(&self, proxy: &Option<ProxyConfig>) -> CaConfiguration {
+        CaConfiguration {
+            path: self.path.clone(),
+            root: self.root,
+            san: self.san.clone(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_password: self.ocsp_password.clone(),
+            root_password: self.root_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port: proxy.as_ref().map(|a| a.http_port).flatten(),
+            https_port: proxy.as_ref().map(|a| a.https_port).flatten(),
+            proxy: proxy.as_ref().map(|a| a.public_name.to_owned()),
+            pki_name: Some("pki/".into()),
+        }
+    }
+}
+
 /// The items used to configure a certificate authority
 #[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
@@ -62,6 +135,23 @@ impl Default for CaConfiguration {
 }
 
 impl CaConfiguration {
+    /// Get a local ca configuration
+    pub fn get_local(&self) -> LocalCaConfiguration {
+        LocalCaConfiguration {
+            path: self.path.clone(),
+            root: self.root,
+            san: self.san.clone(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_password: self.ocsp_password.clone(),
+            root_password: self.root_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+        }
+    }
+
     /// Destroy the backend storage
     pub async fn destroy_backend(&mut self) {
         match &self.path {
@@ -600,11 +690,25 @@ impl CaCertificate {
     }
 }
 
+/// The options for setting up a reverse proxy that points to a server
+/// This redirects http://example.com/asdf/pki to https://server_name/pki
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub struct ProxyConfig {
+    /// The public name of the proxy, contains example.com/asdf for the example
+    public_name: String,
+    /// The public port number for http, 80 for the example (the default port for http)
+    http_port: Option<u16>,
+    /// The public port number for https, 443 for the example (the default port for https)
+    https_port: Option<u16>,
+}
+
 /// The configuration of a general pki instance.
 #[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct PkiConfiguration {
     /// List of local ca
-    pub local_ca: std::collections::HashMap<String, CaConfiguration>,
+    pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -627,21 +731,15 @@ impl Default for PkiConfigurationEnum {
 impl PkiConfigurationEnum {
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self) -> Option<String> {
-        let mut contents: String::new();
+        let mut contents = String::new();
         contents.push_str("#nginx reverse proxy settings\n");
         match self {
-            PkiConfigurationEnum::Pki(pki) => {
-                for ca in pki.local_ca.values() {
-                    
-                }
-            }
-            PkiConfigurationEnum::Ca(ca) => {
-                
-            }
+            PkiConfigurationEnum::Pki(pki) => for ca in pki.local_ca.values() {},
+            PkiConfigurationEnum::Ca(ca) => {}
         }
         Some(contents)
     }
-    
+
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
         Self::Ca(Box::new(CaConfiguration::new()))
@@ -667,6 +765,7 @@ impl Pki {
     pub async fn load(settings: &crate::ca::PkiConfiguration) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
+            let config = &config.get_ca(&settings.proxy_config);
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
         }

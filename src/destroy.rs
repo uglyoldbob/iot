@@ -180,6 +180,7 @@ async fn main() {
     match &mut settings.pki {
         ca::PkiConfigurationEnum::Pki(pki) => {
             for ca in pki.local_ca.values_mut() {
+                let mut ca = ca.get_ca(&pki.proxy_config);
                 ca.destroy_backend().await;
             }
         }

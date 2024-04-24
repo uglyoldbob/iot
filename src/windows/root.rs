@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    ca::{CaConfiguration, PkiConfigurationEnum},
+    ca::{CaConfiguration, LocalCaConfiguration, PkiConfigurationEnum},
     egui_multiwin_dynamic::{
         multi_window::NewWindowRequest,
         tracked_window::{RedrawResponse, TrackedWindow},
@@ -360,7 +360,7 @@ impl TrackedWindow for RootWindow {
                                 if ui.button("Add new entry").clicked() {
                                     pki.local_ca.insert(
                                         self.new_pki_entry.to_owned(),
-                                        CaConfiguration::default(),
+                                        LocalCaConfiguration::default(),
                                     );
                                     self.selected_pki_entry = Some(self.new_pki_entry.to_owned());
                                 }
@@ -387,7 +387,9 @@ impl TrackedWindow for RootWindow {
                                     }
                                 }
                                 if let Some(ca) = pki.local_ca.get_mut(&entry) {
-                                    edit_ca(ui, ca, Some(entry));
+                                    let ca2 = &mut ca.get_ca(&pki.proxy_config);
+                                    edit_ca(ui, ca2, Some(entry));
+                                    *ca = ca2.get_local();
                                 }
                             }
                             PkiConfigurationEnum::Ca(ca) => {
@@ -413,6 +415,7 @@ impl TrackedWindow for RootWindow {
                             match &self.answers.pki {
                                 PkiConfigurationEnum::Pki(pki) => {
                                     for (name, ca) in pki.local_ca.iter() {
+                                        let ca = &ca.get_ca(&pki.proxy_config);
                                         if let Some(a) = check_ca(ca) {
                                             reason_no_generate =
                                                 Some(format!("PKI ENTRY {}: {}", name, a));

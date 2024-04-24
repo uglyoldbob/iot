@@ -144,28 +144,6 @@ async fn main() {
             .expect("Failed to write answers file");
     }
 
-    if let crate::ca::PkiConfigurationEnum::Pki(p) = &mut config.pki {
-        for (name, ca) in p.local_ca.iter_mut() {
-            if ca.pki_name.is_none() {
-                ca.pki_name = Some(format!("pki/{}/", name));
-            }
-            if ca.http_port.is_none() && config.http.enabled {
-                ca.http_port = Some(config.http.port);
-            }
-            if ca.https_port.is_none() && config.https.enabled {
-                ca.https_port = Some(config.https.port);
-            }
-        }
-    }
-    if let crate::ca::PkiConfigurationEnum::Ca(ca) = &mut config.pki {
-        if ca.http_port.is_none() && config.http.enabled {
-            ca.http_port = Some(config.http.port);
-        }
-        if ca.https_port.is_none() && config.https.enabled {
-            ca.https_port = Some(config.https.port);
-        }
-    }
-
     println!("Saving the configuration file");
     let config_data = toml::to_string(&config).unwrap();
     let config_file = config_path.join(format!("{}-config.toml", name));
@@ -277,20 +255,23 @@ async fn main() {
     let ca = ca::PkiInstance::init(&config.pki, options).await;
     if let Some(proxy) = config.pki.reverse_proxy() {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
-        service::log::info!("Saving reverse proxy information to {}", proxy_name.display());
+        service::log::info!(
+            "Saving reverse proxy information to {}",
+            proxy_name.display()
+        );
         let mut f2 = tokio::fs::File::create(&proxy_name)
-                .await
-                .expect("Failed to create reverse proxy file");
+            .await
+            .expect("Failed to create reverse proxy file");
         f2.write_all(proxy.as_bytes())
             .await
             .expect("Failed to write reverse proxy file");
         #[cfg(target_family = "unix")]
         {
-            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
+            std::os::unix::fs::chown(&proxy_name, Some(user_uid.as_raw()), None)
                 .expect("Failled to set file owner");
-            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            let mut perms = std::fs::metadata(&proxy_name).unwrap().permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
-            std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
+            std::fs::set_permissions(proxy_name, perms).expect("Failed to set file permissions");
         }
     }
 
