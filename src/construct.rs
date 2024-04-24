@@ -142,6 +142,14 @@ async fn main() {
         f.write_all(answers.as_bytes())
             .await
             .expect("Failed to write answers file");
+        #[cfg(target_family = "unix")]
+        {
+            std::os::unix::fs::chown(&pb, Some(user_uid.as_raw()), None)
+                .expect("Failed to set file owner");
+            let mut perms = std::fs::metadata(&pb).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
+            std::fs::set_permissions(pb, perms).expect("Failed to set file permissions");
+        }
     }
 
     println!("Saving the configuration file");
@@ -185,7 +193,7 @@ async fn main() {
         #[cfg(target_family = "unix")]
         {
             std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                .expect("Failled to set file owner");
+                .expect("Failed to set file owner");
             let mut perms = std::fs::metadata(&p).unwrap().permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
             std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
@@ -224,7 +232,7 @@ async fn main() {
             #[cfg(target_family = "unix")]
             {
                 std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                    .expect("Failled to set file owner");
+                    .expect("Failed to set file owner");
                 let mut perms = std::fs::metadata(&p).unwrap().permissions();
                 std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
                 std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
@@ -268,7 +276,7 @@ async fn main() {
         #[cfg(target_family = "unix")]
         {
             std::os::unix::fs::chown(&proxy_name, Some(user_uid.as_raw()), None)
-                .expect("Failled to set file owner");
+                .expect("Failed to set file owner");
             let mut perms = std::fs::metadata(&proxy_name).unwrap().permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
             std::fs::set_permissions(proxy_name, perms).expect("Failed to set file permissions");
