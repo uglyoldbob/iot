@@ -36,10 +36,14 @@ impl CaCertificateStorage {
 
 impl Pki {
     /// Initialize a Pki instance with the specified configuration and options for setting file ownerships (as required).
-    pub async fn init(settings: &crate::ca::PkiConfiguration, options: OwnerOptions) -> Self {
+    pub async fn init(
+        settings: &crate::ca::PkiConfiguration,
+        main_config: &crate::main_config::MainConfiguration,
+        options: OwnerOptions,
+    ) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
-            let config = &config.get_ca(&settings.proxy_config);
+            let config = &config.get_ca(name, &settings.proxy_config, main_config);
             let ca = crate::ca::Ca::init(config, &options).await;
             hm.insert(name.to_owned(), ca);
         }
@@ -49,10 +53,14 @@ impl Pki {
 
 impl PkiInstance {
     /// Init a pki Instance from the given settings
-    pub async fn init(settings: &crate::ca::PkiConfigurationEnum, options: OwnerOptions) -> Self {
+    pub async fn init(
+        settings: &crate::ca::PkiConfigurationEnum,
+        main_config: &crate::main_config::MainConfiguration,
+        options: OwnerOptions,
+    ) -> Self {
         match settings {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::init(pki_config, options).await;
+                let pki = crate::ca::Pki::init(pki_config, main_config, options).await;
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {

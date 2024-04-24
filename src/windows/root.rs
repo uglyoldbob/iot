@@ -168,6 +168,7 @@ impl TrackedWindow for RootWindow {
                     if ui.button("Select database location").clicked() {
                         let f = rfd::AsyncFileDialog::new()
                             .add_filter("Sqlite database", &["sqlite"])
+                            .set_directory(crate::main_config::default_config_path())
                             .set_title("Save Sqlite database")
                             .save_file();
                         let message_sender = self.message_channel.0.clone();
@@ -322,6 +323,7 @@ impl TrackedWindow for RootWindow {
                             if ui.button("Select certificate file").clicked() {
                                 let f = rfd::AsyncFileDialog::new()
                                     .add_filter("Pkcs12 Certificate", &["p12"])
+                                    .set_directory(crate::main_config::default_config_path())
                                     .set_title("Load Certificate file")
                                     .pick_file();
                                 let message_sender = self.message_channel.0.clone();
@@ -387,7 +389,7 @@ impl TrackedWindow for RootWindow {
                                     }
                                 }
                                 if let Some(ca) = pki.local_ca.get_mut(&entry) {
-                                    let ca2 = &mut ca.get_ca(&pki.proxy_config);
+                                    let ca2 = &mut ca.get_editable_ca();
                                     edit_ca(ui, ca2, Some(entry));
                                     *ca = ca2.get_local();
                                 }
@@ -412,10 +414,12 @@ impl TrackedWindow for RootWindow {
                                 Some("HTTPS Certificate passwords do not match".to_string());
                         }
                         if reason_no_generate.is_none() {
+                            let mut config = crate::main_config::MainConfiguration::new();
+                            config.provide_answers(&self.answers);
                             match &self.answers.pki {
                                 PkiConfigurationEnum::Pki(pki) => {
                                     for (name, ca) in pki.local_ca.iter() {
-                                        let ca = &ca.get_ca(&pki.proxy_config);
+                                        let ca = &ca.get_ca(name, &pki.proxy_config, &config);
                                         if let Some(a) = check_ca(ca) {
                                             reason_no_generate =
                                                 Some(format!("PKI ENTRY {}: {}", name, a));

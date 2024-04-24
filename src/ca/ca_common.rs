@@ -6,7 +6,7 @@ use async_sqlite::rusqlite::ToSql;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
-use crate::{oid::*, pkcs12::BagAttribute};
+use crate::{oid::*, pkcs12::BagAttribute, MainConfiguration};
 
 /// Get the list of sqlite files from the base filename for a sqlite database
 pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
@@ -71,8 +71,8 @@ impl LocalCaConfiguration {
         }
     }
 
-    ///Get a CaConfiguration from a LocalCaConfiguration
-    pub fn get_ca(&self, proxy: &Option<ProxyConfig>) -> CaConfiguration {
+    ///Get a Caconfiguration for editing
+    pub fn get_editable_ca(&self) -> CaConfiguration {
         CaConfiguration {
             path: self.path.clone(),
             root: self.root,
@@ -85,10 +85,53 @@ impl LocalCaConfiguration {
             ocsp_password: self.ocsp_password.clone(),
             root_password: self.root_password.clone(),
             ocsp_signature: self.ocsp_signature,
-            http_port: proxy.as_ref().map(|a| a.http_port).flatten(),
-            https_port: proxy.as_ref().map(|a| a.https_port).flatten(),
+            http_port: None,
+            https_port: None,
+            proxy: None,
+            pki_name: None,
+        }
+    }
+
+    ///Get a CaConfiguration from a LocalCaConfiguration
+    /// #Arguments
+    /// * name - The name of the ca for pki purposes
+    /// *
+    pub fn get_ca(
+        &self,
+        name: &str,
+        proxy: &Option<ProxyConfig>,
+        settings: &MainConfiguration,
+    ) -> CaConfiguration {
+        let mut full_name = name.to_string();
+        if !full_name.ends_with('/') && !full_name.is_empty() {
+            full_name.push('/');
+        }
+        let http_port = proxy
+            .as_ref()
+            .map(|a| a.http_port)
+            .flatten()
+            .or_else(|| Some(settings.get_http_port()));
+        let https_port = proxy
+            .as_ref()
+            .map(|a| a.https_port)
+            .flatten()
+            .or_else(|| Some(settings.get_https_port()));
+        CaConfiguration {
+            path: self.path.clone(),
+            root: self.root,
+            san: self.san.clone(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_password: self.ocsp_password.clone(),
+            root_password: self.root_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port,
+            https_port,
             proxy: proxy.as_ref().map(|a| a.public_name.to_owned()),
-            pki_name: Some("pki/".into()),
+            pki_name: Some(format!("pki/{}", full_name)),
         }
     }
 }
@@ -153,7 +196,7 @@ impl CaConfiguration {
     }
 
     /// Destroy the backend storage
-    pub async fn destroy_backend(&mut self) {
+    pub async fn destroy_backend(&self) {
         match &self.path {
             CaCertificateStorageBuilder::Nowhere => {}
             CaCertificateStorageBuilder::Sqlite(p) => {
@@ -762,10 +805,13 @@ pub struct Pki {
 
 impl Pki {
     /// Load pki stuff
-    pub async fn load(settings: &crate::ca::PkiConfiguration) -> Self {
+    pub async fn load(
+        settings: &crate::ca::PkiConfiguration,
+        main_config: &MainConfiguration,
+    ) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
-            let config = &config.get_ca(&settings.proxy_config);
+            let config = &config.get_ca(name, &settings.proxy_config, main_config);
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
         }
@@ -791,7 +837,7 @@ impl PkiInstance {
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::load(pki_config).await;
+                let pki = crate::ca::Pki::load(pki_config, settings).await;
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {

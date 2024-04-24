@@ -177,10 +177,10 @@ async fn main() {
         settings = do_without_tpm2(settings_con).await;
     }
 
-    match &mut settings.pki {
+    match &settings.pki {
         ca::PkiConfigurationEnum::Pki(pki) => {
-            for ca in pki.local_ca.values_mut() {
-                let mut ca = ca.get_ca(&pki.proxy_config);
+            for (name, ca) in &pki.local_ca {
+                let ca = ca.get_ca(name, &pki.proxy_config, &settings);
                 ca.destroy_backend().await;
             }
         }
