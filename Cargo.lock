@@ -3840,7 +3840,6 @@ dependencies = [
  "prompt",
  "rand 0.8.5",
  "rcgen",
- "regex",
  "rfd",
  "ring 0.17.8",
  "rsa",

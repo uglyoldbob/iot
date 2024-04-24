@@ -18,6 +18,7 @@ struct AeadEncryptedData {
 
 /// Retrieve the default path for the tpm2 device node
 #[cfg(all(feature = "tpm2", target_os = "linux"))]
+#[allow(dead_code)]
 pub fn tpm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
     use std::str::FromStr;
     let node = "/dev/tpmrm0";
@@ -191,6 +192,7 @@ pub struct Tpm2 {
 #[cfg(feature = "tpm2")]
 impl Tpm2 {
     /// Contruct a new tpm, using the specified node to commmunicate to the tpm hardware
+    #[allow(dead_code)]
     pub fn new(node: tss_esapi::tcti_ldr::TctiNameConf) -> Option<Self> {
         let mut context = tss_esapi::Context::new(node).ok()?;
 

@@ -36,6 +36,7 @@ impl CaCertificateStorage {
 
 impl Pki {
     /// Initialize a Pki instance with the specified configuration and options for setting file ownerships (as required).
+    #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
@@ -53,6 +54,7 @@ impl Pki {
 
 impl PkiInstance {
     /// Init a pki Instance from the given settings
+    #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfigurationEnum,
         main_config: &crate::main_config::MainConfiguration,

@@ -1046,6 +1046,7 @@ pub struct Pki {
 
 impl Pki {
     /// Load pki stuff
+    #[allow(dead_code)]
     pub async fn load(
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
@@ -1060,6 +1061,7 @@ impl Pki {
     }
 
     /// Retrieve the certificate authorities associated with verifying client certificates
+    #[allow(dead_code)]
     pub async fn get_client_certifiers(&self) -> std::collections::hash_map::Values<String, Ca> {
         self.roots.values()
     }
@@ -1075,6 +1077,7 @@ pub enum PkiInstance {
 
 impl PkiInstance {
     /// Load an instance of self from the settings.
+    #[allow(dead_code)]
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {

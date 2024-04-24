@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    ca::{CaConfiguration, LocalCaConfiguration, PkiConfigurationEnum},
+    ca::{LocalCaConfiguration, PkiConfigurationEnum},
     egui_multiwin_dynamic::{
         multi_window::NewWindowRequest,
         tracked_window::{RedrawResponse, TrackedWindow},

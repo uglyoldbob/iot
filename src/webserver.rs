@@ -2,7 +2,6 @@
 
 use futures::Future;
 use hyper::{Request, Response, StatusCode};
-use regex::Regex;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::marker::PhantomData;
@@ -158,6 +157,7 @@ impl PostContent {
     }
 
     /// Just get the post content
+    #[allow(dead_code)]
     pub fn content(&self) -> Option<Vec<u8>> {
         self.body.as_ref().map(|d| d.to_vec())
     }
@@ -179,6 +179,7 @@ impl PostContent {
     }
 
     /// Convert the post content to a multipart request if possible.
+    #[allow(dead_code)]
     pub fn multipart(&self) -> Option<multipart::server::Multipart<Self>> {
         multipart::server::Multipart::from_request(self.to_owned()).ok()
     }

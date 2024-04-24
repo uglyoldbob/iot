@@ -33,14 +33,14 @@ impl Ca {
         csr: &'a x509_cert::request::CertReq,
     ) -> Result<&'a x509_cert::request::CertReq, ()> {
         use der::Encode;
-        let info = csr.info.to_der().unwrap();
+        let _info = csr.info.to_der().unwrap();
         let pubkey = &csr.info.public_key;
-        let signature = &csr.signature;
+        let _signature = &csr.signature;
 
         let p = &pubkey.subject_public_key;
         let pder = p.to_der().unwrap();
 
-        let pkey = yasna::parse_der(&pder, |r| {
+        let _pkey = yasna::parse_der(&pder, |r| {
             let (data, _size) = r.read_bitvec_bytes()?;
             Ok(data)
         })
@@ -270,6 +270,7 @@ impl<'a> InternalPublicKey<'a> {
     /// # Arguments
     /// * algorithm - The signing algorithm for the public key
     /// * key - The der bytes of the public key. For RSA this is a sequence of two integers.
+    #[allow(dead_code)]
     pub fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
         match algorithm {
             CertificateSigningMethod::RsaSha1 => Self {
@@ -294,6 +295,7 @@ impl<'a> InternalPublicKey<'a> {
     /// # Arguments
     /// * data - The data that has been signed
     /// * signature - The signature to check
+    #[allow(dead_code)]
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<(), ()> {
         self.key.verify(data, signature).map_err(|e| {
             service::log::error!("Error verifying signature 2 {:?}", e);
