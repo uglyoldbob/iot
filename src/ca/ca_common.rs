@@ -794,91 +794,101 @@ impl Default for PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Build an nginx reverse proxy config
+    fn nginx_reverse(
+        &self,
+        proxy: &ProxyConfig,
+        config: &MainConfiguration,
+        _ca: Option<&CaConfiguration>,
+    ) -> String {
+        let mut contents = String::new();
+        contents.push_str("#nginx reverse proxy settings\n");
+        if let Some(http) = proxy.http_port {
+            for complex_name in &config.public_names {
+                contents.push_str("server {\n");
+                contents.push_str(&format!("\tlisten {};\n", http));
+                contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
+                contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                if config.https.enabled {
+                    if config.https.port == 443 {
+                        contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
+                    } else {
+                        contents.push_str(&format!(
+                            "\t\tproxy_pass https://127.0.0.1:{}/;\n",
+                            config.https.port
+                        ));
+                    }
+                    if config.https.require_certificate {
+                        contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
+                        contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
+                    }
+                } else if config.http.enabled {
+                    if config.http.port == 80 {
+                        contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
+                    } else {
+                        contents.push_str(&format!(
+                            "\t\tproxy_pass http://127.0.0.1:{}/;\n",
+                            config.http.port
+                        ));
+                    }
+                }
+                contents.push_str("\t}\n}\n\n");
+            }
+        }
+        if let Some(https) = proxy.https_port {
+            for complex_name in &config.public_names {
+                contents.push_str("server {\n");
+                contents.push_str(&format!("\tlisten {} ssl;\n", https));
+                contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
+                contents.push_str("\tssl_certificate /put/location/here;\n");
+                contents.push_str("\tssl_certificate_key /put/location/here;\n");
+                contents.push_str("\tssl_verify_client optional;\n");
+                contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                contents
+                    .push_str("\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n");
+                if config.https.enabled {
+                    if config.https.port == 443 {
+                        contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
+                    } else {
+                        contents.push_str(&format!(
+                            "\t\tproxy_pass https://127.0.0.1:{}/;\n",
+                            config.https.port
+                        ));
+                    }
+                    if config.https.require_certificate {
+                        contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
+                        contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
+                    }
+                } else if config.http.enabled {
+                    if config.http.port == 80 {
+                        contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
+                    } else {
+                        contents.push_str(&format!(
+                            "\t\tproxy_pass http://127.0.0.1:{}/;\n",
+                            config.http.port
+                        ));
+                    }
+                }
+                contents.push_str("\t}\n}\n\n");
+            }
+        }
+        contents
+    }
+
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
         if let Some(proxy) = &config.proxy_config {
-            if let PkiConfigurationEnum::Pki(_pki) = self {
-                let mut contents = String::new();
-                contents.push_str("#nginx reverse proxy settings\n");
-                if let Some(http) = proxy.http_port {
-                    for complex_name in &config.public_names {
-                        contents.push_str("server {\n");
-                        contents.push_str(&format!("\tlisten {};\n", http));
-                        contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
-                        contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
-                        if config.https.enabled {
-                            if config.https.port == 443 {
-                                contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
-                            } else {
-                                contents.push_str(&format!(
-                                    "\t\tproxy_pass https://127.0.0.1:{}/;\n",
-                                    config.https.port
-                                ));
-                            }
-                            if config.https.require_certificate {
-                                contents
-                                    .push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
-                                contents.push_str(
-                                    "\t\tproxy_ssl_certificate_key /put/location/here;\n",
-                                );
-                            }
-                        } else if config.http.enabled {
-                            if config.http.port == 80 {
-                                contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
-                            } else {
-                                contents.push_str(&format!(
-                                    "\t\tproxy_pass http://127.0.0.1:{}/;\n",
-                                    config.http.port
-                                ));
-                            }
-                        }
-                        contents.push_str("\t}\n}\n\n");
-                    }
+            match self {
+                PkiConfigurationEnum::Pki(_) => {
+                    let mut contents = String::new();
+                    contents.push_str(&self.nginx_reverse(proxy, config, None));
+                    Some(contents)
                 }
-                if let Some(https) = proxy.https_port {
-                    for complex_name in &config.public_names {
-                        contents.push_str("server {\n");
-                        contents.push_str(&format!("\tlisten {} ssl;\n", https));
-                        contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
-                        contents.push_str("\tssl_certificate /put/location/here;\n");
-                        contents.push_str("\tssl_certificate_key /put/location/here;\n");
-                        contents.push_str("\tssl_verify_client optional;\n");
-                        contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
-                        contents.push_str(
-                            "\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n",
-                        );
-                        if config.https.enabled {
-                            if config.https.port == 443 {
-                                contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
-                            } else {
-                                contents.push_str(&format!(
-                                    "\t\tproxy_pass https://127.0.0.1:{}/;\n",
-                                    config.https.port
-                                ));
-                            }
-                            if config.https.require_certificate {
-                                contents
-                                    .push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
-                                contents.push_str(
-                                    "\t\tproxy_ssl_certificate_key /put/location/here;\n",
-                                );
-                            }
-                        } else if config.http.enabled {
-                            if config.http.port == 80 {
-                                contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
-                            } else {
-                                contents.push_str(&format!(
-                                    "\t\tproxy_pass http://127.0.0.1:{}/;\n",
-                                    config.http.port
-                                ));
-                            }
-                        }
-                        contents.push_str("\t}\n}\n\n");
-                    }
+                PkiConfigurationEnum::Ca(ca) => {
+                    let mut contents = String::new();
+                    contents.push_str(&self.nginx_reverse(proxy, config, Some(ca.as_ref())));
+                    Some(contents)
                 }
-                Some(contents)
-            } else {
-                None
             }
         } else {
             None
