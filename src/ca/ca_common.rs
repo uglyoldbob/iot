@@ -801,7 +801,7 @@ impl PkiConfigurationEnum {
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
         if let Some(proxy) = &config.proxy_config {
-            if let PkiConfigurationEnum::Pki(pki) = self {
+            if let PkiConfigurationEnum::Pki(_pki) = self {
                 let mut contents = String::new();
                 contents.push_str("#nginx reverse proxy settings\n");
                 if let Some(http) = proxy.http_port {
@@ -818,6 +818,13 @@ impl PkiConfigurationEnum {
                                     "\t\tproxy_pass https://127.0.0.1:{}/;\n",
                                     config.https.port
                                 ));
+                            }
+                            if config.https.require_certificate {
+                                contents
+                                    .push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
+                                contents.push_str(
+                                    "\t\tproxy_ssl_certificate_key /put/location/here;\n",
+                                );
                             }
                         } else if config.http.enabled {
                             if config.http.port == 80 {
@@ -852,6 +859,13 @@ impl PkiConfigurationEnum {
                                     "\t\tproxy_pass https://127.0.0.1:{}/;\n",
                                     config.https.port
                                 ));
+                            }
+                            if config.https.require_certificate {
+                                contents
+                                    .push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
+                                contents.push_str(
+                                    "\t\tproxy_ssl_certificate_key /put/location/here;\n",
+                                );
                             }
                         } else if config.http.enabled {
                             if config.http.port == 80 {

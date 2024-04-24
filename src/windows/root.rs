@@ -271,17 +271,6 @@ impl TrackedWindow for RootWindow {
                         ui.text_edit_singleline(&mut self.service_name);
                         ui.label("Cookie name");
                         ui.text_edit_singleline(&mut self.answers.general.cookie);
-                        let mut proxy = self.answers.general.proxy.is_some();
-                        ui.checkbox(&mut proxy, "Use proxy");
-                        if proxy && self.answers.general.proxy.is_none() {
-                            self.answers.general.proxy = Some(String::new());
-                        }
-                        if !proxy && self.answers.general.proxy.is_some() {
-                            self.answers.general.proxy = None;
-                        }
-                        if let Some(proxy) = &mut self.answers.general.proxy {
-                            ui.text_edit_singleline(proxy);
-                        }
                         ui.label("Static content");
                         ui.text_edit_singleline(&mut self.answers.general.static_content);
                         {

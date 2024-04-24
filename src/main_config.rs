@@ -23,8 +23,6 @@ pub fn default_config_path() -> std::path::PathBuf {
 pub struct GeneralSettings {
     /// The name of the cookie to use.
     pub cookie: String,
-    /// The proxy string for the server. When set to some, this path prefixes all paths because it is behing a reverse proxy.
-    pub proxy: Option<String>,
     /// The path to get to the static content of the site
     pub static_content: String,
 }
@@ -40,7 +38,6 @@ impl GeneralSettings {
     fn new() -> Self {
         Self {
             cookie: "".into(),
-            proxy: None,
             static_content: "./content".into(),
         }
     }
@@ -217,6 +214,7 @@ impl MainConfiguration {
         self.http = answers.http.clone();
         self.https = answers.https.clone();
         self.database = answers.database.clone();
+        self.proxy_config = answers.proxy_config.clone();
         self.pki = answers.pki.clone();
     }
 

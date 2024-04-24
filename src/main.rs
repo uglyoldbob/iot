@@ -431,13 +431,7 @@ async fn main() {
         user::set_admin_login(mysql_conn_s, &settings);
     }
 
-    hc.proxy = settings.general.proxy.to_owned();
-    let proxy = if let Some(p) = &hc.proxy {
-        p.to_owned()
-    } else {
-        String::new()
-    };
-    hc.cookiename = format!("/{}{}", proxy, settings.general.cookie);
+    hc.cookiename = format!("/{}", settings.general.cookie);
 
     if let Some(proxy) = &hc.proxy {
         service::log::info!("Using {} as the proxy path", proxy);
