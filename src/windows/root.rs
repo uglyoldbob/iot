@@ -384,7 +384,8 @@ impl TrackedWindow for RootWindow {
                                 }
                             }
                             PkiConfigurationEnum::Ca(ca) => {
-                                edit_ca(ui, ca, None);
+                                let ca2 = &mut ca.get_editable_ca();
+                                edit_ca(ui, ca2, None);
                             }
                         }
 
@@ -417,6 +418,7 @@ impl TrackedWindow for RootWindow {
                                     }
                                 }
                                 PkiConfigurationEnum::Ca(ca) => {
+                                    let ca = &ca.get_ca(&config);
                                     if let Some(a) = check_ca(ca) {
                                         reason_no_generate = Some(a);
                                     }

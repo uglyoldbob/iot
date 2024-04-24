@@ -20,6 +20,124 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     ]
 }
 
+/// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
+#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub struct StandaloneCaConfiguration {
+    /// Where to store the certificate authority
+    pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
+    pub root: bool,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: prompt::Password2,
+    /// The password to protect the admin p12 certificate document.
+    pub admin_password: prompt::Password2,
+    /// The password to protect the ocsp p12 certificate document.
+    pub ocsp_password: prompt::Password2,
+    /// The password to protect the root p12 certificate document.
+    pub root_password: prompt::Password2,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+    /// The name of the ca instance
+    pub name: String,
+}
+
+impl Default for StandaloneCaConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StandaloneCaConfiguration {
+    /// Construct a blank Self.
+    pub fn new() -> Self {
+        Self {
+            path: CaCertificateStorageBuilder::Nowhere,
+            root: true,
+            common_name: "".to_string(),
+            days: 1,
+            chain_length: 0,
+            admin_access_password: prompt::Password2::new("".to_string()),
+            admin_password: prompt::Password2::new("".to_string()),
+            ocsp_password: prompt::Password2::new("".to_string()),
+            root_password: prompt::Password2::new("".to_string()),
+            ocsp_signature: false,
+            name: String::new(),
+        }
+    }
+
+    ///Get a Caconfiguration for editing
+    pub fn get_editable_ca(&self) -> CaConfiguration {
+        CaConfiguration {
+            path: self.path.clone(),
+            root: self.root,
+            san: Vec::new(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_password: self.ocsp_password.clone(),
+            root_password: self.root_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port: None,
+            https_port: None,
+            proxy: None,
+            pki_name: None,
+        }
+    }
+
+    ///Get a CaConfiguration from a LocalCaConfiguration
+    /// #Arguments
+    /// * name - The name of the ca for pki purposes
+    /// * settings - The application settings
+    pub fn get_ca(&self, settings: &MainConfiguration) -> CaConfiguration {
+        let mut full_name = self.name.clone();
+        if !full_name.ends_with('/') && !full_name.is_empty() {
+            full_name.push('/');
+        }
+        let san: Vec<String> = settings
+            .public_names
+            .iter()
+            .map(|n| n.domain.clone())
+            .collect();
+        let http_port = settings
+            .proxy_config
+            .as_ref()
+            .map(|a| a.http_port)
+            .flatten()
+            .or_else(|| Some(settings.get_http_port()));
+        let https_port = settings
+            .proxy_config
+            .as_ref()
+            .map(|a| a.https_port)
+            .flatten()
+            .or_else(|| Some(settings.get_https_port()));
+        CaConfiguration {
+            path: self.path.clone(),
+            root: self.root,
+            san,
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_password: self.ocsp_password.clone(),
+            root_password: self.root_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port,
+            https_port,
+            proxy: Some(settings.public_names[0].subdomain.to_owned()),
+            pki_name: Some(format!("pki/{}", full_name)),
+        }
+    }
+}
+
 /// The items used to configure a local certificate authority in a pki configuration
 #[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct LocalCaConfiguration {
@@ -92,7 +210,7 @@ impl LocalCaConfiguration {
     ///Get a CaConfiguration from a LocalCaConfiguration
     /// #Arguments
     /// * name - The name of the ca for pki purposes
-    /// *
+    /// * settings - The application settings
     pub fn get_ca(&self, name: &str, settings: &MainConfiguration) -> CaConfiguration {
         let mut full_name = name.to_string();
         if !full_name.ends_with('/') && !full_name.is_empty() {
@@ -784,7 +902,7 @@ pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
     Pki(PkiConfiguration),
     /// A standard certificate authority configuration
-    Ca(Box<CaConfiguration>),
+    Ca(Box<StandaloneCaConfiguration>),
 }
 
 impl Default for PkiConfigurationEnum {
@@ -799,7 +917,7 @@ impl PkiConfigurationEnum {
         &self,
         proxy: &ProxyConfig,
         config: &MainConfiguration,
-        _ca: Option<&CaConfiguration>,
+        _ca: Option<&StandaloneCaConfiguration>,
     ) -> String {
         let mut contents = String::new();
         contents.push_str("#nginx reverse proxy settings\n");
@@ -897,7 +1015,7 @@ impl PkiConfigurationEnum {
 
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
-        Self::Ca(Box::new(CaConfiguration::new()))
+        Self::Ca(Box::new(StandaloneCaConfiguration::new()))
     }
 
     /// The display name of the item for gui purposes
@@ -953,6 +1071,7 @@ impl PkiInstance {
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {
+                let ca_config = &ca_config.get_ca(settings);
                 let ca = Ca::load(ca_config).await;
                 Self::Ca(ca)
             }

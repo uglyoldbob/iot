@@ -185,6 +185,7 @@ async fn main() {
             }
         }
         ca::PkiConfigurationEnum::Ca(ca) => {
+            let ca = ca.get_ca(&settings);
             ca.destroy_backend().await;
         }
     }

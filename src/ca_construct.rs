@@ -64,7 +64,8 @@ impl PkiInstance {
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {
-                let ca = crate::ca::Ca::init(ca_config, &options).await;
+                let ca = ca_config.get_ca(main_config);
+                let ca = crate::ca::Ca::init(&ca, &options).await;
                 Self::Ca(ca)
             }
         }
