@@ -210,4 +210,9 @@ async fn main() {
     {
         do_without_tpm2().await;
     }
+
+    let proxy_name = std::path::PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
+    if proxy_name.exists() {
+        tokio::fs::remove_file(proxy_name).await;
+    }
 }

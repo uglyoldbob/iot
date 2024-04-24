@@ -625,6 +625,23 @@ impl Default for PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Build a example config for reverse proxy if applicable
+    pub fn reverse_proxy(&self) -> Option<String> {
+        let mut contents: String::new();
+        contents.push_str("#nginx reverse proxy settings\n");
+        match self {
+            PkiConfigurationEnum::Pki(pki) => {
+                for ca in pki.local_ca.values() {
+                    
+                }
+            }
+            PkiConfigurationEnum::Ca(ca) => {
+                
+            }
+        }
+        Some(contents)
+    }
+    
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
         Self::Ca(Box::new(CaConfiguration::new()))
@@ -671,11 +688,6 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
-    /// Build a example config for reverse proxy if applicable
-    pub fn reverse_proxy(&self) -> Option<String> {
-        None
-    }
-
     /// Load an instance of self from the settings.
     pub async fn load(settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {

@@ -275,7 +275,7 @@ async fn main() {
     let options = ca::OwnerOptions::new();
 
     let ca = ca::PkiInstance::init(&config.pki, options).await;
-    if let Some(proxy) = ca.reverse_proxy() {
+    if let Some(proxy) = config.pki.reverse_proxy() {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!("Saving reverse proxy information to {}", proxy_name.display());
         let mut f2 = tokio::fs::File::create(&proxy_name)
