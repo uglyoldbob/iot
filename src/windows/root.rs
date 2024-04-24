@@ -419,7 +419,7 @@ impl TrackedWindow for RootWindow {
                             match &self.answers.pki {
                                 PkiConfigurationEnum::Pki(pki) => {
                                     for (name, ca) in pki.local_ca.iter() {
-                                        let ca = &ca.get_ca(name, &pki.proxy_config, &config);
+                                        let ca = &ca.get_ca(name, &config);
                                         if let Some(a) = check_ca(ca) {
                                             reason_no_generate =
                                                 Some(format!("PKI ENTRY {}: {}", name, a));

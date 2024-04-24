@@ -180,7 +180,7 @@ async fn main() {
     match &settings.pki {
         ca::PkiConfigurationEnum::Pki(pki) => {
             for (name, ca) in &pki.local_ca {
-                let ca = ca.get_ca(name, &pki.proxy_config, &settings);
+                let ca = ca.get_ca(name, &settings);
                 ca.destroy_backend().await;
             }
         }

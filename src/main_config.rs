@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use prompt::Prompting;
 
+use crate::ca::ProxyConfig;
+
 #[cfg(target_os = "linux")]
 /// Returns the default config file.
 pub fn default_config_path() -> std::path::PathBuf {
@@ -160,6 +162,8 @@ pub struct MainConfigurationAnswers {
     pub https: HttpsSettings,
     /// Settings for the database
     pub database: DatabaseSettings,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
 }
@@ -177,6 +181,8 @@ pub struct MainConfiguration {
     pub https: HttpsSettings,
     /// Settings for the database
     pub database: DatabaseSettings,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
     /// Settings for client certificates
     pub client_certs: Option<Vec<String>>,
     /// The settings for a pki
@@ -197,6 +203,7 @@ impl MainConfiguration {
             admin: AdminSettings::new(),
             http: HttpSettings::new(),
             https: HttpsSettings::new(),
+            proxy_config: None,
             database: DatabaseSettings::new(),
             client_certs: None,
             pki: crate::ca::PkiConfigurationEnum::new(),

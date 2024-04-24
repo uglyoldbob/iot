@@ -96,22 +96,19 @@ impl LocalCaConfiguration {
     /// #Arguments
     /// * name - The name of the ca for pki purposes
     /// *
-    pub fn get_ca(
-        &self,
-        name: &str,
-        proxy: &Option<ProxyConfig>,
-        settings: &MainConfiguration,
-    ) -> CaConfiguration {
+    pub fn get_ca(&self, name: &str, settings: &MainConfiguration) -> CaConfiguration {
         let mut full_name = name.to_string();
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let http_port = proxy
+        let http_port = settings
+            .proxy_config
             .as_ref()
             .map(|a| a.http_port)
             .flatten()
             .or_else(|| Some(settings.get_http_port()));
-        let https_port = proxy
+        let https_port = settings
+            .proxy_config
             .as_ref()
             .map(|a| a.https_port)
             .flatten()
@@ -130,7 +127,10 @@ impl LocalCaConfiguration {
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
-            proxy: proxy.as_ref().map(|a| a.public_name.to_owned()),
+            proxy: settings
+                .proxy_config
+                .as_ref()
+                .map(|a| a.public_name.to_owned()),
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }
@@ -750,8 +750,6 @@ pub struct ProxyConfig {
 pub struct PkiConfiguration {
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
-    /// The optional proxy configuration
-    pub proxy_config: Option<ProxyConfig>,
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -773,14 +771,47 @@ impl Default for PkiConfigurationEnum {
 
 impl PkiConfigurationEnum {
     /// Build a example config for reverse proxy if applicable
-    pub fn reverse_proxy(&self) -> Option<String> {
-        let mut contents = String::new();
-        contents.push_str("#nginx reverse proxy settings\n");
-        match self {
-            PkiConfigurationEnum::Pki(pki) => for ca in pki.local_ca.values() {},
-            PkiConfigurationEnum::Ca(ca) => {}
+    pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
+        if let Some(proxy) = &config.proxy_config {
+            if let PkiConfigurationEnum::Pki(pki) = self {
+                let mut contents = String::new();
+                contents.push_str("#nginx reverse proxy settings\n");
+                if let Some(http) = proxy.http_port {
+                    contents.push_str("server {\n");
+                    contents.push_str(&format!("\tlisten {} ssl\n", http));
+                    contents.push_str("\tssl_certificate /put/location/here\n");
+                    contents.push_str("\tssl_certificate_key /put/location/here\n");
+                    contents.push_str("\tlocation /\n");
+                    if config.https.enabled {
+                        if config.https.port == 443 {
+                            contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
+                        } else {
+                            contents.push_str(&format!(
+                                "\t\tproxy_pass https://127.0.0.1:{}/;\n",
+                                config.https.port
+                            ));
+                        }
+                    } else if config.http.enabled {
+                        if config.http.port == 80 {
+                            contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
+                        } else {
+                            contents.push_str(&format!(
+                                "\t\tproxy_pass http://127.0.0.1:{}/;\n",
+                                config.http.port
+                            ));
+                        }
+                    }
+                    contents.push_str("\t}\n");
+                    contents.push_str("}\n");
+                }
+                if let Some(https) = proxy.https_port {}
+                Some(contents)
+            } else {
+                None
+            }
+        } else {
+            None
         }
-        Some(contents)
     }
 
     /// Construct a new ca, defaulting to a Ca configuration
@@ -811,7 +842,7 @@ impl Pki {
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in &settings.local_ca {
-            let config = &config.get_ca(name, &settings.proxy_config, main_config);
+            let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
         }

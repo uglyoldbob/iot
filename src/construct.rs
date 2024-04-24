@@ -253,7 +253,7 @@ async fn main() {
     let options = ca::OwnerOptions::new();
 
     let ca = ca::PkiInstance::init(&config.pki, &config, options).await;
-    if let Some(proxy) = config.pki.reverse_proxy() {
+    if let Some(proxy) = config.pki.reverse_proxy(&config) {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!(
             "Saving reverse proxy information to {}",
