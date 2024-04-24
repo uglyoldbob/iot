@@ -130,7 +130,7 @@ impl LocalCaConfiguration {
             proxy: settings
                 .proxy_config
                 .as_ref()
-                .map(|a| a.public_name.to_owned()),
+                .map(|a| a.public_names[0].subdomain.to_owned()),
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }
@@ -733,12 +733,40 @@ impl CaCertificate {
     }
 }
 
+/// Represents a domain and a subdomain for proxying
+#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+pub struct ComplexName {
+    /// The domain name, such as example.com
+    domain: String,
+    /// The subdomain, such as / or /asdf
+    subdomain: String,
+}
+
+impl std::str::FromStr for ComplexName {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = if let Some((a, b)) = s.split_once('/') {
+            ComplexName {
+                domain: a.to_string(),
+                subdomain: format!("/{}", b),
+            }
+        } else {
+            ComplexName {
+                domain: s.to_string(),
+                subdomain: "/".to_string(),
+            }
+        };
+        Ok(s)
+    }
+}
+
 /// The options for setting up a reverse proxy that points to a server
 /// This redirects http://example.com/asdf/pki to https://server_name/pki
 #[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct ProxyConfig {
     /// The public name of the proxy, contains example.com/asdf for the example
-    public_name: String,
+    public_names: Vec<ComplexName>,
     /// The public port number for http, 80 for the example (the default port for http)
     http_port: Option<u16>,
     /// The public port number for https, 443 for the example (the default port for https)
@@ -777,34 +805,67 @@ impl PkiConfigurationEnum {
                 let mut contents = String::new();
                 contents.push_str("#nginx reverse proxy settings\n");
                 if let Some(http) = proxy.http_port {
-                    contents.push_str("server {\n");
-                    contents.push_str(&format!("\tlisten {} ssl\n", http));
-                    contents.push_str("\tssl_certificate /put/location/here\n");
-                    contents.push_str("\tssl_certificate_key /put/location/here\n");
-                    contents.push_str("\tlocation /\n");
-                    if config.https.enabled {
-                        if config.https.port == 443 {
-                            contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
-                        } else {
-                            contents.push_str(&format!(
-                                "\t\tproxy_pass https://127.0.0.1:{}/;\n",
-                                config.https.port
-                            ));
+                    for complex_name in &proxy.public_names {
+                        contents.push_str("server {\n");
+                        contents.push_str(&format!("\tlisten {};\n", http));
+                        contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
+                        contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                        if config.https.enabled {
+                            if config.https.port == 443 {
+                                contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
+                            } else {
+                                contents.push_str(&format!(
+                                    "\t\tproxy_pass https://127.0.0.1:{}/;\n",
+                                    config.https.port
+                                ));
+                            }
+                        } else if config.http.enabled {
+                            if config.http.port == 80 {
+                                contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
+                            } else {
+                                contents.push_str(&format!(
+                                    "\t\tproxy_pass http://127.0.0.1:{}/;\n",
+                                    config.http.port
+                                ));
+                            }
                         }
-                    } else if config.http.enabled {
-                        if config.http.port == 80 {
-                            contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
-                        } else {
-                            contents.push_str(&format!(
-                                "\t\tproxy_pass http://127.0.0.1:{}/;\n",
-                                config.http.port
-                            ));
-                        }
+                        contents.push_str("\t}\n}\n\n");
                     }
-                    contents.push_str("\t}\n");
-                    contents.push_str("}\n");
                 }
-                if let Some(https) = proxy.https_port {}
+                if let Some(https) = proxy.https_port {
+                    for complex_name in &proxy.public_names {
+                        contents.push_str("server {\n");
+                        contents.push_str(&format!("\tlisten {} ssl;\n", https));
+                        contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
+                        contents.push_str("\tssl_certificate /put/location/here;\n");
+                        contents.push_str("\tssl_certificate_key /put/location/here;\n");
+                        contents.push_str("\tssl_verify_client optional;\n");
+                        contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                        contents.push_str(
+                            "\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n",
+                        );
+                        if config.https.enabled {
+                            if config.https.port == 443 {
+                                contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
+                            } else {
+                                contents.push_str(&format!(
+                                    "\t\tproxy_pass https://127.0.0.1:{}/;\n",
+                                    config.https.port
+                                ));
+                            }
+                        } else if config.http.enabled {
+                            if config.http.port == 80 {
+                                contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
+                            } else {
+                                contents.push_str(&format!(
+                                    "\t\tproxy_pass http://127.0.0.1:{}/;\n",
+                                    config.http.port
+                                ));
+                            }
+                        }
+                        contents.push_str("\t}\n}\n\n");
+                    }
+                }
                 Some(contents)
             } else {
                 None
