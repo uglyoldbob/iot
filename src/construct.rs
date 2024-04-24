@@ -283,7 +283,7 @@ async fn main() {
                 .expect("Failed to create reverse proxy file");
         f2.write_all(proxy.as_bytes())
             .await
-            .expect("Failed to write protected password");
+            .expect("Failed to write reverse proxy file");
         #[cfg(target_family = "unix")]
         {
             std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
