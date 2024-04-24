@@ -35,7 +35,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Fix tpm code on windows.
 - [x] Only use tpm2 if it is detected.
 - [ ] Create indexing program for large proxied setups
-- [ ] Add ability to create example reverse proxy setups for common reverse proxies.
+- [x] Add ability to create example reverse proxy setups for common reverse proxies.
 - [ ] Feature gate the sqlite backend
 - [x] Remove the filesystem backend
 - [ ] Add more database backends, feature gated

@@ -30,6 +30,10 @@ struct Args {
     /// The name of the config being deleted
     #[arg(short, long)]
     name: String,
+
+    /// Definitely delete the configuration without asking
+    #[arg(long, default_value_t = false)]
+    delete: bool,
 }
 
 #[tokio::main]
@@ -44,17 +48,19 @@ async fn main() {
 
     let name = args.name;
 
-    println!("Enter yes two times to delete the configuration");
-    let p: prompt::Password2 = prompt::Password2::prompt(Some("Delete?")).unwrap();
-    if p.as_str() != "yes" {
-        return;
+    if !args.delete {
+        println!("Enter yes two times to delete the configuration");
+        let p: prompt::Password2 = prompt::Password2::prompt(Some("Delete?")).unwrap();
+        if p.as_str() != "yes" {
+            return;
+        }
     }
 
     let mut exe = std::env::current_exe().unwrap();
     exe.pop();
 
     let mut service = service::Service::new(format!("rust-iot-{}", name));
-    service.stop();
+    let _ = service.stop();
     service.delete_async().await;
 
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
@@ -68,7 +74,7 @@ async fn main() {
     let mut f = tokio::fs::File::open(&config_file).await.unwrap();
     f.read_to_end(&mut settings_con).await.unwrap();
 
-    let mut settings: MainConfiguration;
+    let settings: MainConfiguration;
 
     #[cfg(not(feature = "tpm2"))]
     let mut password: Option<String> = None;
@@ -215,6 +221,6 @@ async fn main() {
 
     let proxy_name = std::path::PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
     if proxy_name.exists() {
-        tokio::fs::remove_file(proxy_name).await;
+        let _ = tokio::fs::remove_file(proxy_name).await;
     }
 }

@@ -252,7 +252,7 @@ async fn main() {
     #[cfg(target_family = "windows")]
     let options = ca::OwnerOptions::new();
 
-    let ca = ca::PkiInstance::init(&config.pki, &config, options).await;
+    ca::PkiInstance::init(&config.pki, &config, options).await;
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!(
@@ -286,5 +286,5 @@ async fn main() {
         None,
     );
     service.create_async(service_config).await;
-    service.start();
+    let _ = service.start();
 }

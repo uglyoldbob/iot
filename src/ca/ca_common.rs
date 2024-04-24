@@ -917,16 +917,24 @@ impl PkiConfigurationEnum {
         &self,
         proxy: &ProxyConfig,
         config: &MainConfiguration,
-        _ca: Option<&StandaloneCaConfiguration>,
+        ca: Option<&StandaloneCaConfiguration>,
     ) -> String {
         let mut contents = String::new();
         contents.push_str("#nginx reverse proxy settings\n");
+        let location_name = if let Some(ca) = ca {
+            format!("pki/{}", ca.name)
+        } else {
+            "".to_string()
+        };
         if let Some(http) = proxy.http_port {
             for complex_name in &config.public_names {
                 contents.push_str("server {\n");
                 contents.push_str(&format!("\tlisten {};\n", http));
                 contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
-                contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                contents.push_str(&format!(
+                    "\tlocation {}{} {{\n",
+                    complex_name.subdomain, location_name
+                ));
                 if config.https.enabled {
                     if config.https.port == 443 {
                         contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
@@ -961,7 +969,10 @@ impl PkiConfigurationEnum {
                 contents.push_str("\tssl_certificate /put/location/here;\n");
                 contents.push_str("\tssl_certificate_key /put/location/here;\n");
                 contents.push_str("\tssl_verify_client optional;\n");
-                contents.push_str(&format!("\tlocation {} {{\n", complex_name.subdomain));
+                contents.push_str(&format!(
+                    "\tlocation {}{} {{\n",
+                    complex_name.subdomain, location_name
+                ));
                 contents
                     .push_str("\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n");
                 if config.https.enabled {

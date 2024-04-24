@@ -13,7 +13,6 @@ mod tpm2;
 use std::io::Write;
 use std::sync::Arc;
 
-use ca::PkiConfiguration;
 use futures::FutureExt;
 use hyper::header::HeaderValue;
 
@@ -27,7 +26,6 @@ pub use main_config::MainConfiguration;
 use prompt::Prompting;
 use tokio::io::AsyncReadExt;
 
-use crate::ca::PkiConfigurationEnum;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
