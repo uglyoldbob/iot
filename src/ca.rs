@@ -50,7 +50,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 b.anchor(|ab| {
                     ab.text("View status of request");
                     ab.href(format!(
-                        "/{}{}ca/view_cert.rs?id={}",
+                        "{}/{}ca/view_cert.rs?id={}",
                         s.proxy,
                         ca.config.get_pki_name(),
                         id.unwrap()
@@ -101,11 +101,11 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     html.head(|h| {
         generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb.src(format!("{}/js/forge.min.js", s.proxy));
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.min.js", s.proxy));
+                sb.src(format!("{}/js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -128,7 +128,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.division(|div| {
                 div.form(|f| {
                     f.name("request");
-                    f.action(format!("/{}{}ca/submit_request.rs", s.proxy, pki));
+                    f.action(format!("{}/{}ca/submit_request.rs", s.proxy, pki));
                     f.method("post");
                     f.text("Your Name")
                         .line_break(|a| a)
@@ -270,7 +270,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
 
                     b.anchor(|ab| {
                         ab.text("Visit this CA");
-                        ab.href(format!("/{}pki/{}/ca", s.proxy, name));
+                        ab.href(format!("{}/pki/{}/ca", s.proxy, name));
                         ab
                     })
                     .line_break(|lb| lb);
@@ -315,34 +315,34 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             }
             b.anchor(|ab| {
                 ab.text("Download CA certificate as der");
-                ab.href(format!("/{}{}ca/get_ca.rs?type=der", s.proxy, pki));
+                ab.href(format!("{}/{}ca/get_ca.rs?type=der", s.proxy, pki));
                 ab.target("_blank");
                 ab
             });
             b.line_break(|lb| lb);
             b.anchor(|ab| {
                 ab.text("Download CA certificate as pem");
-                ab.href(format!("/{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
+                ab.href(format!("{}/{}ca/get_ca.rs?type=pem", s.proxy, pki));
                 ab.target("_blank");
                 ab
             });
             b.line_break(|lb| lb);
             b.anchor(|ab| {
                 ab.text("Request a signature on a certificate");
-                ab.href(format!("/{}{}ca/request.rs", s.proxy, pki));
+                ab.href(format!("{}/{}ca/request.rs", s.proxy, pki));
                 ab
             });
             b.line_break(|lb| lb);
             if admin {
                 b.anchor(|ab| {
                     ab.text("List pending requests");
-                    ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                    ab.href(format!("{}/{}ca/list.rs", s.proxy, pki));
                     ab
                 });
                 b.line_break(|lb| lb);
                 b.anchor(|ab| {
                     ab.text("List all certificates");
-                    ab.href(format!("/{}{}ca/view_all_certs.rs", s.proxy, pki));
+                    ab.href(format!("{}/{}ca/view_all_certs.rs", s.proxy, pki));
                     ab
                 });
                 b.line_break(|lb| lb);
@@ -407,7 +407,7 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
             }
             b.anchor(|ab| {
                 ab.text("List pending requests");
-                ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                ab.href(format!("{}/{}ca/list.rs", s.proxy, pki));
                 ab
             });
             b.line_break(|lb| lb);
@@ -515,7 +515,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
             }
             b.anchor(|ab| {
                 ab.text("List pending requests");
-                ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                ab.href(format!("{}/{}ca/list.rs", s.proxy, pki));
                 ab
             });
             b.line_break(|lb| lb);
@@ -594,7 +594,7 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
                             ab.text("Back to all requests");
-                            ab.href(format!("/{}{}ca/list.rs", s.proxy, pki));
+                            ab.href(format!("{}/{}ca/list.rs", s.proxy, pki));
                             ab
                         })
                         .line_break(|a| a);
@@ -632,12 +632,12 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         }
                         b.anchor(|ab| {
                             ab.text("Sign this request");
-                            ab.href(format!("/{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
+                            ab.href(format!("{}/{}ca/request_sign.rs?id={}", s.proxy, pki, id));
                             ab
                         })
                         .line_break(|a| a);
                         b.form(|f| {
-                            f.action(format!("/{}{}ca/request_reject.rs", s.proxy, pki));
+                            f.action(format!("{}/{}ca/request_reject.rs", s.proxy, pki));
                             f.text("Reject reason")
                                 .line_break(|a| a)
                                 .input(|i| {
@@ -673,7 +673,7 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
                             ab.text("View this request");
-                            ab.href(format!("/{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                            ab.href(format!("{}/{}ca/list.rs?id={}", s.proxy, pki, id));
                             ab
                         })
                         .line_break(|a| a);
@@ -740,11 +740,11 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
         generic_head(h, s)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb.src(format!("{}/js/forge.min.js", s.proxy));
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.min.js", s.proxy));
+                sb.src(format!("{}/js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -762,7 +762,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     .line_break(|a| a);
                 b.anchor(|ab| {
                     ab.text("View details");
-                    ab.href(format!("/{}{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
+                    ab.href(format!("{}/{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
                     ab
                 });
                 b.line_break(|lb| lb);
@@ -771,7 +771,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
         b.thematic_break(|a| a);
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(format!("/{}{}ca", s.proxy, pki));
+            ab.href(format!("{}/{}ca", s.proxy, pki));
             ab
         });
         b.line_break(|lb| lb);
@@ -840,11 +840,11 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
         generic_head(h, s)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("/{}js/forge.min.js", s.proxy));
+                sb.src(format!("{}/js/forge.min.js", s.proxy));
                 sb
             })
             .script(|sb| {
-                sb.src(format!("/{}js/certgen.min.js", s.proxy));
+                sb.src(format!("{}/js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -930,7 +930,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                         div.class("hidden");
                         div.anchor(|a| {
                             a.id("get_request").text(format!(
-                                "/{}{}ca/get_cert.rs?id={}&type=pem",
+                                "{}/{}ca/get_cert.rs?id={}&type=pem",
                                 s.proxy, pki, myid
                             ))
                         });
@@ -971,7 +971,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(format!("/{}{}ca", s.proxy, pki));
+            ab.href(format!("{}/{}ca", s.proxy, pki));
             ab
         });
         b.line_break(|lb| lb);
@@ -1112,11 +1112,11 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             generic_head(h, s)
                 .title(|t| t.text(ca.config.common_name.to_owned()))
                 .script(|sb| {
-                    sb.src(format!("/{}js/forge.min.js", s.proxy));
+                    sb.src(format!("{}/js/forge.min.js", s.proxy));
                     sb
                 })
                 .script(|sb| {
-                    sb.src(format!("/{}js/certgen.min.js", s.proxy));
+                    sb.src(format!("{}/js/certgen.min.js", s.proxy));
                     sb
                 })
         })
@@ -1413,12 +1413,12 @@ fn generic_head<'a>(
 ) -> &'a mut html::metadata::builders::HeadBuilder {
     h.meta(|m| m.charset("UTF-8"));
     h.link(|h| {
-        h.href(format!("/{}css/ca.css", s.proxy))
+        h.href(format!("{}/css/ca.css", s.proxy))
             .rel("stylesheet")
             .media("all")
     });
     h.link(|h| {
-        h.href(format!("/{}css/ca-mobile.css", s.proxy))
+        h.href(format!("{}/css/ca-mobile.css", s.proxy))
             .rel("stylesheet")
             .media("screen and (max-width: 640px)")
     });

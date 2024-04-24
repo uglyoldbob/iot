@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use prompt::Prompting;
 
-use crate::ca::ProxyConfig;
+use crate::ca::{ComplexName, ProxyConfig};
 
 #[cfg(target_os = "linux")]
 /// Returns the default config file.
@@ -159,6 +159,8 @@ pub struct MainConfigurationAnswers {
     pub https: HttpsSettings,
     /// Settings for the database
     pub database: DatabaseSettings,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
     /// The settings for a pki
@@ -178,6 +180,8 @@ pub struct MainConfiguration {
     pub https: HttpsSettings,
     /// Settings for the database
     pub database: DatabaseSettings,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
     /// Settings for client certificates
@@ -202,6 +206,7 @@ impl MainConfiguration {
             https: HttpsSettings::new(),
             proxy_config: None,
             database: DatabaseSettings::new(),
+            public_names: Vec::new(),
             client_certs: None,
             pki: crate::ca::PkiConfigurationEnum::new(),
         }
@@ -214,6 +219,7 @@ impl MainConfiguration {
         self.http = answers.http.clone();
         self.https = answers.https.clone();
         self.database = answers.database.clone();
+        self.public_names = answers.public_names.clone();
         self.proxy_config = answers.proxy_config.clone();
         self.pki = answers.pki.clone();
     }

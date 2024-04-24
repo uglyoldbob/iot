@@ -78,8 +78,8 @@ pub struct HttpContext {
     pub root: String,
     /// The name of the login cookie
     pub cookiename: String,
-    /// The proxy subdirectory
-    pub proxy: Option<String>,
+    /// This maps domain names to proxy names
+    pub proxy: HashMap<String, String>,
     /// The optional mysql connection
     pub pool: Option<mysql::Pool>,
     /// The application settings
@@ -120,6 +120,8 @@ impl UserCerts {
 
 /// Represents the context necessary to render a webpage
 pub struct WebPageContext {
+    /// The domain that was used to access the request
+    pub domain: String,
     /// The actual page requested
     pub page: std::path::PathBuf,
     /// The proxy sub-directory
@@ -363,24 +365,31 @@ async fn handle<'a>(
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
 
+    let domain = hdrs.get("host").unwrap().to_str().unwrap().to_string();
+    let domain = if let Some((a, _b)) = domain.split_once(':') {
+        a.to_string()
+    } else {
+        domain
+    };
     let path = rparts.uri.path();
-    let proxy = if let Some(p) = &context.proxy {
+    let proxy = if let Some(p) = context.proxy.get(&domain) {
         p.to_owned()
     } else {
         String::new()
     };
-    let reg1 = format!("(^{})", proxy);
-    let reg1 = Regex::new(&reg1[..]).unwrap();
-    let fixed_path = reg1.replace_all(path, "");
+    let fixed_path = path;
     let sys_path = context.root.to_owned() + &fixed_path;
 
-    service::log::info!("Lookup {}", fixed_path);
+    let cookiename = format!("{}{}", proxy, context.cookiename);
+
+    service::log::info!("Lookup {} on {}{}", fixed_path, domain, proxy);
 
     let p = WebPageContext {
+        domain,
         page: <std::path::PathBuf as std::str::FromStr>::from_str(&fixed_path).unwrap(),
         post: post_data,
         get: get_map,
-        proxy: context.proxy.as_ref().unwrap_or(&String::new()).to_owned(),
+        proxy: proxy.clone(),
         logincookie: ourcookie.clone(),
         pool: mysql,
         user_certs,
@@ -436,19 +445,18 @@ async fn handle<'a>(
     //and makes the contents empty
     let sent_cookie = match body.cookie {
         Some(ref x) => {
-            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&context.cookiename, x))
+            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&cookiename, x))
                 .http_only(true)
                 .path(proxy)
                 .same_site(cookie::SameSite::Strict);
             testcookie
         }
         None => {
-            let testcookie: cookie::CookieBuilder =
-                cookie::Cookie::build((&context.cookiename, ""))
-                    .http_only(true)
-                    .path(proxy)
-                    .expires(time::OffsetDateTime::UNIX_EPOCH)
-                    .same_site(cookie::SameSite::Strict);
+            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&cookiename, ""))
+                .http_only(true)
+                .path(proxy)
+                .expires(time::OffsetDateTime::UNIX_EPOCH)
+                .same_site(cookie::SameSite::Strict);
             testcookie
         }
     };

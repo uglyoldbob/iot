@@ -13,6 +13,7 @@ mod tpm2;
 use std::io::Write;
 use std::sync::Arc;
 
+use ca::PkiConfiguration;
 use futures::FutureExt;
 use hyper::header::HeaderValue;
 
@@ -26,6 +27,7 @@ pub use main_config::MainConfiguration;
 use prompt::Prompting;
 use tokio::io::AsyncReadExt;
 
+use crate::ca::PkiConfigurationEnum;
 use crate::webserver::tls::*;
 use crate::webserver::*;
 
@@ -390,6 +392,13 @@ async fn main() {
     {
         settings = do_without_tpm2(settings_con).await;
     }
+
+    let mut proxy_map = std::collections::HashMap::new();
+
+    for name in &settings.public_names {
+        proxy_map.insert(name.domain.clone(), name.subdomain.clone());
+    }
+
     let settings = Arc::new(settings);
     let pki = ca::PkiInstance::load(&settings).await;
 
@@ -418,7 +427,7 @@ async fn main() {
     let mut hc = HttpContext {
         dirmap: router,
         root: settings.general.static_content.to_owned(),
-        proxy: None,
+        proxy: proxy_map,
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
@@ -433,8 +442,10 @@ async fn main() {
 
     hc.cookiename = format!("/{}", settings.general.cookie);
 
-    if let Some(proxy) = &hc.proxy {
-        service::log::info!("Using {} as the proxy path", proxy);
+    if !hc.proxy.is_empty() {
+        for (domain, proxy) in &hc.proxy {
+            service::log::info!("Using {} as the proxy path for {}", proxy, domain);
+        }
     } else {
         service::log::info!("Not using a proxy path");
     }

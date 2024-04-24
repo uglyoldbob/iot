@@ -27,8 +27,6 @@ pub struct LocalCaConfiguration {
     pub path: CaCertificateStorageBuilder,
     /// Is this certificate authority a root?
     pub root: bool,
-    /// The subject alternate names for the certificate authority.
-    pub san: Vec<String>,
     /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
@@ -59,7 +57,6 @@ impl LocalCaConfiguration {
         Self {
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
-            san: Vec::new(),
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
@@ -76,7 +73,7 @@ impl LocalCaConfiguration {
         CaConfiguration {
             path: self.path.clone(),
             root: self.root,
-            san: self.san.clone(),
+            san: Vec::new(),
             common_name: self.common_name.clone(),
             days: self.days,
             chain_length: self.chain_length,
@@ -101,6 +98,11 @@ impl LocalCaConfiguration {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
+        let san: Vec<String> = settings
+            .public_names
+            .iter()
+            .map(|n| n.domain.clone())
+            .collect();
         let http_port = settings
             .proxy_config
             .as_ref()
@@ -116,7 +118,7 @@ impl LocalCaConfiguration {
         CaConfiguration {
             path: self.path.clone(),
             root: self.root,
-            san: self.san.clone(),
+            san,
             common_name: self.common_name.clone(),
             days: self.days,
             chain_length: self.chain_length,
@@ -127,10 +129,7 @@ impl LocalCaConfiguration {
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
-            proxy: settings
-                .proxy_config
-                .as_ref()
-                .map(|a| a.public_names[0].subdomain.to_owned()),
+            proxy: Some(settings.public_names[0].subdomain.to_owned()),
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }
@@ -183,7 +182,6 @@ impl CaConfiguration {
         LocalCaConfiguration {
             path: self.path.clone(),
             root: self.root,
-            san: self.san.clone(),
             common_name: self.common_name.clone(),
             days: self.days,
             chain_length: self.chain_length,
@@ -737,9 +735,9 @@ impl CaCertificate {
 #[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct ComplexName {
     /// The domain name, such as example.com
-    domain: String,
+    pub domain: String,
     /// The subdomain, such as / or /asdf
-    subdomain: String,
+    pub subdomain: String,
 }
 
 impl std::str::FromStr for ComplexName {
@@ -765,8 +763,6 @@ impl std::str::FromStr for ComplexName {
 /// This redirects http://example.com/asdf/pki to https://server_name/pki
 #[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
 pub struct ProxyConfig {
-    /// The public name of the proxy, contains example.com/asdf for the example
-    public_names: Vec<ComplexName>,
     /// The public port number for http, 80 for the example (the default port for http)
     http_port: Option<u16>,
     /// The public port number for https, 443 for the example (the default port for https)
@@ -805,7 +801,7 @@ impl PkiConfigurationEnum {
                 let mut contents = String::new();
                 contents.push_str("#nginx reverse proxy settings\n");
                 if let Some(http) = proxy.http_port {
-                    for complex_name in &proxy.public_names {
+                    for complex_name in &config.public_names {
                         contents.push_str("server {\n");
                         contents.push_str(&format!("\tlisten {};\n", http));
                         contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
@@ -840,7 +836,7 @@ impl PkiConfigurationEnum {
                     }
                 }
                 if let Some(https) = proxy.https_port {
-                    for complex_name in &proxy.public_names {
+                    for complex_name in &config.public_names {
                         contents.push_str("server {\n");
                         contents.push_str(&format!("\tlisten {} ssl;\n", https));
                         contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
