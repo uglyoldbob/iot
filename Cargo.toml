@@ -20,7 +20,7 @@ cms = "0.2.3"
 const-oid = "0.9.6"
 cryptoki = "0.6.2"
 der = "0.7.8"
-egui-multiwin = "0.3.1"
+egui-multiwin = "0.4.0"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
@@ -92,7 +92,7 @@ features = ["kdf"]
 
 [dependencies.prompt]
 git = "https://github.com/uglyoldbob/prompt.git"
-features = ["serde"]
+features = ["serde", "egui"]
 
 [dependencies.rcgen]
 version = "0.13.0"

@@ -9,6 +9,7 @@ use crate::{
     main_config::MainConfigurationAnswers,
 };
 use egui_multiwin::egui_glow::EguiGlow;
+use prompt::EguiPrompting;
 
 use crate::AppCommon;
 
@@ -116,7 +117,7 @@ impl TrackedWindow for RootWindow {
                 }
                 Message::PkiPathSelected(name, p) => {
                     if let PkiConfigurationEnum::Pki(pki) = &mut self.answers.pki {
-                        let ca = pki.local_ca.get_mut(&name);
+                        let ca = pki.local_ca.map_mut().get_mut(&name);
                         if let Some(ca) = ca {
                             ca.path = p;
                         }
@@ -124,28 +125,6 @@ impl TrackedWindow for RootWindow {
                 }
             }
         }
-
-        let check_ca = |ca: &crate::ca::CaConfiguration| {
-            let mut reason_no_generate = None;
-            if ca.admin_access_password.is_empty() {
-                reason_no_generate = Some("Admin access password is empty".to_string());
-            } else if !ca.admin_access_password.matches() {
-                reason_no_generate = Some("Admin access password does not match".to_string());
-            } else if ca.admin_password.is_empty() {
-                reason_no_generate = Some("Admin password is empty".to_string());
-            } else if !ca.admin_password.matches() {
-                reason_no_generate = Some("Admin password does not match".to_string());
-            } else if ca.ocsp_password.is_empty() {
-                reason_no_generate = Some("Ocsp password is empty".to_string());
-            } else if !ca.ocsp_password.matches() {
-                reason_no_generate = Some("Ocsp password does not match".to_string());
-            } else if ca.root_password.is_empty() {
-                reason_no_generate = Some("Root password is empty".to_string());
-            } else if !ca.root_password.matches() {
-                reason_no_generate = Some("Root password does not match".to_string());
-            }
-            reason_no_generate
-        };
 
         let edit_ca = |ui: &mut egui_multiwin::egui::Ui,
                        ca: &mut crate::ca::CaConfiguration,
@@ -269,163 +248,12 @@ impl TrackedWindow for RootWindow {
                         ui.text_edit_singleline(&mut self.username);
                         ui.label("Name of the service");
                         ui.text_edit_singleline(&mut self.service_name);
-                        ui.label("Cookie name");
-                        ui.text_edit_singleline(&mut self.answers.general.cookie);
-                        ui.label("Static content");
-                        ui.text_edit_singleline(&mut self.answers.general.static_content);
-                        {
-                            ui.label("Administrator password");
-                            let p: &mut String = &mut self.answers.admin.pass;
-                            let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                            ui.add(pe);
-                            let p2: &mut String = self.answers.admin.pass.second();
-                            let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                            ui.add(pe);
-                        }
-                        ui.heading("HTTP SERVER SETTINGS");
-                        ui.checkbox(&mut self.answers.http.enabled, "Enabled");
-                        if self.answers.http.enabled {
-                            ui.label("Port");
-                            let mut s = format!("{}", self.answers.http.port);
-                            if ui.text_edit_singleline(&mut s).changed() {
-                                let v = s.parse();
-                                if let Ok(v) = v {
-                                    self.answers.http.port = v;
-                                }
-                            }
-                        }
-                        ui.heading("HTTPS SERVER SETTINGS");
-                        ui.checkbox(&mut self.answers.https.enabled, "Enabled");
-                        if self.answers.https.enabled {
-                            ui.label("Port");
-                            let mut s = format!("{}", self.answers.https.port);
-                            if ui.text_edit_singleline(&mut s).changed() {
-                                let v = s.parse();
-                                if let Ok(v) = v {
-                                    self.answers.https.port = v;
-                                }
-                            }
-                            ui.label(format!(
-                                "Certificate file: {}",
-                                self.answers.https.certificate.display()
-                            ));
-                            if ui.button("Select certificate file").clicked() {
-                                let f = rfd::AsyncFileDialog::new()
-                                    .add_filter("Pkcs12 Certificate", &["p12"])
-                                    .set_directory(crate::main_config::default_config_path())
-                                    .set_title("Load Certificate file")
-                                    .pick_file();
-                                let message_sender = self.message_channel.0.clone();
-                                crate::execute(async move {
-                                    let file = f.await;
-                                    if let Some(file) = file {
-                                        let fname = file.path().to_path_buf();
-                                        message_sender
-                                            .send(Message::HttpsCertificateName(fname))
-                                            .ok();
-                                    }
-                                });
-                            }
-                            ui.label("Certificate password");
-                            let p: &mut String = &mut self.answers.https.certpass;
-                            let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                            ui.add(pe);
-                            let p2: &mut String = self.answers.https.certpass.second();
-                            let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                            ui.add(pe);
-                        }
-                        use strum::IntoEnumIterator;
-                        egui_multiwin::egui::ComboBox::from_label("Select a type!")
-                            .selected_text(self.answers.pki.display())
-                            .show_ui(ui, |ui| {
-                                for option in PkiConfigurationEnum::iter() {
-                                    if ui.selectable_label(false, option.display()).clicked() {
-                                        self.answers.pki = option;
-                                    }
-                                }
-                            });
-                        match &mut self.answers.pki {
-                            PkiConfigurationEnum::Pki(pki) => {
-                                ui.label("Name for new ca");
-                                ui.text_edit_singleline(&mut self.new_pki_entry);
-                                if ui.button("Add new entry").clicked() {
-                                    pki.local_ca.insert(
-                                        self.new_pki_entry.to_owned(),
-                                        LocalCaConfiguration::default(),
-                                    );
-                                    self.selected_pki_entry = Some(self.new_pki_entry.to_owned());
-                                }
-                                let entry = if let Some(p) = &self.selected_pki_entry {
-                                    p.clone()
-                                } else {
-                                    "default".to_string()
-                                };
-                                egui_multiwin::egui::ComboBox::from_label("Select an entry")
-                                    .selected_text(&entry)
-                                    .show_ui(ui, |ui| {
-                                        for option in pki.local_ca.keys() {
-                                            if ui.selectable_label(false, option).clicked() {
-                                                self.selected_pki_entry = Some(option.to_owned());
-                                            }
-                                        }
-                                    });
-                                if let Some(p) = &self.selected_pki_entry {
-                                    if pki.local_ca.contains_key(p)
-                                        && ui.button("Delete current entry").clicked()
-                                    {
-                                        pki.local_ca.remove(p);
-                                        self.selected_pki_entry = None;
-                                    }
-                                }
-                                if let Some(ca) = pki.local_ca.get_mut(&entry) {
-                                    let ca2 = &mut ca.get_editable_ca();
-                                    edit_ca(ui, ca2, Some(entry));
-                                    *ca = ca2.get_local();
-                                }
-                            }
-                            PkiConfigurationEnum::Ca(ca) => {
-                                let ca2 = &mut ca.get_editable_ca();
-                                edit_ca(ui, ca2, None);
-                            }
-                        }
-
-                        let mut reason_no_generate = None;
-                        if self.answers.admin.pass.is_empty() {
-                            reason_no_generate = Some("Admin password is empty".to_string());
-                        }
-                        if reason_no_generate.is_none() && !self.answers.admin.pass.matches() {
-                            reason_no_generate = Some("Admin passwords do not match".to_string());
-                        }
-                        if reason_no_generate.is_none()
-                            && self.answers.https.enabled
-                            && !self.answers.https.certpass.matches()
-                        {
-                            reason_no_generate =
-                                Some("HTTPS Certificate passwords do not match".to_string());
-                        }
-                        if reason_no_generate.is_none() {
+                        let reason_no_generate = self.answers.build_gui(ui, None);
+                        if reason_no_generate.is_ok() {
                             let mut config = crate::main_config::MainConfiguration::new();
                             config.provide_answers(&self.answers);
-                            match &self.answers.pki {
-                                PkiConfigurationEnum::Pki(pki) => {
-                                    for (name, ca) in pki.local_ca.iter() {
-                                        let ca = &ca.get_ca(name, &config);
-                                        if let Some(a) = check_ca(ca) {
-                                            reason_no_generate =
-                                                Some(format!("PKI ENTRY {}: {}", name, a));
-                                            break;
-                                        }
-                                    }
-                                }
-                                PkiConfigurationEnum::Ca(ca) => {
-                                    let ca = &ca.get_ca(&config);
-                                    if let Some(a) = check_ca(ca) {
-                                        reason_no_generate = Some(a);
-                                    }
-                                }
-                            }
                         }
-                        if let Some(reason) = reason_no_generate {
+                        if let Err(reason) = reason_no_generate {
                             ui.label("Not ready to generate service");
                             ui.label(reason.to_string());
                         } else if ui.button("Build config").clicked() {

@@ -185,7 +185,7 @@ async fn main() {
 
     match &settings.pki {
         ca::PkiConfigurationEnum::Pki(pki) => {
-            for (name, ca) in &pki.local_ca {
+            for (name, ca) in pki.local_ca.map() {
                 let ca = ca.get_ca(name, &settings);
                 ca.destroy_backend().await;
             }

@@ -21,7 +21,9 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
 }
 
 /// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
-#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+)]
 pub struct StandaloneCaConfiguration {
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
@@ -139,7 +141,9 @@ impl StandaloneCaConfiguration {
 }
 
 /// The items used to configure a local certificate authority in a pki configuration
-#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+)]
 pub struct LocalCaConfiguration {
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
@@ -433,9 +437,17 @@ impl CertificateSigningMethod {
     }
 }
 
+use egui_multiwin::egui;
+
 /// The information needed to construct a CaCertificateStorage
 #[derive(
-    Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize, strum::EnumIter,
+    Clone,
+    Debug,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::EnumIter,
 )]
 pub enum CaCertificateStorageBuilder {
     /// Certificates are stored nowhere
@@ -850,12 +862,27 @@ impl CaCertificate {
 }
 
 /// Represents a domain and a subdomain for proxying
-#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct ComplexName {
     /// The domain name, such as example.com
     pub domain: String,
     /// The subdomain, such as / or /asdf
     pub subdomain: String,
+}
+
+impl core::fmt::Display for ComplexName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.domain)?;
+        f.write_str(&self.subdomain)
+    }
 }
 
 impl std::str::FromStr for ComplexName {
@@ -879,7 +906,15 @@ impl std::str::FromStr for ComplexName {
 
 /// The options for setting up a reverse proxy that points to a server
 /// This redirects http://example.com/asdf/pki to https://server_name/pki
-#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct ProxyConfig {
     /// The public port number for http, 80 for the example (the default port for http)
     http_port: Option<u16>,
@@ -888,15 +923,29 @@ pub struct ProxyConfig {
 }
 
 /// The configuration of a general pki instance.
-#[derive(Clone, Debug, Default, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub struct PkiConfiguration {
     /// List of local ca
-    pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
+    pub local_ca: prompt::SelectedHashMap<LocalCaConfiguration>,
 }
 
 ///A generic configuration for a pki or certificate authority.
 #[derive(
-    Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize, strum::EnumIter,
+    Clone,
+    Debug,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::EnumIter,
 )]
 pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
@@ -1052,7 +1101,7 @@ impl Pki {
         main_config: &MainConfiguration,
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
-        for (name, config) in &settings.local_ca {
+        for (name, config) in settings.local_ca.map() {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
