@@ -23,25 +23,26 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Add more configuration to the client certificate verifier, allowing ca to be something besides self.
 - [x] Receive user certs with the SSL_CLIENT_CERT html header for proxy setups.
 - [x] Fix ocsp responder.
+- [x] Implement pki object containing a vector of ca.
+- [x] Allows the https client cert verifier to require a cert, useful for proxied setups.
+- [x] Fix tpm code on windows.
+- [x] Only use tpm2 if it is detected.
+- [x] Add ability to create example reverse proxy setups for common reverse proxies.
+- [x] Remove the filesystem backend
+- [x] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
+- [x] Enable using systemd to start the service.
+- [x] Add a gui configuration tool for building an instance.
+- [x] Update print statements to use a custom logging crate
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
-- [x] Implement pki object containing a vector of ca.
-- [x] Allows the https client cert verifier to require a cert, useful for proxied setups.
+- [ ] Allow selecting the certificate type when building a root ca.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
 - [ ] Make site mobile friendly
 - [ ] Verify tpm code works as intended.
-- [x] Fix tpm code on windows.
-- [x] Only use tpm2 if it is detected.
 - [ ] Create indexing program for large proxied setups
-- [x] Add ability to create example reverse proxy setups for common reverse proxies.
 - [ ] Feature gate the sqlite backend
-- [x] Remove the filesystem backend
 - [ ] Add more database backends, feature gated
-- [x] Redo how the ca pages are mapped to urls, to allow for proxying in a better fashion once pki is expanded.
 - [ ] Add certificate viewer for users.
-- [x] Enable using systemd to start the service.
 - [ ] Add code for windows service on the windows platform.
-- [x] Add a gui configuration tool for building an instance.
-- [x] Update print statements to use a custom logging crate
