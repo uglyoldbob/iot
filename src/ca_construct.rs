@@ -101,14 +101,9 @@ impl Ca {
         let mut ca = Self::init_from_config(settings, options).await;
 
         if settings.root {
-            use pkcs8::EncodePrivateKey;
             println!("Generating a root certificate for ca operations");
 
-            let mut rng = rand::thread_rng();
-            let bits = 4096;
-            let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
-            let private_key_der = private_key.to_pkcs8_der().unwrap();
-            let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
+            let (key_pair, _unused) = settings.sign_method.generate_keypair().unwrap();
 
             let san: Vec<String> = settings.san.to_owned();
             let mut certparams = rcgen::CertificateParams::new(san).unwrap();
@@ -131,7 +126,7 @@ impl Ca {
             let key_der = key_pair.serialize_der();
 
             let cacert = CaCertificate::from_existing(
-                CertificateSigningMethod::RsaSha256,
+                settings.sign_method,
                 ca.medium.clone(),
                 cert_der,
                 Some(Zeroizing::from(key_der)),
@@ -150,7 +145,7 @@ impl Ca {
 
             let id = ca.get_new_request_id().await.unwrap();
             let ocsp_csr = ca.generate_signing_request(
-                CertificateSigningMethod::RsaSha256,
+                settings.sign_method,
                 "ocsp".to_string(),
                 "OCSP Responder".to_string(),
                 ca.ocsp_urls.to_owned(),
@@ -177,7 +172,7 @@ impl Ca {
             println!("Generating administrator certificate");
             let id = ca.get_new_request_id().await.unwrap();
             let admin_csr = ca.generate_signing_request(
-                CertificateSigningMethod::RsaSha256,
+                settings.sign_method,
                 "admin".to_string(),
                 format!("{} Administrator", settings.common_name),
                 Vec::new(),
@@ -264,7 +259,7 @@ impl CertificateSigningMethod {
                 let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
                 Some((key_pair, Some(pkey)))
             }
-            Self::Ecdsa => {
+            Self::EcdsaSha256 => {
                 let keypair = rcgen::KeyPair::generate().ok()?;
                 Some((keypair, None))
             }

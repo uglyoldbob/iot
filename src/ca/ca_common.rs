@@ -25,6 +25,8 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
 )]
 pub struct StandaloneCaConfiguration {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
     /// Is this certificate authority a root?
@@ -59,6 +61,7 @@ impl StandaloneCaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            sign_method: CertificateSigningMethod::RsaSha256,
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             common_name: "".to_string(),
@@ -76,6 +79,7 @@ impl StandaloneCaConfiguration {
     ///Get a Caconfiguration for editing
     pub fn get_editable_ca(&self) -> CaConfiguration {
         CaConfiguration {
+            sign_method: self.sign_method,
             path: self.path.clone(),
             root: self.root,
             san: Vec::new(),
@@ -121,6 +125,7 @@ impl StandaloneCaConfiguration {
             .flatten()
             .or_else(|| Some(settings.get_https_port()));
         CaConfiguration {
+            sign_method: self.sign_method,
             path: self.path.clone(),
             root: self.root,
             san,
@@ -145,6 +150,8 @@ impl StandaloneCaConfiguration {
     Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
 )]
 pub struct LocalCaConfiguration {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
     /// Is this certificate authority a root?
@@ -177,6 +184,7 @@ impl LocalCaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            sign_method: CertificateSigningMethod::RsaSha256,
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             common_name: "".to_string(),
@@ -193,6 +201,7 @@ impl LocalCaConfiguration {
     ///Get a Caconfiguration for editing
     pub fn get_editable_ca(&self) -> CaConfiguration {
         CaConfiguration {
+            sign_method: self.sign_method,
             path: self.path.clone(),
             root: self.root,
             san: Vec::new(),
@@ -238,6 +247,7 @@ impl LocalCaConfiguration {
             .flatten()
             .or_else(|| Some(settings.get_https_port()));
         CaConfiguration {
+            sign_method: self.sign_method,
             path: self.path.clone(),
             root: self.root,
             san,
@@ -258,8 +268,10 @@ impl LocalCaConfiguration {
 }
 
 /// The items used to configure a certificate authority
-#[derive(Clone, Debug, prompt::Prompting, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
     /// Is this certificate authority a root?
@@ -302,6 +314,7 @@ impl CaConfiguration {
     /// Get a local ca configuration
     pub fn get_local(&self) -> LocalCaConfiguration {
         LocalCaConfiguration {
+            sign_method: self.sign_method,
             path: self.path.clone(),
             root: self.root,
             common_name: self.common_name.clone(),
@@ -339,6 +352,7 @@ impl CaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            sign_method: CertificateSigningMethod::RsaSha256,
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             san: Vec::new(),
@@ -399,14 +413,22 @@ pub enum CertificateLoadingError {
 }
 
 /// The method that a certificate uses to sign stuff
-#[derive(Debug, Clone)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    prompt::Prompting,
+    prompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
 pub enum CertificateSigningMethod {
     /// An rsa certificate with sha1
     RsaSha1,
     /// An rsa certificate rsa with sha256
     RsaSha256,
     /// Ecdsa
-    Ecdsa,
+    EcdsaSha256,
 }
 
 impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
@@ -418,7 +440,7 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
         } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
             Ok(Self::RsaSha1)
         } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
-            Ok(Self::Ecdsa)
+            Ok(Self::EcdsaSha256)
         } else {
             service::log::error!("The oid to convert is {:?}", value.oid);
             Err(())
@@ -432,7 +454,7 @@ impl CertificateSigningMethod {
         match self {
             Self::RsaSha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
             Self::RsaSha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
-            Self::Ecdsa => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
+            Self::EcdsaSha256 => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
     }
 }
@@ -833,7 +855,7 @@ impl CaCertificate {
     /// Sign some data with the certificate, if possible
     pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
         match &self.algorithm {
-            CertificateSigningMethod::Ecdsa => {
+            CertificateSigningMethod::EcdsaSha256 => {
                 if let Some(pkey) = &self.pkey {
                     let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
                     let rng = &ring::rand::SystemRandom::new();

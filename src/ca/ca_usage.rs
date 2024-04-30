@@ -279,7 +279,7 @@ impl<'a> InternalPublicKey<'a> {
                     key,
                 ),
             },
-            CertificateSigningMethod::Ecdsa => {
+            CertificateSigningMethod::EcdsaSha256 => {
                 todo!();
             }
             CertificateSigningMethod::RsaSha256 => Self {
