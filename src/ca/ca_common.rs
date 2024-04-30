@@ -1506,7 +1506,6 @@ impl ExtendedKeyUsage {
 }
 
 /// The types of attributes that can be present in a csr
-#[allow(dead_code)]
 pub enum CsrAttribute {
     /// What the certificate can be used for
     ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
@@ -1519,9 +1518,8 @@ pub enum CsrAttribute {
 }
 
 impl CsrAttribute {
-    #[allow(dead_code)]
     /// Convert self to an `rcgen::CustomExtension`
-    pub fn to_custom_extension(&self) -> rcgen::CustomExtension {
+    pub fn to_custom_extension(&self) -> Option<rcgen::CustomExtension> {
         match self {
             CsrAttribute::ExtendedKeyUsage(oids) => {
                 let oid = &OID_CERT_EXTENDED_KEY_USAGE.components();
@@ -1532,11 +1530,23 @@ impl CsrAttribute {
                         }
                     });
                 });
-                rcgen::CustomExtension::from_oid_content(oid, content)
+                Some(rcgen::CustomExtension::from_oid_content(oid, content))
             }
-            CsrAttribute::ChallengePassword(_p) => todo!(),
-            CsrAttribute::UnstructuredName(_n) => todo!(),
-            CsrAttribute::Unrecognized(_oid, _any) => todo!(),
+            CsrAttribute::ChallengePassword(p) => {
+                let oid = &OID_PKCS9_CHALLENGE_PASSWORD.components();
+                let content = yasna::construct_der(|w| {
+                    w.write_set(|w| w.next().write_utf8_string(p));
+                });
+                Some(rcgen::CustomExtension::from_oid_content(oid, content))
+            }
+            CsrAttribute::UnstructuredName(n) => {
+                let oid = &OID_PKCS9_UNSTRUCTURED_NAME.components();
+                let content = yasna::construct_der(|w| {
+                    w.write_set(|w| w.next().write_utf8_string(n));
+                });
+                Some(rcgen::CustomExtension::from_oid_content(oid, content))
+            }
+            CsrAttribute::Unrecognized(_oid, _any) => None,
         }
     }
 
