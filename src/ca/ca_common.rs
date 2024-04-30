@@ -1612,24 +1612,25 @@ pub enum AuthorityInfoAccess {
     Unknown(String),
 }
 
-impl From<&AccessDescription> for AuthorityInfoAccess {
-    fn from(value: &AccessDescription) -> Self {
+impl TryFrom<&AccessDescription> for AuthorityInfoAccess {
+    type Error = ();
+    fn try_from(value: &AccessDescription) -> Result<Self, Self::Error> {
         let s = match &value.access_location {
             x509_cert::ext::pkix::name::GeneralName::OtherName(_a) => {
-                todo!()
+                return Err(());
             }
             x509_cert::ext::pkix::name::GeneralName::Rfc822Name(_a) => {
-                todo!()
+                return Err(());
             }
             x509_cert::ext::pkix::name::GeneralName::DnsName(a) => {
                 let s: &str = a.as_ref();
                 s.to_string()
             }
             x509_cert::ext::pkix::name::GeneralName::DirectoryName(_a) => {
-                todo!()
+                return Err(());
             }
             x509_cert::ext::pkix::name::GeneralName::EdiPartyName(_a) => {
-                todo!()
+                return Err(());
             }
             x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(a) => {
                 let s: &str = a.as_ref();
@@ -1639,13 +1640,13 @@ impl From<&AccessDescription> for AuthorityInfoAccess {
                 String::from_utf8(a.as_bytes().to_vec()).unwrap()
             }
             x509_cert::ext::pkix::name::GeneralName::RegisteredId(_a) => {
-                todo!()
+                return Err(());
             }
         };
         if value.access_method == OID_OCSP.to_const() {
-            Self::Ocsp(s)
+            Ok(Self::Ocsp(s))
         } else {
-            Self::Unknown(s)
+            Ok(Self::Unknown(s))
         }
     }
 }
@@ -1712,7 +1713,8 @@ impl CertAttribute {
             use der::Decode;
             let aia =
                 x509_cert::ext::pkix::AuthorityInfoAccessSyntax::from_der(data.as_bytes()).unwrap();
-            let aias: Vec<AuthorityInfoAccess> = aia.0.iter().map(|a| a.into()).collect();
+            let aias: Vec<AuthorityInfoAccess> =
+                aia.0.iter().map(|a| a.try_into().unwrap()).collect();
             Self::AuthorityInfoAccess(aias)
         } else {
             Self::Unrecognized(oid, data)
