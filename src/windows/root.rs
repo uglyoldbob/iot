@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    ca::{LocalCaConfiguration, PkiConfigurationEnum},
+    ca::PkiConfigurationEnum,
     egui_multiwin_dynamic::{
         multi_window::NewWindowRequest,
         tracked_window::{RedrawResponse, TrackedWindow},
@@ -43,17 +43,8 @@ pub struct RootWindow {
     service_name: String,
     /// The username to run the service as
     username: String,
-    /// The currently selected name of a ca on a pki instance
-    selected_pki_entry: Option<String>,
-    /// The name to use for entering a specific ca on a pki instance.
-    new_pki_entry: String,
     /// The mode for showing when the instance is being generated
     generating: Arc<Mutex<GeneratingMode>>,
-    /// The message channel for sending and receiving messages from other threads. TODO use the egui_multiwin message passing stuff.
-    message_channel: (
-        std::sync::mpsc::Sender<Message>,
-        std::sync::mpsc::Receiver<Message>,
-    ),
 }
 
 impl RootWindow {
@@ -65,9 +56,6 @@ impl RootWindow {
                 service_name: "default".into(),
                 username: whoami::username(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
-                message_channel: std::sync::mpsc::channel(),
-                selected_pki_entry: None,
-                new_pki_entry: "default".into(),
             }),
             builder: egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -99,144 +87,9 @@ impl TrackedWindow for RootWindow {
         _window: &egui_multiwin::winit::window::Window,
         _clipboard: &mut egui_multiwin::arboard::Clipboard,
     ) -> RedrawResponse {
-        egui.egui_ctx.request_repaint();
-
         let quit = false;
 
         let windows_to_create = vec![];
-
-        while let Ok(message) = self.message_channel.1.try_recv() {
-            match message {
-                Message::HttpsCertificateName(n) => {
-                    self.answers.https.certificate = n;
-                }
-                Message::CaPathSelected(p) => {
-                    if let PkiConfigurationEnum::Ca(ca) = &mut self.answers.pki {
-                        ca.path = p;
-                    }
-                }
-                Message::PkiPathSelected(name, p) => {
-                    if let PkiConfigurationEnum::Pki(pki) = &mut self.answers.pki {
-                        let ca = pki.local_ca.map_mut().get_mut(&name);
-                        if let Some(ca) = ca {
-                            ca.path = p;
-                        }
-                    }
-                }
-            }
-        }
-
-        let edit_ca = |ui: &mut egui_multiwin::egui::Ui,
-                       ca: &mut crate::ca::CaConfiguration,
-                       name: Option<String>| {
-            use strum::IntoEnumIterator;
-            egui_multiwin::egui::ComboBox::from_label("Select a storage medium!")
-                .selected_text(ca.path.display())
-                .show_ui(ui, |ui| {
-                    for option in crate::ca::CaCertificateStorageBuilder::iter() {
-                        if ui.selectable_label(false, option.display()).clicked() {
-                            ca.path = option;
-                        }
-                    }
-                });
-            match &mut ca.path {
-                crate::ca::CaCertificateStorageBuilder::Nowhere => {
-                    ui.label("No configurable options");
-                }
-                crate::ca::CaCertificateStorageBuilder::Sqlite(_p) => {
-                    if ui.button("Select database location").clicked() {
-                        let f = rfd::AsyncFileDialog::new()
-                            .add_filter("Sqlite database", &["sqlite"])
-                            .set_directory(crate::main_config::default_config_path())
-                            .set_title("Save Sqlite database")
-                            .save_file();
-                        let message_sender = self.message_channel.0.clone();
-                        crate::execute(async move {
-                            let file = f.await;
-                            if let Some(file) = file {
-                                let fname = file.path().to_path_buf();
-                                let path = crate::ca::CaCertificateStorageBuilder::Sqlite(fname);
-                                if let Some(name) = name {
-                                    message_sender
-                                        .send(Message::PkiPathSelected(name, path))
-                                        .ok();
-                                } else {
-                                    message_sender.send(Message::CaPathSelected(path)).ok();
-                                }
-                            }
-                        });
-                    }
-                }
-            }
-            ui.checkbox(&mut ca.root, "Root authority");
-            ui.label("Subject alternate names, one per line");
-            let mut s = ca.san.join("\n");
-            if ui.text_edit_multiline(&mut s).changed() {
-                let names = s.split('\n');
-                let names: Vec<&str> = names.collect();
-                let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
-                ca.san = names;
-            }
-            ui.label("Common name of the authority");
-            ui.text_edit_singleline(&mut ca.common_name);
-            {
-                ui.label("Number of days the authority should last");
-                let mut s = format!("{}", ca.days);
-                if ui.text_edit_singleline(&mut s).changed() {
-                    let v = s.parse();
-                    if let Ok(v) = v {
-                        ca.days = v;
-                    }
-                }
-            }
-            {
-                ui.label("Maximum chain length for authorities");
-                let mut s = format!("{}", ca.chain_length);
-                if ui.text_edit_singleline(&mut s).changed() {
-                    let v = s.parse();
-                    if let Ok(v) = v {
-                        ca.chain_length = v;
-                    }
-                }
-            }
-            {
-                ui.label("Administrator access password");
-                let p: &mut String = &mut ca.admin_access_password;
-                let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                ui.add(pe);
-                let p2: &mut String = ca.admin_access_password.second();
-                let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                ui.add(pe);
-            }
-            {
-                ui.label("Administrator certificate password");
-                let p: &mut String = &mut ca.admin_password;
-                let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                ui.add(pe);
-                let p2: &mut String = ca.admin_password.second();
-                let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                ui.add(pe);
-            }
-            {
-                ui.label("Ocsp certificate password");
-                let p: &mut String = &mut ca.ocsp_password;
-                let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                ui.add(pe);
-                let p2: &mut String = ca.ocsp_password.second();
-                let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                ui.add(pe);
-            }
-            {
-                ui.label("Root certificate password");
-                let p: &mut String = &mut ca.root_password;
-                let pe = egui_multiwin::egui::TextEdit::singleline(p).password(true);
-                ui.add(pe);
-                let p2: &mut String = ca.root_password.second();
-                let pe = egui_multiwin::egui::TextEdit::singleline(p2).password(true);
-                ui.add(pe);
-            }
-            ui.checkbox(&mut ca.ocsp_signature, "Ocsp request requires signature");
-        };
 
         egui_multiwin::egui::CentralPanel::default().show(&egui.egui_ctx, |ui| {
             let mut m = self.generating.lock().unwrap();

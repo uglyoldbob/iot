@@ -474,7 +474,8 @@ async fn main() {
 
         let tls_pass = settings.https.certpass.to_owned();
         let tls_cert = settings.https.certificate.to_owned();
-        let tls = TlsConfig::new(tls_cert, tls_pass);
+        let cert: &std::path::PathBuf = &tls_cert;
+        let tls = TlsConfig::new(cert, tls_pass);
 
         let hc_https = hc.clone();
 

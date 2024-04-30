@@ -453,7 +453,7 @@ pub enum CaCertificateStorageBuilder {
     /// Certificates are stored nowhere
     Nowhere,
     /// Ca uses a sqlite database on a filesystem
-    Sqlite(PathBuf),
+    Sqlite(prompt::FileCreate),
 }
 
 impl CaCertificateStorageBuilder {
@@ -520,6 +520,7 @@ impl CaCertificateStorageBuilder {
                 let mut count = 0;
                 let mut pool;
                 loop {
+                    let p: &std::path::PathBuf = &p;
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
                         .journal_mode(async_sqlite::JournalMode::Wal)
@@ -544,6 +545,7 @@ impl CaCertificateStorageBuilder {
                 }
                 let mut pool;
                 loop {
+                    let p: &std::path::PathBuf = &p;
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
                         .journal_mode(async_sqlite::JournalMode::Wal)

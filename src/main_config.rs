@@ -121,7 +121,7 @@ pub struct HttpsSettings {
     /// True when the server is enabled
     pub enabled: bool,
     /// The path to the p12 certificate to use for the https server certificate
-    pub certificate: PathBuf,
+    pub certificate: prompt::FileOpen,
     /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
     pub certpass: prompt::Password2,
     /// The port number to listen on
@@ -135,7 +135,7 @@ impl HttpsSettings {
     fn new() -> Self {
         Self {
             enabled: false,
-            certificate: PathBuf::new(),
+            certificate: prompt::FileOpen::default(),
             certpass: prompt::Password2::new("".into()),
             port: 4,
             require_certificate: false,
