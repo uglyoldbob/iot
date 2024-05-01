@@ -25,3 +25,4 @@ js/node_modules
 *.crt
 *.min.js
 cafiles
+certgen/target
