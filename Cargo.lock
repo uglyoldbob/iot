@@ -4193,7 +4193,7 @@ dependencies = [
 [[package]]
 name = "service"
 version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/service.git#076ace3a009f1a0cd3da04d5410f4db2a7be0da1"
+source = "git+https://github.com/uglyoldbob/service.git#16f00c998a8867c5af5812d61d67de21311126bf"
 dependencies = [
  "cfg-if",
  "eventlog",

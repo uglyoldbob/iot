@@ -283,17 +283,23 @@ async fn main() {
         }
     }
 
-    let service_config = service::ServiceConfig::new(
-        #[cfg(target_family = "windows")]
-        format!("Rust Iot {} Service", name),
+    let mut service_config = service::ServiceConfig::new(
         vec![format!("--name={}", name)],
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
-        config_path.clone(),
         Some(username),
-        #[cfg(target_family = "windows")]
-        None,
     );
+
+    #[cfg(target_os = "linux")]
+    {
+        service_config.config_path = config_path.clone();
+    }
+    #[cfg(target_family = "windows")]
+    {
+        service_config.display = format!("Rust Iot {} Service", name);
+        service_config.user_password = None;
+    }
+
     service.create_async(service_config).await;
     let _ = service.start();
 }
