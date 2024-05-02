@@ -284,8 +284,9 @@ async fn main() {
     }
 
     let service_config = service::ServiceConfig::new(
+        #[cfg(target_family = "windows")]
         format!("Rust Iot {} Service", name),
-        name.clone(),
+        vec![format!("--name={}", name)],
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
         config_path.clone(),
