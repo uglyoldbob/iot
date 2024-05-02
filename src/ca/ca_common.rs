@@ -1829,6 +1829,60 @@ impl<'a> From<CsrRequestDbEntry<'a>> for CsrRequest {
     }
 }
 
+/// Represents a raw certificate signing request, in pem format
+pub struct RawCsrRequest {
+    /// The csr, in pem format
+    pub pem: String,
+}
+
+impl RawCsrRequest {
+    /// Verifies the signature on the request
+    pub fn verify_request(&self) -> Result<(), ()> {
+        let pem = pem::parse(&self.pem).unwrap();
+        let der = pem.contents();
+        let parsed = yasna::parse_der(der, |r| {
+            let info = r.read_sequence(|r| {
+                let a = r.next().read_der()?;
+                let sig_alg = r.next().read_sequence(|r| {
+                    let alg = r.next().read_oid()?;
+                    r.next().read_null()?;
+                    Ok(alg)
+                })?;
+                let (sig, _) = r.next().read_bitvec_bytes()?;
+                Ok((a, sig_alg, sig))
+            })?;
+            Ok(info)
+        });
+        if let Ok((info, alg, sig)) = parsed {
+            use der::Decode;
+            use der::Encode;
+            use yasna::parse_der;
+            let cinfo = x509_cert::request::CertReqInfo::from_der(&info).unwrap();
+            let pubkey = cinfo.public_key.subject_public_key;
+            let pder = pubkey.to_der().unwrap();
+            let pkey = parse_der(&pder, |r| {
+                let (data, _size) = r.read_bitvec_bytes()?;
+                Ok(data)
+            })
+            .unwrap();
+
+            if alg == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
+                let csr_key = ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                    &pkey,
+                );
+                csr_key.verify(&info, &sig).map_err(|_| {
+                    println!("Error verifying the signature2 on the csr 1");
+                })
+            } else {
+                todo!();
+            }
+        } else {
+            Err(())
+        }
+    }
+}
+
 /// Contains a user signing request for a certificate
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct CsrRequest {

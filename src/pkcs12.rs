@@ -19,9 +19,9 @@ pub enum BagAttribute {
     FriendlyName(String),
 }
 
-impl TryFrom<&x509_cert::attr::Attribute> for BagAttribute {
+impl TryFrom<&cms::cert::x509::attr::Attribute> for BagAttribute {
     type Error = ();
-    fn try_from(value: &x509_cert::attr::Attribute) -> Result<Self, Self::Error> {
+    fn try_from(value: &cms::cert::x509::attr::Attribute) -> Result<Self, Self::Error> {
         if value.oid == OID_PKCS9_LOCAL_KEY_ID.to_const() {
             let id = &value.values.as_slice()[0];
             let val: der::asn1::OctetString = id.decode_as().unwrap();

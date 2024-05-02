@@ -3811,6 +3811,7 @@ name = "rust-iot"
 version = "0.0.1"
 dependencies = [
  "async-sqlite",
+ "base64 0.22.1",
  "bincode",
  "clap",
  "cms",

@@ -27,29 +27,6 @@ impl Ca {
             && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
     }
 
-    /// Verify a certificate signing request
-    pub async fn verify_request<'a>(
-        &mut self,
-        csr: &'a x509_cert::request::CertReq,
-    ) -> Result<&'a x509_cert::request::CertReq, ()> {
-        use der::Encode;
-        let _info = csr.info.to_der().unwrap();
-        let pubkey = &csr.info.public_key;
-        let _signature = &csr.signature;
-
-        let p = &pubkey.subject_public_key;
-        let pder = p.to_der().unwrap();
-
-        let _pkey = yasna::parse_der(&pder, |r| {
-            let (data, _size) = r.read_bitvec_bytes()?;
-            Ok(data)
-        })
-        .unwrap();
-
-        //TODO perform more validation of the csr
-        Ok(csr)
-    }
-
     /// Performs an iteration of all certificates, processing them with the given closure.
     pub async fn certificate_processing<'a, F>(&'a self, mut process: F)
     where

@@ -18,26 +18,27 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let f = s.post.form();
     if let Some(form) = f {
-        use der::DecodePem;
         if let Some(pem) = form.get_first("csr") {
             mycsr_pem = Some(pem.to_owned());
-            let cert = x509_cert::request::CertReq::from_pem(pem);
-            if let Ok(csr) = cert {
-                valid_csr = ca.verify_request(&csr).await.is_ok();
-                if valid_csr {
-                    let newid = ca.get_new_request_id().await;
-                    if let Some(newid) = newid {
-                        let csrr = CsrRequest {
-                            cert: pem.to_string(),
-                            name: form.get_first("name").unwrap().to_string(),
-                            email: form.get_first("email").unwrap().to_string(),
-                            phone: form.get_first("phone").unwrap().to_string(),
-                            id: newid,
-                        };
-                        let _ = ca.save_csr(&csrr).await;
-                    }
-                    id = newid;
+            let raw_csr = RawCsrRequest {
+                pem: pem.to_string(),
+            };
+            valid_csr = raw_csr.verify_request().is_ok();
+            if valid_csr {
+                use der::DecodePem;
+                let _cert = x509_cert::request::CertReq::from_pem(pem).unwrap();
+                let newid = ca.get_new_request_id().await;
+                if let Some(newid) = newid {
+                    let csrr = CsrRequest {
+                        cert: pem.to_string(),
+                        name: form.get_first("name").unwrap().to_string(),
+                        email: form.get_first("email").unwrap().to_string(),
+                        phone: form.get_first("phone").unwrap().to_string(),
+                        id: newid,
+                    };
+                    let _ = ca.save_csr(&csrr).await;
                 }
+                id = newid;
             }
         }
     }

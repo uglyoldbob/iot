@@ -95,7 +95,7 @@ function cert_work() {
 
   const ou = document.getElementById('organization-unit').value;
   if (ou.length != 0) {
-    subject_stuff.push({name: 'OU', value: ou});
+    subject_stuff.push({name: 'organizationalUnitName', value: ou});
   }
 
   if (subject_good == 0) {
