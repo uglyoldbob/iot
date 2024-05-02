@@ -256,9 +256,12 @@ impl<'a> InternalPublicKey<'a> {
                     key,
                 ),
             },
-            CertificateSigningMethod::EcdsaSha256 => {
-                todo!();
-            }
+            CertificateSigningMethod::EcdsaSha256 => Self {
+                key: ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::ECDSA_P256_SHA256_ASN1,
+                    key,
+                ),
+            },
             CertificateSigningMethod::RsaSha256 => Self {
                 key: ring::signature::UnparsedPublicKey::new(
                     &ring::signature::RSA_PKCS1_2048_8192_SHA256,
