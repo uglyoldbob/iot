@@ -33,10 +33,10 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Enable using systemd to start the service.
 - [x] Add a gui configuration tool for building an instance.
 - [x] Update print statements to use a custom logging crate
+- [x] Allow selecting the certificate type when building a root ca.
 - [ ] Implement code where todo statements exist.
 - [ ] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Allow ca to be intermediate or root.
-- [ ] Allow selecting the certificate type when building a root ca.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
 - [ ] Make site mobile friendly
