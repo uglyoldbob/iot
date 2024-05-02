@@ -153,7 +153,7 @@ You are logged in
                 .content("text/html;charset=utf-8")
         });
         h.link(|h| {
-            h.href(format!("{}/css/main.css", s.proxy))
+            h.href(format!("{}css/main.css", s.proxy))
                 .rel("stylesheet")
                 .media("all")
         });
@@ -203,7 +203,7 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let (mut response, _dummybody) = response.into_parts();
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = format!("{}/main.rs", s.proxy);
+    let url = format!("{}main.rs", s.proxy);
     response
         .headers
         .insert("Location", HeaderValue::from_str(&url).unwrap());
