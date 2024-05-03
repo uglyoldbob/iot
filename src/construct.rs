@@ -79,15 +79,18 @@ async fn main() {
         .open("C:/git/log2.txt")
         .unwrap();
     #[cfg(target_os = "windows")]
-    let print_redirect = gag::Redirect::stdout(log).unwrap();
+    let print_redirect = args.ipc.as_ref().and(gag::Redirect::stdout(log).ok());
     #[cfg(target_os = "windows")]
-    let print_redirect2 = gag::Redirect::stderr(log2).unwrap();
+    let print_redirect2 = args.ipc.as_ref().and(gag::Redirect::stderr(log2).ok());
 
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
     } else {
         crate::main_config::default_config_path()
     };
+    let config_path = std::fs::canonicalize(&config_path).unwrap();
+
+    println!("Config path is {}", config_path.display());
 
     let name = args.name.unwrap_or("default".to_string());
 
@@ -283,11 +286,18 @@ async fn main() {
         }
     }
 
+    let mut args = vec![format!("--name={}", name)];
+
+    #[cfg(target_family = "windows")]
+    {
+        args.push(format!("--config={}", config_path.display()));
+    }
+
     let mut service_config = service::ServiceConfig::new(
-        vec![format!("--name={}", name)],
+        args,
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
-        Some(username),
+        None,
     );
 
     #[cfg(target_os = "linux")]
@@ -300,6 +310,6 @@ async fn main() {
         service_config.user_password = None;
     }
 
-    service.create_async(service_config).await;
+    service.create_async(service_config).await.unwrap();
     let _ = service.start();
 }

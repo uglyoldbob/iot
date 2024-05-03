@@ -253,6 +253,13 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
+    #[cfg(target_family = "windows")]
+    {
+        std::panic::set_hook(Box::new(|p| {
+            service::log::debug!("Panic {:?}", p);
+        }))
+    }
+
     let args = Args::parse();
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
@@ -267,6 +274,7 @@ async fn main() {
     service.new_log(service::LogLevel::Debug);
 
     service::log::debug!("Load config from {:?}", config_path);
+    service::log::debug!("Current path is {}", std::env::current_dir().unwrap().display());
 
     let mut static_map = std::collections::HashMap::new();
     let mut router = webserver::WebRouter::new();

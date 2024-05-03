@@ -3422,7 +3422,7 @@ dependencies = [
 [[package]]
 name = "prompt"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#5a84f55bd7309e5cc51df39024b590bf2da38f58"
+source = "git+https://github.com/uglyoldbob/prompt.git#2bc45d45891ee9381687c46b09d2c39644fa336b"
 dependencies = [
  "egui",
  "prompt_derive",
@@ -3434,7 +3434,7 @@ dependencies = [
 [[package]]
 name = "prompt_derive"
 version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#5a84f55bd7309e5cc51df39024b590bf2da38f58"
+source = "git+https://github.com/uglyoldbob/prompt.git#2bc45d45891ee9381687c46b09d2c39644fa336b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4193,7 +4193,7 @@ dependencies = [
 [[package]]
 name = "service"
 version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/service.git#16f00c998a8867c5af5812d61d67de21311126bf"
+source = "git+https://github.com/uglyoldbob/service.git#ef657f029ab8d47508e26e78ee722ba450ad3200"
 dependencies = [
  "cfg-if",
  "eventlog",
