@@ -274,7 +274,10 @@ async fn main() {
     service.new_log(service::LogLevel::Debug);
 
     service::log::debug!("Load config from {:?}", config_path);
-    service::log::debug!("Current path is {}", std::env::current_dir().unwrap().display());
+    service::log::debug!(
+        "Current path is {}",
+        std::env::current_dir().unwrap().display()
+    );
 
     let mut static_map = std::collections::HashMap::new();
     let mut router = webserver::WebRouter::new();

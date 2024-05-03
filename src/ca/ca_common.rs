@@ -514,26 +514,28 @@ impl OwnerOptions {
 
     /// Lookup sid from username and optional system name. From https://github.com/trailofbits/windows-acl/blob/master/src/utils.rs
     #[cfg(target_family = "windows")]
-    fn name_to_sid(name: &str, system: Option<&str>) -> Result<Vec<winapi::shared::minwindef::BYTE>, winapi::shared::minwindef::DWORD> {
+    fn name_to_sid(
+        name: &str,
+        system: Option<&str>,
+    ) -> Result<Vec<winapi::shared::minwindef::BYTE>, winapi::shared::minwindef::DWORD> {
+        use winapi::shared::minwindef::BYTE;
+        use winapi::shared::minwindef::DWORD;
         use winapi::shared::ntdef::LPCWSTR;
         use winapi::shared::ntdef::LPWSTR;
         use winapi::shared::ntdef::NULL;
-        use winapi::shared::minwindef::BYTE;
-        use winapi::shared::minwindef::DWORD;
         use winapi::um::winnt::PSID;
         use winapi::um::winnt::SID_NAME_USE;
         let raw_name: Vec<u16> = Self::get_utf16(name);
-        let raw_system: Option<Vec<u16>> =
-            system.map(|name|  Self::get_utf16(name));
+        let raw_system: Option<Vec<u16>> = system.map(|name| Self::get_utf16(name));
         let system_ptr: LPCWSTR = match raw_system {
             Some(sys_name) => sys_name.as_ptr(),
             None => NULL as LPCWSTR,
         };
         let mut sid_size: DWORD = 0;
         let mut sid_type: SID_NAME_USE = 0 as SID_NAME_USE;
-    
+
         let mut name_size: DWORD = 0;
-    
+
         if unsafe {
             winapi::um::winbase::LookupAccountNameW(
                 system_ptr,
@@ -548,20 +550,24 @@ impl OwnerOptions {
         {
             return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
         }
-    
-        if unsafe { winapi::um::errhandlingapi::GetLastError() } != winapi::shared::winerror::ERROR_INSUFFICIENT_BUFFER {
+
+        if unsafe { winapi::um::errhandlingapi::GetLastError() }
+            != winapi::shared::winerror::ERROR_INSUFFICIENT_BUFFER
+        {
             return Err(0);
         }
-    
+
         if sid_size == 0 {
             return Err(0);
         }
 
         println!("Sid size is {}", sid_size);
-    
+
         let mut sid: Vec<BYTE> = Vec::with_capacity(sid_size as usize);
-        let mut name: Vec<BYTE> = Vec::with_capacity((name_size as usize) * std::mem::size_of::<winapi::shared::ntdef::WCHAR>());
-    
+        let mut name: Vec<BYTE> = Vec::with_capacity(
+            (name_size as usize) * std::mem::size_of::<winapi::shared::ntdef::WCHAR>(),
+        );
+
         if unsafe {
             winapi::um::winbase::LookupAccountNameW(
                 system_ptr,
@@ -576,9 +582,9 @@ impl OwnerOptions {
         {
             return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
         }
-    
+
         unsafe { sid.set_len(sid_size as usize) };
-    
+
         Ok(sid)
     }
 
@@ -586,9 +592,7 @@ impl OwnerOptions {
     pub fn new(username: &str) -> Self {
         println!("Trying to lookup {}", username);
         let sid = Self::name_to_sid(username, None).unwrap();
-        Self {
-            raw_sid: sid,
-        }
+        Self { raw_sid: sid }
     }
 
     /// Set the owner of a single file
@@ -615,18 +619,32 @@ impl OwnerOptions {
     #[cfg(target_family = "windows")]
     pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
         println!("Set owner of {}", p.display());
-        let (ox, ow, or) = (((permissions & 1) != 0), ((permissions & 2) != 0), ((permissions & 4) != 0));
-        let (gx, gw, gr) = (((permissions & 0x8) != 0), ((permissions & 0x10) != 0), ((permissions & 0x20) != 0));
-        let (ux, uw, ur) = (((permissions & 0x40) != 0), ((permissions & 0x80) != 0), ((permissions & 0x100) != 0));
-        let handle = unsafe { winapi::um::fileapi::CreateFileW(
-            Self::get_utf16(p.as_os_str().to_str().unwrap()).as_ptr(),
-            winapi::um::winnt::WRITE_OWNER,
-            0,
-            std::ptr::null_mut(),
-            winapi::um::fileapi::OPEN_EXISTING,
-            winapi::um::winnt::FILE_ATTRIBUTE_NORMAL,
-            std::ptr::null_mut(),
-        )};
+        let (ox, ow, or) = (
+            ((permissions & 1) != 0),
+            ((permissions & 2) != 0),
+            ((permissions & 4) != 0),
+        );
+        let (gx, gw, gr) = (
+            ((permissions & 0x8) != 0),
+            ((permissions & 0x10) != 0),
+            ((permissions & 0x20) != 0),
+        );
+        let (ux, uw, ur) = (
+            ((permissions & 0x40) != 0),
+            ((permissions & 0x80) != 0),
+            ((permissions & 0x100) != 0),
+        );
+        let handle = unsafe {
+            winapi::um::fileapi::CreateFileW(
+                Self::get_utf16(p.as_os_str().to_str().unwrap()).as_ptr(),
+                winapi::um::winnt::WRITE_OWNER,
+                0,
+                std::ptr::null_mut(),
+                winapi::um::fileapi::OPEN_EXISTING,
+                winapi::um::winnt::FILE_ATTRIBUTE_NORMAL,
+                std::ptr::null_mut(),
+            )
+        };
         let mut sid = self.raw_sid.clone();
         let owner = sid.as_mut_ptr() as winapi::um::winnt::PSID;
         let asdf = unsafe {
@@ -662,9 +680,14 @@ impl CaCertificateStorageBuilder {
                 let mut pool;
                 loop {
                     let p: &std::path::PathBuf = &p;
+                    let mode = if options.is_none() {
+                        async_sqlite::JournalMode::Wal
+                    } else {
+                        async_sqlite::JournalMode::Memory
+                    };
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
-                        .journal_mode(async_sqlite::JournalMode::Wal)
+                        .journal_mode(mode)
                         .open()
                         .await;
                     if pool.is_err() {
@@ -689,9 +712,14 @@ impl CaCertificateStorageBuilder {
                 let mut pool;
                 loop {
                     let p: &std::path::PathBuf = &p;
+                    let mode = if options.is_none() {
+                        async_sqlite::JournalMode::Wal
+                    } else {
+                        async_sqlite::JournalMode::Memory
+                    };
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
-                        .journal_mode(async_sqlite::JournalMode::Wal)
+                        .journal_mode(mode)
                         .open()
                         .await;
                     if pool.is_err() {
