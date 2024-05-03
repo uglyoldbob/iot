@@ -96,16 +96,6 @@ async fn main() {
 
     let username = args.user.unwrap_or("pki".to_string());
 
-    let mut exe = std::env::current_exe().unwrap();
-    exe.pop();
-
-    let mut service = service::Service::new(format!("rust-iot-{}", name));
-    if service.exists() {
-        panic!("Service already exists");
-    }
-
-    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
-
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&username).unwrap().unwrap();
     #[cfg(target_family = "unix")]
@@ -115,6 +105,16 @@ async fn main() {
     let options = ca::OwnerOptions::new(user_uid.as_raw());
     #[cfg(target_family = "windows")]
     let options = ca::OwnerOptions::new(&username);
+
+    let mut exe = std::env::current_exe().unwrap();
+    exe.pop();
+
+    let mut service = service::Service::new(format!("rust-iot-{}", name));
+    if service.exists() {
+        panic!("Service already exists");
+    }
+
+    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();

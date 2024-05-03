@@ -531,6 +531,10 @@ impl OwnerOptions {
             )
         };
         println!("User lookup {}", r);
+        if r == 0 {
+            let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
+            println!("The error is {}", err);
+        }
         todo!();
         Self {
             user: sid,
