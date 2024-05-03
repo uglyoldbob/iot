@@ -502,7 +502,7 @@ pub struct OwnerOptions {
     /// The unix based user id
     uid: u32,
     #[cfg(target_family = "windows")]
-    user: winapi::um::winnt::SID,
+    raw_sid: Vec<winapi::shared::minwindef::BYTE>,
 }
 
 impl OwnerOptions {
@@ -584,14 +584,11 @@ impl OwnerOptions {
 
     #[cfg(target_family = "windows")]
     pub fn new(username: &str) -> Self {
-        let mut sid = winapi::um::winnt::SID::default();
-        let mut sid_size = winapi::shared::minwindef::DWORD::try_from(std::mem::size_of::<winapi::um::winnt::SID>()).unwrap();
-        let mut sid_use = winapi::um::winnt::SID_NAME_USE::default();
-        let psid: winapi::um::winnt::PSID = &mut sid as *mut _ as winapi::um::winnt::PSID;
         println!("Trying to lookup {}", username);
-        let sid = Self::name_to_sid(username, None);
-        println!("Result of lookup is {:?}", sid);
-        todo!();
+        let sid = Self::name_to_sid(username, None).unwrap();
+        Self {
+            raw_sid: sid,
+        }
     }
 
     /// Set the owner of a single file
@@ -617,6 +614,7 @@ impl OwnerOptions {
 
     #[cfg(target_family = "windows")]
     pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
+        println!("Set owner of {}", p.display());
         let (ox, ow, or) = (((permissions & 1) != 0), ((permissions & 2) != 0), ((permissions & 4) != 0));
         let (gx, gw, gr) = (((permissions & 0x8) != 0), ((permissions & 0x10) != 0), ((permissions & 0x20) != 0));
         let (ux, uw, ur) = (((permissions & 0x40) != 0), ((permissions & 0x80) != 0), ((permissions & 0x100) != 0));
@@ -629,8 +627,9 @@ impl OwnerOptions {
             winapi::um::winnt::FILE_ATTRIBUTE_NORMAL,
             std::ptr::null_mut(),
         )};
-        let owner = todo!();
-        unsafe {
+        let mut sid = self.raw_sid.clone();
+        let owner = sid.as_mut_ptr() as winapi::um::winnt::PSID;
+        let asdf = unsafe {
             winapi::um::aclapi::SetSecurityInfo(
                 handle,
                 winapi::um::accctrl::SE_FILE_OBJECT,
@@ -641,7 +640,12 @@ impl OwnerOptions {
                 std::ptr::null_mut(),
             )
         };
-        todo!();
+        println!("Set security info returned {}", asdf);
+
+        let mut perms = std::fs::metadata(p).unwrap().permissions();
+        println!("Read only {}", !uw);
+        perms.set_readonly(!uw);
+        std::fs::set_permissions(p, perms).unwrap();
     }
 }
 
@@ -677,7 +681,9 @@ impl CaCertificateStorageBuilder {
                 if let Some(o) = options {
                     let paths = get_sqlite_paths(p);
                     for p in paths {
-                        o.set_owner(&p, 0o600).await;
+                        if p.exists() {
+                            o.set_owner(&p, 0o600).await;
+                        }
                     }
                 }
                 let mut pool;
