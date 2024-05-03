@@ -512,6 +512,76 @@ impl OwnerOptions {
         Self { uid }
     }
 
+    /// Lookup sid from username and optional system name. From https://github.com/trailofbits/windows-acl/blob/master/src/utils.rs
+    #[cfg(target_family = "windows")]
+    fn name_to_sid(name: &str, system: Option<&str>) -> Result<Vec<winapi::shared::minwindef::BYTE>, winapi::shared::minwindef::DWORD> {
+        use winapi::shared::ntdef::LPCWSTR;
+        use winapi::shared::ntdef::LPWSTR;
+        use winapi::shared::ntdef::NULL;
+        use winapi::shared::minwindef::BYTE;
+        use winapi::shared::minwindef::DWORD;
+        use winapi::um::winnt::PSID;
+        use winapi::um::winnt::SID_NAME_USE;
+        let raw_name: Vec<u16> = Self::get_utf16(name);
+        let raw_system: Option<Vec<u16>> =
+            system.map(|name|  Self::get_utf16(name));
+        let system_ptr: LPCWSTR = match raw_system {
+            Some(sys_name) => sys_name.as_ptr(),
+            None => NULL as LPCWSTR,
+        };
+        let mut sid_size: DWORD = 0;
+        let mut sid_type: SID_NAME_USE = 0 as SID_NAME_USE;
+    
+        let mut name_size: DWORD = 0;
+    
+        if unsafe {
+            winapi::um::winbase::LookupAccountNameW(
+                system_ptr,
+                raw_name.as_ptr() as LPCWSTR,
+                NULL as PSID,
+                &mut sid_size,
+                NULL as LPWSTR,
+                &mut name_size,
+                &mut sid_type,
+            )
+        } != 0
+        {
+            return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
+        }
+    
+        if unsafe { winapi::um::errhandlingapi::GetLastError() } != winapi::shared::winerror::ERROR_INSUFFICIENT_BUFFER {
+            return Err(0);
+        }
+    
+        if sid_size == 0 {
+            return Err(0);
+        }
+
+        println!("Sid size is {}", sid_size);
+    
+        let mut sid: Vec<BYTE> = Vec::with_capacity(sid_size as usize);
+        let mut name: Vec<BYTE> = Vec::with_capacity((name_size as usize) * std::mem::size_of::<winapi::shared::ntdef::WCHAR>());
+    
+        if unsafe {
+            winapi::um::winbase::LookupAccountNameW(
+                system_ptr,
+                raw_name.as_ptr() as LPCWSTR,
+                sid.as_mut_ptr() as PSID,
+                &mut sid_size,
+                name.as_mut_ptr() as LPWSTR,
+                &mut name_size,
+                &mut sid_type,
+            )
+        } == 0
+        {
+            return Err(unsafe { winapi::um::errhandlingapi::GetLastError() });
+        }
+    
+        unsafe { sid.set_len(sid_size as usize) };
+    
+        Ok(sid)
+    }
+
     #[cfg(target_family = "windows")]
     pub fn new(username: &str) -> Self {
         let mut sid = winapi::um::winnt::SID::default();
@@ -519,26 +589,9 @@ impl OwnerOptions {
         let mut sid_use = winapi::um::winnt::SID_NAME_USE::default();
         let psid: winapi::um::winnt::PSID = &mut sid as *mut _ as winapi::um::winnt::PSID;
         println!("Trying to lookup {}", username);
-        let r = unsafe {
-            winapi::um::winbase::LookupAccountNameW(
-                std::ptr::null(),
-                Self::get_utf16(username).as_ptr(),
-                psid,
-                std::ptr::addr_of_mut!(sid_size),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut sid_use as winapi::um::winnt::PSID_NAME_USE,
-            )
-        };
-        println!("User lookup {}", r);
-        if r == 0 {
-            let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-            println!("The error is {}", err);
-        }
+        let sid = Self::name_to_sid(username, None);
+        println!("Result of lookup is {:?}", sid);
         todo!();
-        Self {
-            user: sid,
-        }
     }
 
     /// Set the owner of a single file
