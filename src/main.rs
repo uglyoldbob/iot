@@ -268,6 +268,7 @@ async fn main() {
 
     service::log::debug!("Load config from {:?}", config_path);
 
+    let mut static_map = std::collections::HashMap::new();
     let mut router = webserver::WebRouter::new();
     router.register("/asdf", test_func);
     router.register("/groot", test_func2);
@@ -401,6 +402,7 @@ async fn main() {
     let pki = ca::PkiInstance::load(&settings).await;
 
     ca::ca_register(&pki, &mut router);
+    ca::ca_register_files(&pki, &mut static_map);
 
     let mysql_pw = &settings.database.password;
     let mysql_user = &settings.database.username;
@@ -423,6 +425,7 @@ async fn main() {
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 
     let mut hc = HttpContext {
+        static_map,
         dirmap: router,
         root: settings.general.static_content.to_owned(),
         proxy: proxy_map,

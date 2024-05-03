@@ -1426,6 +1426,18 @@ fn generic_head<'a>(
     h
 }
 
+/// Register static file remaps into the specified hashmap
+pub fn ca_register_files(pki: &PkiInstance, static_map: &mut std::collections::HashMap<String, String>) {
+    match pki {
+        PkiInstance::Pki(pki) => {
+            for name in pki.roots.keys() {
+            }
+        }
+        PkiInstance::Ca(_ca) => {
+        }
+    }
+}
+
 /// Register handlers into the specified webrouter.
 pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
     match pki {

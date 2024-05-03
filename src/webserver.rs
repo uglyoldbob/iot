@@ -71,6 +71,8 @@ where
 
 /// The context necessary to respond to a web request.
 pub struct HttpContext {
+    /// The map for static content, mapping urls to static content files
+    pub static_map: HashMap<String, String>,
     /// The map that is used to route requests to the proper async function.
     pub dirmap: WebRouter,
     /// The root path for static files
