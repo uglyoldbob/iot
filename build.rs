@@ -1,5 +1,20 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changes=./certgen/Cargo.toml");
+    println!("cargo:rerun-if-changes=./certgen/src");
+    println!("cargo:rerun-if-changes=./certgen/.cargo/config.toml");
+
+    let wasm_build = std::process::Command::new("cargo")
+        .arg("build")
+        .arg("--lib")
+        .arg("--release")
+        .current_dir("./certgen")
+        .output()
+        .unwrap();
+    if !wasm_build.status.success() {
+        println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
+        eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
+    }
 
     // false - run npm out of the source directory
     // true - run npm out of the build directory
@@ -22,8 +37,18 @@ fn main() {
         }
         p
     } else {
-        source_path.join("js")
+        source_path.join("content").join("js")
     };
+
+    println!(
+        "current dir is {}",
+        std::env::current_dir().unwrap().display()
+    );
+    std::fs::copy(
+        "./certgen/target/wasm32-wasip1/release/certgen.wasm",
+        p.join("certgen.wasm"),
+    )
+    .unwrap_or_else(|_| panic!("Failed to copy wasm file"));
 
     let npm_test = std::process::Command::new("npm")
         .current_dir(&p)
