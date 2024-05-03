@@ -40,12 +40,12 @@ impl Pki {
     pub async fn init(
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
-        options: OwnerOptions,
+        options: &OwnerOptions,
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
         for (name, config) in settings.local_ca.map() {
             let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::init(config, &options).await;
+            let ca = crate::ca::Ca::init(config, options).await;
             hm.insert(name.to_owned(), ca);
         }
         Self { roots: hm }
@@ -58,7 +58,7 @@ impl PkiInstance {
     pub async fn init(
         settings: &crate::ca::PkiConfigurationEnum,
         main_config: &crate::main_config::MainConfiguration,
-        options: OwnerOptions,
+        options: &OwnerOptions,
     ) -> Self {
         match settings {
             PkiConfigurationEnum::Pki(pki_config) => {

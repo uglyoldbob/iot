@@ -135,7 +135,7 @@ tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch =
 ctrlc = "3.4.4"
 gag = "1.0.0"
 tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "generate-bindings"]}
-winapi = {version = "0.3.9", features = ["winsvc"]}
+winapi = {version = "0.3.9", features = ["aclapi", "impl-default", "winsvc"]}
 
 [features]
 default = ["tpm2" ]

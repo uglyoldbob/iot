@@ -501,6 +501,8 @@ pub struct OwnerOptions {
     #[cfg(target_family = "unix")]
     /// The unix based user id
     uid: u32,
+    #[cfg(target_family = "windows")]
+    user: winapi::um::winnt::SID,
 }
 
 impl OwnerOptions {
@@ -511,22 +513,78 @@ impl OwnerOptions {
     }
 
     #[cfg(target_family = "windows")]
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(username: &str) -> Self {
+        let mut sid = winapi::um::winnt::SID::default();
+        let mut sid_size = winapi::shared::minwindef::DWORD::try_from(std::mem::size_of::<winapi::um::winnt::SID>()).unwrap();
+        let mut sid_use = winapi::um::winnt::SID_NAME_USE::default();
+        let psid: winapi::um::winnt::PSID = &mut sid as *mut _ as winapi::um::winnt::PSID;
+        println!("Trying to lookup {}", username);
+        let r = unsafe {
+            winapi::um::winbase::LookupAccountNameW(
+                std::ptr::null(),
+                Self::get_utf16(username).as_ptr(),
+                psid,
+                std::ptr::addr_of_mut!(sid_size),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut sid_use as winapi::um::winnt::PSID_NAME_USE,
+            )
+        };
+        println!("User lookup {}", r);
+        todo!();
+        Self {
+            user: sid,
+        }
     }
 
     /// Set the owner of a single file
-    pub async fn set_owner(&self, p: PathBuf) {
+    #[cfg(target_family = "unix")]
+    pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
         if p.exists() {
             service::log::info!("Setting ownership of {}", p.display());
-            #[cfg(target_family = "unix")]
-            {
-                std::os::unix::fs::chown(&p, Some(self.uid), None).unwrap();
-                let mut perms = std::fs::metadata(&p).unwrap().permissions();
-                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
-                std::fs::set_permissions(p, perms).unwrap();
-            }
+            std::os::unix::fs::chown(p, Some(self.uid), None).unwrap();
+            let mut perms = std::fs::metadata(p).unwrap().permissions();
+            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, permissions);
+            std::fs::set_permissions(p, perms).unwrap();
         }
+    }
+
+    #[cfg(target_family = "windows")]
+    fn get_utf16(value: &str) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    #[cfg(target_family = "windows")]
+    pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
+        let (ox, ow, or) = (((permissions & 1) != 0), ((permissions & 2) != 0), ((permissions & 4) != 0));
+        let (gx, gw, gr) = (((permissions & 0x8) != 0), ((permissions & 0x10) != 0), ((permissions & 0x20) != 0));
+        let (ux, uw, ur) = (((permissions & 0x40) != 0), ((permissions & 0x80) != 0), ((permissions & 0x100) != 0));
+        let handle = unsafe { winapi::um::fileapi::CreateFileW(
+            Self::get_utf16(p.as_os_str().to_str().unwrap()).as_ptr(),
+            winapi::um::winnt::WRITE_OWNER,
+            0,
+            std::ptr::null_mut(),
+            winapi::um::fileapi::OPEN_EXISTING,
+            winapi::um::winnt::FILE_ATTRIBUTE_NORMAL,
+            std::ptr::null_mut(),
+        )};
+        let owner = todo!();
+        unsafe {
+            winapi::um::aclapi::SetSecurityInfo(
+                handle,
+                winapi::um::accctrl::SE_FILE_OBJECT,
+                winapi::um::winnt::OWNER_SECURITY_INFORMATION,
+                owner,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        todo!();
     }
 }
 
@@ -562,7 +620,7 @@ impl CaCertificateStorageBuilder {
                 if let Some(o) = options {
                     let paths = get_sqlite_paths(p);
                     for p in paths {
-                        o.set_owner(p).await;
+                        o.set_owner(&p, 0o600).await;
                     }
                 }
                 let mut pool;

@@ -111,6 +111,11 @@ async fn main() {
     #[cfg(target_family = "unix")]
     let user_uid = user_obj.uid;
 
+    #[cfg(target_family = "unix")]
+    let options = ca::OwnerOptions::new(user_uid.as_raw());
+    #[cfg(target_family = "windows")]
+    let options = ca::OwnerOptions::new(&username);
+
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
 
@@ -145,14 +150,7 @@ async fn main() {
         f.write_all(answers.as_bytes())
             .await
             .expect("Failed to write answers file");
-        #[cfg(target_family = "unix")]
-        {
-            std::os::unix::fs::chown(&pb, Some(user_uid.as_raw()), None)
-                .expect("Failed to set file owner");
-            let mut perms = std::fs::metadata(&pb).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o600);
-            std::fs::set_permissions(pb, perms).expect("Failed to set file permissions");
-        }
+        options.set_owner(pb, 0o600).await;
     }
 
     println!("Saving the configuration file");
@@ -193,15 +191,7 @@ async fn main() {
         fpw.write_all(password.to_string().as_bytes())
             .await
             .expect("Failed to write credentials");
-        #[cfg(target_family = "unix")]
-        {
-            std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                .expect("Failed to set file owner");
-            let mut perms = std::fs::metadata(&p).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
-            std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
-        }
-
+        options.set_owner(&p, 0o400).await;
         tpm2::encrypt(config_data.as_bytes(), password_combined)
     };
 
@@ -232,14 +222,7 @@ async fn main() {
             f2.write_all(&tpmblob.data())
                 .await
                 .expect("Failed to write protected password");
-            #[cfg(target_family = "unix")]
-            {
-                std::os::unix::fs::chown(&p, Some(user_uid.as_raw()), None)
-                    .expect("Failed to set file owner");
-                let mut perms = std::fs::metadata(&p).unwrap().permissions();
-                std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o400);
-                std::fs::set_permissions(p, perms).expect("Failed to set file permissions");
-            }
+            options.set_owner(&p, 0o400).await;
             econfig
         } else {
             println!("TPM2 NOT DETECTED!!!");
@@ -258,12 +241,7 @@ async fn main() {
         do_without_tpm2().await
     }
 
-    #[cfg(target_family = "unix")]
-    let options = ca::OwnerOptions::new(user_uid.as_raw());
-    #[cfg(target_family = "windows")]
-    let options = ca::OwnerOptions::new();
-
-    ca::PkiInstance::init(&config.pki, &config, options).await;
+    ca::PkiInstance::init(&config.pki, &config, &options).await;
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!(
@@ -276,14 +254,7 @@ async fn main() {
         f2.write_all(proxy.as_bytes())
             .await
             .expect("Failed to write reverse proxy file");
-        #[cfg(target_family = "unix")]
-        {
-            std::os::unix::fs::chown(&proxy_name, Some(user_uid.as_raw()), None)
-                .expect("Failed to set file owner");
-            let mut perms = std::fs::metadata(&proxy_name).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
-            std::fs::set_permissions(proxy_name, perms).expect("Failed to set file permissions");
-        }
+        options.set_owner(&proxy_name, 0o644).await;
     }
 
     let mut args = vec![format!("--name={}", name)];
@@ -297,7 +268,7 @@ async fn main() {
         args,
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
-        None,
+        Some(username),
     );
 
     #[cfg(target_os = "linux")]

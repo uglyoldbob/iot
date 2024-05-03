@@ -91,10 +91,4 @@ fn main() {
             }
         }
     }
-
-    #[cfg(windows)]
-    {
-        println!("cargo:rustc-link-arg-bin=rust-iot-construct=/MANIFEST:EMBED");
-        println!("cargo:rustc-link-arg-bin=rust-iot-construct=/MANIFESTUAC:level=\'requireAdministrator\'");
-    }
 }
