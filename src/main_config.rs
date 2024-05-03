@@ -91,8 +91,6 @@ impl AdminSettings {
     serde::Serialize,
 )]
 pub struct HttpSettings {
-    /// True when the http server should be enabled
-    pub enabled: bool,
     /// The port number to listen on
     pub port: u16,
 }
@@ -100,10 +98,7 @@ pub struct HttpSettings {
 impl HttpSettings {
     /// Construct a blank Self
     fn new() -> Self {
-        Self {
-            enabled: false,
-            port: 3,
-        }
+        Self { port: 3 }
     }
 }
 
@@ -118,8 +113,6 @@ impl HttpSettings {
     serde::Serialize,
 )]
 pub struct HttpsSettings {
-    /// True when the server is enabled
-    pub enabled: bool,
     /// The path to the p12 certificate to use for the https server certificate
     pub certificate: prompt::FileOpen,
     /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
@@ -134,7 +127,6 @@ impl HttpsSettings {
     /// Construct a blank Self
     fn new() -> Self {
         Self {
-            enabled: false,
             certificate: prompt::FileOpen::default(),
             certpass: prompt::Password2::new("".into()),
             port: 4,
@@ -192,9 +184,9 @@ pub struct MainConfigurationAnswers {
     /// Admin user settings
     pub admin: AdminSettings,
     /// Settings for the http server
-    pub http: HttpSettings,
+    pub http: Option<HttpSettings>,
     /// Settings for the https server
-    pub https: HttpsSettings,
+    pub https: Option<HttpsSettings>,
     /// Settings for the database
     pub database: DatabaseSettings,
     /// The public name of the service, contains example.com/asdf for the example
@@ -213,9 +205,9 @@ pub struct MainConfiguration {
     /// Admin user settings
     pub admin: AdminSettings,
     /// Settings for the http server
-    pub http: HttpSettings,
+    pub http: Option<HttpSettings>,
     /// Settings for the https server
-    pub https: HttpsSettings,
+    pub https: Option<HttpsSettings>,
     /// Settings for the database
     pub database: DatabaseSettings,
     /// The public name of the service, contains example.com/asdf for the example
@@ -240,8 +232,8 @@ impl MainConfiguration {
         Self {
             general: GeneralSettings::new(),
             admin: AdminSettings::new(),
-            http: HttpSettings::new(),
-            https: HttpsSettings::new(),
+            http: None,
+            https: None,
             proxy_config: None,
             database: DatabaseSettings::new(),
             public_names: Vec::new(),
@@ -274,12 +266,12 @@ impl MainConfiguration {
     }
 
     /// Return the port number for the http server
-    pub fn get_http_port(&self) -> u16 {
-        self.http.port
+    pub fn get_http_port(&self) -> Option<u16> {
+        self.http.as_ref().map(|a| a.port)
     }
 
     /// Return the port number for the https server
-    pub fn get_https_port(&self) -> u16 {
-        self.https.port
+    pub fn get_https_port(&self) -> Option<u16> {
+        self.https.as_ref().map(|a| a.port)
     }
 }

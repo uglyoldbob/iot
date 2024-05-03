@@ -451,9 +451,6 @@ async fn main() {
         service::log::info!("Not using a proxy path");
     }
 
-    let http_enable = settings.http.enabled;
-    let https_enable = settings.https.enabled;
-
     let hc = Arc::new(hc);
 
     let mut tasks: tokio::task::JoinSet<Result<(), webserver::ServiceError>> =
@@ -461,22 +458,20 @@ async fn main() {
 
     let client_certs = webserver::tls::load_user_cert_data(&settings);
 
-    if http_enable {
-        let http_port = settings.get_http_port();
-        service::log::info!("Listening http on port {}", http_port);
+    if let Some(http) = &settings.http {
+        service::log::info!("Listening http on port {}", http.port);
 
         let hc_http = hc.clone();
-        if let Err(e) = http_webserver(hc_http, http_port, &mut tasks).await {
+        if let Err(e) = http_webserver(hc_http, http.port, &mut tasks).await {
             service::log::error!("https web server errored {}", e);
         }
     }
 
-    if https_enable {
-        let https_port = settings.get_https_port();
-        service::log::info!("Listening https on port {}", https_port);
+    if let Some(https) = &settings.https {
+        service::log::info!("Listening https on port {}", https.port);
 
-        let tls_pass = settings.https.certpass.to_owned();
-        let tls_cert = settings.https.certificate.to_owned();
+        let tls_pass = https.certpass.to_owned();
+        let tls_cert = https.certificate.to_owned();
         let cert: &std::path::PathBuf = &tls_cert;
         let tls = TlsConfig::new(cert, tls_pass);
 
@@ -484,11 +479,11 @@ async fn main() {
 
         if let Err(e) = https_webserver(
             hc_https,
-            https_port,
+            https.port,
             tls,
             &mut tasks,
             client_certs,
-            settings.https.require_certificate,
+            https.require_certificate,
         )
         .await
         {

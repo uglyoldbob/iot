@@ -117,13 +117,13 @@ impl StandaloneCaConfiguration {
             .as_ref()
             .map(|a| a.http_port)
             .flatten()
-            .or_else(|| Some(settings.get_http_port()));
+            .or_else(|| settings.get_http_port());
         let https_port = settings
             .proxy_config
             .as_ref()
             .map(|a| a.https_port)
             .flatten()
-            .or_else(|| Some(settings.get_https_port()));
+            .or_else(|| settings.get_https_port());
         CaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
@@ -239,13 +239,13 @@ impl LocalCaConfiguration {
             .as_ref()
             .map(|a| a.http_port)
             .flatten()
-            .or_else(|| Some(settings.get_http_port()));
+            .or_else(|| settings.get_http_port());
         let https_port = settings
             .proxy_config
             .as_ref()
             .map(|a| a.https_port)
             .flatten()
-            .or_else(|| Some(settings.get_https_port()));
+            .or_else(|| settings.get_https_port());
         CaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
@@ -1008,26 +1008,26 @@ impl PkiConfigurationEnum {
                     "\tlocation {}{} {{\n",
                     complex_name.subdomain, location_name
                 ));
-                if config.https.enabled {
-                    if config.https.port == 443 {
+                if let Some(https) = &config.https {
+                    if https.port == 443 {
                         contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
                     } else {
                         contents.push_str(&format!(
                             "\t\tproxy_pass https://127.0.0.1:{}/;\n",
-                            config.https.port
+                            https.port
                         ));
                     }
-                    if config.https.require_certificate {
+                    if https.require_certificate {
                         contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
                         contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
                     }
-                } else if config.http.enabled {
-                    if config.http.port == 80 {
+                } else if let Some(http) = &config.http {
+                    if http.port == 80 {
                         contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
                     } else {
                         contents.push_str(&format!(
                             "\t\tproxy_pass http://127.0.0.1:{}/;\n",
-                            config.http.port
+                            http.port
                         ));
                     }
                 }
@@ -1048,26 +1048,26 @@ impl PkiConfigurationEnum {
                 ));
                 contents
                     .push_str("\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n");
-                if config.https.enabled {
-                    if config.https.port == 443 {
+                if let Some(https) = &config.https {
+                    if https.port == 443 {
                         contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
                     } else {
                         contents.push_str(&format!(
                             "\t\tproxy_pass https://127.0.0.1:{}/;\n",
-                            config.https.port
+                            https.port
                         ));
                     }
-                    if config.https.require_certificate {
+                    if https.require_certificate {
                         contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
                         contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
                     }
-                } else if config.http.enabled {
-                    if config.http.port == 80 {
+                } else if let Some(http) = &config.http {
+                    if http.port == 80 {
                         contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
                     } else {
                         contents.push_str(&format!(
                             "\t\tproxy_pass http://127.0.0.1:{}/;\n",
-                            config.http.port
+                            http.port
                         ));
                     }
                 }

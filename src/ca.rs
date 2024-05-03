@@ -1427,13 +1427,22 @@ fn generic_head<'a>(
 }
 
 /// Register static file remaps into the specified hashmap
-pub fn ca_register_files(pki: &PkiInstance, static_map: &mut std::collections::HashMap<String, String>) {
+pub fn ca_register_files(
+    pki: &PkiInstance,
+    static_map: &mut std::collections::HashMap<String, String>,
+) {
     match pki {
         PkiInstance::Pki(pki) => {
+            println!("Registering pki static files");
             for name in pki.roots.keys() {
+                static_map.insert(
+                    format!("/pki/{}/css/ca.css", name),
+                    "css/ca.css".to_string(),
+                );
             }
         }
         PkiInstance::Ca(_ca) => {
+            println!("Registering ca static files");
         }
     }
 }

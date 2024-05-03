@@ -381,7 +381,6 @@ async fn handle<'a>(
         String::new()
     };
     let fixed_path = path;
-    let sys_path = context.root.to_owned() + &fixed_path;
 
     let cookiename = format!("{}{}", proxy, context.cookiename);
 
@@ -400,16 +399,17 @@ async fn handle<'a>(
         pki: context.pki.clone(),
     };
 
-    let body = if context.dirmap.r.contains_key(&fixed_path.to_string()) {
-        let (_key, fun) = context
-            .dirmap
-            .r
-            .get_key_value(&fixed_path.to_string())
-            .unwrap();
+    let body = if let Some(fun) = context.dirmap.r.get(fixed_path) {
         fun.call(p).await
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
+        let fixed_path = if let Some(a) = context.static_map.get(fixed_path) {
+            a.to_owned()
+        } else {
+            fixed_path.to_string()
+        };
+        let sys_path = context.root.to_owned() + &fixed_path;
         let file = tokio::fs::read_to_string(sys_path.clone()).await;
         let body = match file {
             Ok(c) => {
