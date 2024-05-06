@@ -44,7 +44,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
     }
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if valid_csr {
                 b.text("Your request has been submitted").line_break(|f| f);
@@ -100,7 +100,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     let pki = ca.config.get_pki_name();
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned()))
+        generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("{}js/forge.min.js", s.proxy));
                 sb
@@ -252,32 +252,45 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     if let PkiInstance::Pki(pki) = std::ops::DerefMut::deref_mut(&mut pki) {
         let mut html = html::root::Html::builder();
-        html.head(|h| generic_head(h, &s).title(|t| t.text("PKI")))
-            .body(|b| {
-                b.text("This is the pki page").line_break(|a| a);
-                for (name, ca) in &pki.roots {
-                    let validity = ca.get_validity();
-                    if let Some(valid) = validity {
-                        b.text(format!(
-                            "{}: Valid from {} to {}",
-                            name, valid.not_before, valid.not_after
-                        ))
-                        .line_break(|a| a);
-                    }
-                    if let Ok(cert) = ca.root_ca_cert() {
-                        b.text(format!("CERT TYPE {:?}", cert.algorithm))
-                            .line_break(|a| a);
-                    }
-
-                    b.anchor(|ab| {
-                        ab.text("Visit this CA");
-                        ab.href(format!("{}pki/{}/ca", s.proxy, name));
-                        ab
-                    })
-                    .line_break(|lb| lb);
-                }
-                b
+        html.head(|h| {
+            h.meta(|m| m.charset("UTF-8"));
+            h.link(|h| {
+                h.href(format!("{}css/ca.css", s.proxy))
+                    .rel("stylesheet")
+                    .media("all")
             });
+            h.link(|h| {
+                h.href(format!("{}css/ca-mobile.css", s.proxy))
+                    .rel("stylesheet")
+                    .media("screen and (max-width: 640px)")
+            });
+            h.title(|t| t.text("PKI"))
+        })
+        .body(|b| {
+            b.text("This is the pki page").line_break(|a| a);
+            for (name, ca) in &pki.roots {
+                let validity = ca.get_validity();
+                if let Some(valid) = validity {
+                    b.text(format!(
+                        "{}: Valid from {} to {}",
+                        name, valid.not_before, valid.not_after
+                    ))
+                    .line_break(|a| a);
+                }
+                if let Ok(cert) = ca.root_ca_cert() {
+                    b.text(format!("CERT TYPE {:?}", cert.algorithm))
+                        .line_break(|a| a);
+                }
+
+                b.anchor(|ab| {
+                    ab.text("Visit this CA");
+                    ab.href(format!("{}pki/{}/ca", s.proxy, name));
+                    ab
+                })
+                .line_break(|lb| lb);
+            }
+            b
+        });
         let html = html.build();
 
         let response = hyper::Response::new("dummy");
@@ -309,7 +322,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     }
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if admin {
                 b.text("You are admin").line_break(|a| a);
@@ -390,7 +403,7 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
 
-    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             match csr_check {
                 Ok(_der) => {
@@ -498,7 +511,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
 
     let mut html = html::root::Html::builder();
 
-    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             match csr_check {
                 Ok(_der) => {
@@ -578,7 +591,7 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
     .await;
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s).title(|t| t.text(ca.config.common_name.to_owned())))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
             if let Some(id) = s.get.get("id") {
                 if let Some(csrr) = csrr {
@@ -738,7 +751,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, s)
+        generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("{}/js/forge.min.js", s.proxy));
@@ -838,7 +851,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let mut html = html::root::Html::builder();
     html.head(|h| {
-        generic_head(h, s)
+        generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
                 sb.src(format!("{}js/forge.min.js", s.proxy));
@@ -1110,7 +1123,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     } else {
         let mut html = html::root::Html::builder();
         html.head(|h| {
-            generic_head(h, s)
+            generic_head(h, s, ca)
                 .title(|t| t.text(ca.config.common_name.to_owned()))
                 .script(|sb| {
                     sb.src(format!("{}js/forge.min.js", s.proxy));
@@ -1411,15 +1424,17 @@ async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
 fn generic_head<'a>(
     h: &'a mut html::metadata::builders::HeadBuilder,
     s: &WebPageContext,
+    ca: &Ca,
 ) -> &'a mut html::metadata::builders::HeadBuilder {
+    let pki = ca.config.get_pki_name();
     h.meta(|m| m.charset("UTF-8"));
     h.link(|h| {
-        h.href(format!("{}css/ca.css", s.proxy))
+        h.href(format!("{}{}css/ca.css", s.proxy, pki))
             .rel("stylesheet")
             .media("all")
     });
     h.link(|h| {
-        h.href(format!("{}css/ca-mobile.css", s.proxy))
+        h.href(format!("{}{}css/ca-mobile.css", s.proxy, pki))
             .rel("stylesheet")
             .media("screen and (max-width: 640px)")
     });
@@ -1437,7 +1452,11 @@ pub fn ca_register_files(
             for name in pki.roots.keys() {
                 static_map.insert(
                     format!("/pki/{}/css/ca.css", name),
-                    "css/ca.css".to_string(),
+                    "/css/ca.css".to_string(),
+                );
+                static_map.insert(
+                    format!("/pki/{}/css/ca-mobile.css", name),
+                    "/css/ca.css".to_string(),
                 );
             }
         }
