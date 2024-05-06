@@ -1,18 +1,19 @@
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changes=./certgen/Cargo.toml");
-    println!("cargo:rerun-if-changes=./certgen/src");
-    println!("cargo:rerun-if-changes=./certgen/.cargo/config.toml");
+    println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=./certgen");
 
     let wasm_build = std::process::Command::new("wasm-pack")
         .arg("build")
         .arg("--release")
+        .arg("--target")
+        .arg("no-modules")
         .current_dir("./certgen")
         .output()
         .unwrap();
     if !wasm_build.status.success() {
         println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
         eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
+        panic!("build failed");
     }
 
     // false - run npm out of the source directory
@@ -57,9 +58,9 @@ fn main() {
         .status();
 
     println!("Npm path is {}", p.display());
+    println!("cargo::rerun-if-changed=js");
 
     if npm_test.is_ok() {
-        println!("cargo:rerun-if-changed=js");
         let npm_output = std::process::Command::new("npm")
             .current_dir(&p)
             .arg("install")

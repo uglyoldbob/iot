@@ -30,9 +30,8 @@ pub fn greet() {
             let pem_serialized = cert.pem();
             if let Ok(pem) = pem::parse(&pem_serialized) {
                 let der_serialized = pem.contents();
-                alert("Decoded some data");
+                alert(&format!("Decoded some data {}", der_serialized.len()));
             }
         }
     }
-    alert("I am groot!");
 }

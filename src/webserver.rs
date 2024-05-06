@@ -416,9 +416,10 @@ async fn handle<'a>(
             fixed_path.to_string()
         };
         let sys_path = std::path::PathBuf::from(context.root.to_owned() + &fixed_path);
-        let file = tokio::fs::read_to_string(sys_path.clone()).await;
+        let file = tokio::fs::read(sys_path.clone()).await;
         let body = match file {
             Ok(c) => {
+                service::log::debug!("File {} loaded", sys_path.display());
                 if let Some(ext) = sys_path.extension() {
                     match ext.to_str().unwrap() {
                         "css" => {
@@ -433,18 +434,29 @@ async fn handle<'a>(
                                 hyper::header::HeaderValue::from_static("text/javascript"),
                             );
                         }
+                        "wasm" => {
+                            response.headers.append(
+                                "Content-Type",
+                                hyper::header::HeaderValue::from_static("application/wasm"),
+                            );
+                        }
                         _ => {}
                     }
                 }
-                http_body_util::Full::new(hyper::body::Bytes::from(c))
+                let body = hyper::body::Bytes::copy_from_slice(&c);
+                http_body_util::Full::new(body)
             }
             Err(_e) => {
+                service::log::debug!("File {} missing", sys_path.display());
                 response.status = StatusCode::NOT_FOUND;
                 http_body_util::Full::new(hyper::body::Bytes::from("missing"))
             }
         };
+
+        let response = hyper::http::Response::from_parts(response, body);
+
         WebResponse {
-            response: hyper::http::Response::from_parts(response, body),
+            response,
             cookie: p.logincookie,
         }
     };
