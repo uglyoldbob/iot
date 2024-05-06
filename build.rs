@@ -25,6 +25,8 @@ fn main() {
     let source_path =
         std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("No source directory"));
 
+    let content_dest_path = source_path.join("content").join("js");
+
     let p = if use_out {
         let p = out_path.join("js");
         std::fs::create_dir_all(&p).expect("Failed to create file for npm work files");
@@ -37,16 +39,21 @@ fn main() {
         }
         p
     } else {
-        source_path.join("content").join("js")
+        source_path.join("js")
     };
 
     println!(
         "current dir is {}",
         std::env::current_dir().unwrap().display()
     );
+
+    if !use_out {
+        std::fs::create_dir_all(&content_dest_path).expect("Failed to create file for npm built files");
+    }
+
     std::fs::copy(
         "./certgen/target/wasm32-wasip1/release/certgen.wasm",
-        p.join("certgen.wasm"),
+        content_dest_path.join("certgen.wasm"),
     )
     .unwrap_or_else(|_| panic!("Failed to copy wasm file"));
 
@@ -54,6 +61,8 @@ fn main() {
         .current_dir(&p)
         .arg("--version")
         .status();
+
+    println!("Npm path is {}", p.display());
 
     if npm_test.is_ok() {
         println!("cargo:rerun-if-changed=js");
@@ -81,8 +90,6 @@ fn main() {
                     .unwrap_or_else(|_| panic!("Failed to copy js file {}", f));
             }
         } else {
-            let p = source_path.join("content").join("js");
-            std::fs::create_dir_all(&p).expect("Failed to create file for npm built files");
             for (f, g) in filenames {
                 let src = nfp.join(f);
                 let dst = p.join(g);
