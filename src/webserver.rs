@@ -404,17 +404,22 @@ async fn handle<'a>(
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
+        // lookup the fixed path, if it exists use it, otherwise use the path from the static map
+        // This means that the static map is a fallback
         let fixed_path = if let Some(a) = context.static_map.get(fixed_path) {
-            a.to_owned()
+            if std::path::PathBuf::from(context.root.to_owned() + &fixed_path).exists() {
+                fixed_path.to_string()
+            } else {
+                a.to_owned()
+            }
         } else {
             fixed_path.to_string()
         };
-        let sys_path = context.root.to_owned() + &fixed_path;
+        let sys_path = std::path::PathBuf::from(context.root.to_owned() + &fixed_path);
         let file = tokio::fs::read_to_string(sys_path.clone()).await;
         let body = match file {
             Ok(c) => {
-                let p = std::path::PathBuf::from(sys_path);
-                if let Some(ext) = p.extension() {
+                if let Some(ext) = sys_path.extension() {
                     match ext.to_str().unwrap() {
                         "css" => {
                             response.headers.append(
