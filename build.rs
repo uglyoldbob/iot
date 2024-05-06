@@ -81,7 +81,7 @@ fn main() {
             ("certgen-wasm/certgen_bg.wasm", "certgen_bg.wasm"),
             ("certgen-wasm/certgen_bg.wasm.d.ts", "certgen_bg.wasm.d.ts"),
             ("certgen-wasm/certgen.d.ts", "certgen_wasm.d.ts"),
-            ("certgen-wasm/certgen.js", "certgen_wasm.js"),
+            ("certgen-wasm/certgen.js", "certgen.js"),
         ];
         if use_out {
             for (f, g) in filenames {

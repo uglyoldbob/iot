@@ -106,11 +106,23 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                 sb
             })
             .script(|sb| {
+                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb
+            })
+            .script(|sb| {
                 sb.src(format!("{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
     .body(|b| {
+        b.script(|s| {
+            s.text("async function run() {\n")
+                .text("await wasm_bindgen();\n")
+                .text("}\n")
+                .text("var groot = run();\n")
+                .text("const checkme = wasm_bindgen.greet;\n")
+                .text("console.log('I am groot');\n")
+        });
         b.division(|div| {
             div.class("cert-gen-stuff");
             div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
@@ -218,6 +230,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|a| a);
             div
         });
+        b.button(|b| b.text("Run test").onclick("checkme()"));
         b
     });
     let html = html.build();
@@ -324,29 +337,9 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     let mut html = html::root::Html::builder();
     html.head(|h| {
         generic_head(h, s, ca)
-            .script(|sb| {
-                sb.src(format!("{}js/forge.min.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
-                sb.src(format!("{}js/certgen.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
-                sb.src(format!("{}js/certgen.min.js", s.proxy));
-                sb
-            })
             .title(|t| t.text(ca.config.common_name.to_owned()))
     })
     .body(|b| {
-        b.script(|s| {
-            s.text("async function run() {\n")
-                .text("await wasm_bindgen();\n")
-                .text("}\n")
-                .text("var groot = run();\n")
-                .text("const checkme = wasm_bindgen.greet;\n")
-                .text("console.log('I am groot');\n")
-        });
         if admin {
             b.text("You are admin").line_break(|a| a);
         }
@@ -384,7 +377,6 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             });
             b.line_break(|lb| lb);
         }
-        b.button(|b| b.text("Run test").onclick("checkme()"));
         b
     });
     let html = html.build();
@@ -777,14 +769,6 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
     html.head(|h| {
         generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
-            .script(|sb| {
-                sb.src(format!("{}js/forge.min.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
-                sb.src(format!("{}js/certgen.min.js", s.proxy));
-                sb
-            })
     })
     .body(|b| {
         if admin {
