@@ -4,9 +4,8 @@ fn main() {
     println!("cargo:rerun-if-changes=./certgen/src");
     println!("cargo:rerun-if-changes=./certgen/.cargo/config.toml");
 
-    let wasm_build = std::process::Command::new("cargo")
+    let wasm_build = std::process::Command::new("wasm-pack")
         .arg("build")
-        .arg("--lib")
         .arg("--release")
         .current_dir("./certgen")
         .output()
@@ -52,12 +51,6 @@ fn main() {
             .expect("Failed to create file for npm built files");
     }
 
-    std::fs::copy(
-        "./certgen/target/wasm32-wasip1/release/certgen.wasm",
-        content_dest_path.join("certgen.wasm"),
-    )
-    .unwrap_or_else(|_| panic!("Failed to copy wasm file"));
-
     let npm_test = std::process::Command::new("npm")
         .current_dir(&p)
         .arg("--version")
@@ -77,12 +70,17 @@ fn main() {
         }
 
         let nfp = p.join("node_modules");
-        let filenames = [
+        let filenames = vec![
             ("node-forge/dist/forge.all.min.js", "forge.all.min.js"),
             ("node-forge/dist/forge.min.js", "forge.min.js"),
             ("node-forge/dist/forge.min.js.map", "forge.min.js.map"),
             ("node-forge/dist/prime.worker.min.js", "prime.worker.min.js"),
             ("certgen/index.min.js", "certgen.min.js"),
+            ("certgen-wasm/certgen_bg.js", "certgen_bg.js"),
+            ("certgen-wasm/certgen_bg.wasm", "certgen_bg.wasm"),
+            ("certgen-wasm/certgen_bg.wasm.d.ts", "certgen_bg.wasm.d.ts"),
+            ("certgen-wasm/certgen.d.ts", "certgen_wasm.d.ts"),
+            ("certgen-wasm/certgen.js", "certgen_wasm.js"),
         ];
         if use_out {
             for (f, g) in filenames {
@@ -93,7 +91,7 @@ fn main() {
         } else {
             for (f, g) in filenames {
                 let src = nfp.join(f);
-                let dst = p.join(g);
+                let dst = content_dest_path.join(g);
                 std::fs::copy(&src, dst)
                     .unwrap_or_else(|_| panic!("Failed to copy js file {}", src.to_str().unwrap()));
             }

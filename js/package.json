@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "certgen": "file:local-cert-gen",
+    "certgen-wasm": "file:../certgen/pkg",
     "node-forge": "^1.3.1"
   }
 }

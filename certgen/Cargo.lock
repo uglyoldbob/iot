@@ -28,6 +28,7 @@ dependencies = [
  "getrandom",
  "pem",
  "rcgen",
+ "ring",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]
