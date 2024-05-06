@@ -7,9 +7,40 @@ extern "C" {
     fn alert(s: &str);
 }
 
+fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
+    if let Some(t1) = d.get_element_by_id(name) {
+        let jsval : wasm_bindgen::JsValue = t1.value_of().into();
+        if let Ok(hie) = web_sys::HtmlInputElement::try_from(jsval) {
+            Some(hie.value())
+        }
+        else {
+            None
+        }
+    }
+    else {
+        None
+    }
+}
+
 #[wasm_bindgen]
 pub fn greet() {
     let mut params: rcgen::CertificateParams = Default::default();
+
+    let w = web_sys::window().unwrap();
+    let d = w.document().unwrap();
+    if let Some(t1) = get_value_from_input_by_name(&d, "name") {
+        alert(&t1);
+    }
+    else {
+        alert("No name");
+    }
+    if let Some(t1) = get_value_from_input_by_name(&d, "email") {
+        alert(&t1);
+    }
+    else {
+        alert("No email");
+    }
+
     params.not_before = rcgen::date_time_ymd(1975, 1, 1);
     params.not_after = rcgen::date_time_ymd(4096, 1, 1);
     params.distinguished_name = rcgen::DistinguishedName::new();

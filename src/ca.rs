@@ -335,50 +335,47 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     }
 
     let mut html = html::root::Html::builder();
-    html.head(|h| {
-        generic_head(h, s, ca)
-            .title(|t| t.text(ca.config.common_name.to_owned()))
-    })
-    .body(|b| {
-        if admin {
-            b.text("You are admin").line_break(|a| a);
-        }
-        b.anchor(|ab| {
-            ab.text("Download CA certificate as der");
-            ab.href(format!("{}{}ca/get_ca.rs?type=der", s.proxy, pki));
-            ab.target("_blank");
-            ab
-        });
-        b.line_break(|lb| lb);
-        b.anchor(|ab| {
-            ab.text("Download CA certificate as pem");
-            ab.href(format!("{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
-            ab.target("_blank");
-            ab
-        });
-        b.line_break(|lb| lb);
-        b.anchor(|ab| {
-            ab.text("Request a signature on a certificate");
-            ab.href(format!("{}{}ca/request.rs", s.proxy, pki));
-            ab
-        });
-        b.line_break(|lb| lb);
-        if admin {
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+        .body(|b| {
+            if admin {
+                b.text("You are admin").line_break(|a| a);
+            }
             b.anchor(|ab| {
-                ab.text("List pending requests");
-                ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                ab.text("Download CA certificate as der");
+                ab.href(format!("{}{}ca/get_ca.rs?type=der", s.proxy, pki));
+                ab.target("_blank");
                 ab
             });
             b.line_break(|lb| lb);
             b.anchor(|ab| {
-                ab.text("List all certificates");
-                ab.href(format!("{}{}ca/view_all_certs.rs", s.proxy, pki));
+                ab.text("Download CA certificate as pem");
+                ab.href(format!("{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
+                ab.target("_blank");
                 ab
             });
             b.line_break(|lb| lb);
-        }
-        b
-    });
+            b.anchor(|ab| {
+                ab.text("Request a signature on a certificate");
+                ab.href(format!("{}{}ca/request.rs", s.proxy, pki));
+                ab
+            });
+            b.line_break(|lb| lb);
+            if admin {
+                b.anchor(|ab| {
+                    ab.text("List pending requests");
+                    ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                    ab
+                });
+                b.line_break(|lb| lb);
+                b.anchor(|ab| {
+                    ab.text("List all certificates");
+                    ab.href(format!("{}{}ca/view_all_certs.rs", s.proxy, pki));
+                    ab
+                });
+                b.line_break(|lb| lb);
+            }
+            b
+        });
     let html = html.build();
 
     let response = hyper::Response::new("dummy");
@@ -766,39 +763,36 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
     let (response, _dummybody) = response.into_parts();
 
     let mut html = html::root::Html::builder();
-    html.head(|h| {
-        generic_head(h, s, ca)
-            .title(|t| t.text(ca.config.common_name.to_owned()))
-    })
-    .body(|b| {
-        if admin {
-            b.heading_1(|h| h.text("Current Certificates"))
-                .line_break(|a| a);
-            for c in csr_list {
-                b.thematic_break(|a| a);
-                b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+        .body(|b| {
+            if admin {
+                b.heading_1(|h| h.text("Current Certificates"))
                     .line_break(|a| a);
-                b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
-                    .line_break(|a| a);
-                b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
-                    .line_break(|a| a);
-                b.anchor(|ab| {
-                    ab.text("View details");
-                    ab.href(format!("{}{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
-                    ab
-                });
-                b.line_break(|lb| lb);
+                for c in csr_list {
+                    b.thematic_break(|a| a);
+                    b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
+                        .line_break(|a| a);
+                    b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
+                        .line_break(|a| a);
+                    b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
+                        .line_break(|a| a);
+                    b.anchor(|ab| {
+                        ab.text("View details");
+                        ab.href(format!("{}{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
+                        ab
+                    });
+                    b.line_break(|lb| lb);
+                }
             }
-        }
-        b.thematic_break(|a| a);
-        b.anchor(|ab| {
-            ab.text("Back to main page");
-            ab.href(format!("{}{}ca", s.proxy, pki));
-            ab
+            b.thematic_break(|a| a);
+            b.anchor(|ab| {
+                ab.text("Back to main page");
+                ab.href(format!("{}{}ca", s.proxy, pki));
+                ab
+            });
+            b.line_break(|lb| lb);
+            b
         });
-        b.line_break(|lb| lb);
-        b
-    });
     let html = html.build();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
 
