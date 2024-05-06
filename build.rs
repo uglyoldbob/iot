@@ -48,7 +48,8 @@ fn main() {
     );
 
     if !use_out {
-        std::fs::create_dir_all(&content_dest_path).expect("Failed to create file for npm built files");
+        std::fs::create_dir_all(&content_dest_path)
+            .expect("Failed to create file for npm built files");
     }
 
     std::fs::copy(

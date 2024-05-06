@@ -334,7 +334,7 @@ impl CaConfiguration {
             CaCertificateStorageBuilder::Nowhere => {}
             CaCertificateStorageBuilder::Sqlite(p) => {
                 for p in get_sqlite_paths(p) {
-                    std::fs::remove_file(p).unwrap();
+                    let _e = std::fs::remove_file(p);
                 }
             }
         }
@@ -479,6 +479,18 @@ pub enum CaCertificateStorageBuilder {
 }
 
 impl CaCertificateStorageBuilder {
+    /// Remove relative paths
+    pub fn remove_relative_paths(&mut self) {
+        match self {
+            Self::Nowhere => {}
+            Self::Sqlite(p) => {
+                if p.is_relative() {
+                    **p = p.canonicalize().unwrap();
+                }
+            }
+        }
+    }
+
     /// Returns true if the item already exists
     pub async fn exists(&self) -> bool {
         match self {
@@ -693,7 +705,7 @@ impl CaCertificateStorageBuilder {
                     if pool.is_err() {
                         count += 1;
                         if count > 10 {
-                            panic!("Failed to create database");
+                            panic!("Failed to create database {}", p.display());
                         }
                     } else {
                         break;
@@ -725,7 +737,7 @@ impl CaCertificateStorageBuilder {
                     if pool.is_err() {
                         count += 1;
                         if count > 10 {
-                            panic!("Failed to create database");
+                            panic!("Failed to create database {}", p.display());
                         }
                     } else {
                         break;
@@ -1134,6 +1146,20 @@ impl Default for PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Remove relative pathnames from all paths specified
+    pub fn remove_relative_paths(&mut self) {
+        match self {
+            PkiConfigurationEnum::Pki(pki) => {
+                for (_k, a) in pki.local_ca.map_mut().iter_mut() {
+                    a.path.remove_relative_paths();
+                }
+            }
+            PkiConfigurationEnum::Ca(ca) => {
+                ca.path.remove_relative_paths();
+            }
+        }
+    }
+
     /// Build an nginx reverse proxy config
     fn nginx_reverse(
         &self,

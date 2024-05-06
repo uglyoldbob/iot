@@ -261,7 +261,9 @@ impl CertificateSigningMethod {
             }
             Self::EcdsaSha256 => {
                 let keypair = rcgen::KeyPair::generate().ok()?;
-                Some((keypair, None))
+                let pkcs8 = keypair.serialize_der();
+                let pkey = Zeroizing::new(pkcs8);
+                Some((keypair, Some(pkey)))
             }
         }
     }

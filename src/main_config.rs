@@ -254,6 +254,16 @@ impl MainConfiguration {
         self.pki = answers.pki.clone();
     }
 
+    /// Remove relative paths
+    pub fn remove_relative_paths(&mut self) {
+        if let Some(https) = &mut self.https {
+            if https.certificate.is_relative() {
+                *https.certificate = https.certificate.canonicalize().unwrap();
+            }
+        }
+        self.pki.remove_relative_paths();
+    }
+
     /// Fill out the configuration by asking the user for input, using standard input and output
     pub fn prompt_for_answers(&mut self) {
         let a: MainConfigurationAnswers = MainConfigurationAnswers::prompt(None).unwrap();

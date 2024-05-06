@@ -83,6 +83,10 @@ async fn main() {
     #[cfg(target_os = "windows")]
     let print_redirect2 = args.ipc.as_ref().and(gag::Redirect::stderr(log2).ok());
 
+    if args.ipc.is_none() {
+        simple_logger::SimpleLogger::new().init().unwrap();
+    }
+
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
     } else {
@@ -95,6 +99,12 @@ async fn main() {
     let name = args.name.unwrap_or("default".to_string());
 
     let username = args.user.unwrap_or("pki".to_string());
+
+    if let Some(pb) = &args.save_answers {
+        if pb.exists() {
+            panic!("Answers file already exists")
+        }
+    }
 
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&username).unwrap().unwrap();
@@ -113,8 +123,6 @@ async fn main() {
     if service.exists() {
         panic!("Service already exists");
     }
-
-    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
@@ -153,11 +161,53 @@ async fn main() {
         options.set_owner(pb, 0o600).await;
     }
 
+    let _ca_instance = ca::PkiInstance::init(&config.pki, &config, &options).await;
+    if let Some(proxy) = config.pki.reverse_proxy(&config) {
+        let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
+        service::log::info!(
+            "Saving reverse proxy information to {}",
+            proxy_name.display()
+        );
+        let mut f2 = tokio::fs::File::create(&proxy_name)
+            .await
+            .expect("Failed to create reverse proxy file");
+        f2.write_all(proxy.as_bytes())
+            .await
+            .expect("Failed to write reverse proxy file");
+        options.set_owner(&proxy_name, 0o644).await;
+    }
+
+    let service_args = vec![
+        format!("--name={}", name),
+        format!("--config={}", config_path.display()),
+    ];
+
+    let mut service_config = service::ServiceConfig::new(
+        service_args,
+        format!("{} Iot Certificate Authority and Iot Manager", name),
+        exe.join("rust-iot"),
+        Some(username),
+    );
+
+    #[cfg(target_os = "linux")]
+    {
+        service_config.config_path = config_path.clone();
+    }
+    #[cfg(target_family = "windows")]
+    {
+        service_config.display = format!("Rust Iot {} Service", name);
+        service_config.user_password = None;
+    }
+
     println!("Saving the configuration file");
+    config.remove_relative_paths();
     let config_data = toml::to_string(&config).unwrap();
     let config_file = config_path.join(format!("{}-config.toml", name));
     if config_file.exists() {
-        panic!("Configuration file already exists");
+        panic!(
+            "Configuration file {} already exists",
+            config_file.display()
+        );
     }
     let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
@@ -241,46 +291,6 @@ async fn main() {
         do_without_tpm2().await
     }
 
-    ca::PkiInstance::init(&config.pki, &config, &options).await;
-    if let Some(proxy) = config.pki.reverse_proxy(&config) {
-        let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
-        service::log::info!(
-            "Saving reverse proxy information to {}",
-            proxy_name.display()
-        );
-        let mut f2 = tokio::fs::File::create(&proxy_name)
-            .await
-            .expect("Failed to create reverse proxy file");
-        f2.write_all(proxy.as_bytes())
-            .await
-            .expect("Failed to write reverse proxy file");
-        options.set_owner(&proxy_name, 0o644).await;
-    }
-
-    let mut args = vec![format!("--name={}", name)];
-
-    #[cfg(target_family = "windows")]
-    {
-        args.push(format!("--config={}", config_path.display()));
-    }
-
-    let mut service_config = service::ServiceConfig::new(
-        args,
-        format!("{} Iot Certificate Authority and Iot Manager", name),
-        exe.join("rust-iot"),
-        Some(username),
-    );
-
-    #[cfg(target_os = "linux")]
-    {
-        service_config.config_path = config_path.clone();
-    }
-    #[cfg(target_family = "windows")]
-    {
-        service_config.display = format!("Rust Iot {} Service", name);
-        service_config.user_password = None;
-    }
-
-    service.create_async(service_config).await.unwrap();
+    service.create_async(service_config).await;
     let _ = service.start();
 }

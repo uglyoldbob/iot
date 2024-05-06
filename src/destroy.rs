@@ -61,9 +61,7 @@ async fn main() {
 
     let mut service = service::Service::new(format!("rust-iot-{}", name));
     let _ = service.stop();
-    service.delete_async().await;
-
-    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
+    let _ = service.delete_async().await;
 
     println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
@@ -200,7 +198,7 @@ async fn main() {
 
     let do_without_tpm2 = || async {
         let p = config_path.join(format!("{}-credentials.bin", name));
-        std::fs::remove_file(p).unwrap();
+        let _e = std::fs::remove_file(p);
     };
 
     #[cfg(feature = "tpm2")]
@@ -208,7 +206,7 @@ async fn main() {
         let tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
         if tpm2.is_some() {
             let p = config_path.join(format!("{}-password.bin", name));
-            std::fs::remove_file(p).unwrap();
+            let _e = std::fs::remove_file(p);
         } else {
             println!("TPM2 NOT DETECTED!!!");
             do_without_tpm2().await;
