@@ -11,7 +11,6 @@ pub use main_config::MainConfiguration;
 #[path = "ca_construct.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;
-pub mod oid;
 pub mod pkcs12;
 mod tpm2;
 

@@ -3,6 +3,7 @@ mod ca_common;
 
 use async_sqlite::rusqlite::ToSql;
 pub use ca_common::*;
+use cert_common::CertificateSigningMethod;
 
 impl Ca {
     /// Return a reference to the root cert

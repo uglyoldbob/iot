@@ -20,7 +20,6 @@ mod user;
 mod webserver;
 
 mod main_config;
-pub mod oid;
 pub mod pkcs12;
 pub use main_config::MainConfiguration;
 use prompt::Prompting;

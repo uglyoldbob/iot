@@ -23,7 +23,7 @@ fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<Str
 }
 
 #[wasm_bindgen]
-pub fn greet() {
+pub fn generate_csr_rsa_sha256() {
     let mut params: rcgen::CertificateParams = Default::default();
 
     let w = web_sys::window().unwrap();

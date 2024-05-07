@@ -8,7 +8,6 @@
 /// The ca module, with code used to construct a ca
 mod ca;
 mod main_config;
-pub mod oid;
 pub mod pkcs12;
 mod tpm2;
 

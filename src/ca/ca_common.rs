@@ -3,10 +3,12 @@
 use std::path::PathBuf;
 
 use async_sqlite::rusqlite::ToSql;
+use cert_common::oid::*;
+use cert_common::CertificateSigningMethod;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
-use crate::{oid::*, pkcs12::BagAttribute, MainConfiguration};
+use crate::{pkcs12::BagAttribute, MainConfiguration};
 
 /// Get the list of sqlite files from the base filename for a sqlite database
 pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
@@ -410,53 +412,6 @@ pub enum CertificateLoadingError {
     OtherIo(std::io::Error),
     /// The certificate loaded is invalid
     InvalidCert,
-}
-
-/// The method that a certificate uses to sign stuff
-#[derive(
-    Debug,
-    Copy,
-    Clone,
-    prompt::Prompting,
-    prompt::EguiPrompting,
-    serde::Deserialize,
-    serde::Serialize,
-)]
-pub enum CertificateSigningMethod {
-    /// An rsa certificate with sha1
-    RsaSha1,
-    /// An rsa certificate rsa with sha256
-    RsaSha256,
-    /// Ecdsa
-    EcdsaSha256,
-}
-
-impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
-    type Error = ();
-    fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
-        let oid = value.oid;
-        if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
-            Ok(Self::RsaSha256)
-        } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
-            Ok(Self::RsaSha1)
-        } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
-            Ok(Self::EcdsaSha256)
-        } else {
-            service::log::error!("The oid to convert is {:?}", value.oid);
-            Err(())
-        }
-    }
-}
-
-impl CertificateSigningMethod {
-    /// Convert Self into an Oid
-    fn oid(&self) -> crate::oid::Oid {
-        match self {
-            Self::RsaSha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
-            Self::RsaSha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
-            Self::EcdsaSha256 => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
-        }
-    }
 }
 
 use egui_multiwin::egui;
@@ -938,7 +893,7 @@ impl CaCertificate {
     }
 
     /// Sign some data with the certificate, if possible
-    pub async fn sign(&self, data: &[u8]) -> Option<(crate::oid::Oid, Vec<u8>)> {
+    pub async fn sign(&self, data: &[u8]) -> Option<(cert_common::oid::Oid, Vec<u8>)> {
         match &self.algorithm {
             CertificateSigningMethod::EcdsaSha256 => {
                 if let Some(pkey) = &self.pkey {

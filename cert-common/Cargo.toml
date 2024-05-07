@@ -1,0 +1,40 @@
+[package]
+name = "cert-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+const-oid = "0.9.6"
+der = "0.7.8"
+lazy_static = "1.4.0"
+rand = "0.8.5"
+rsa = "0.9.6"
+x509-cert = "0.2.5"
+yasna = "0.5.2"
+zeroize = "1.7.0"
+
+[dependencies.ocsp]
+git = "https://github.com/uglyoldbob/ocsp-rs"
+
+[dependencies.pkcs8]
+version = "0.10.2"
+features = ["encryption", "pem", "std"]
+
+[dependencies.rcgen]
+version = "0.13.0"
+git = "https://github.com/uglyoldbob/rcgen.git"
+branch = "main"
+features = ["ring", "pem", "x509-parser"]
+
+[dependencies.serde]
+version = "1.0.197"
+features = ["derive"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+egui = "0.27.2"
+rfd = "0.14.1"
+prompt = { git = "https://github.com/uglyoldbob/prompt.git", features = ["serde", "egui"] }
+service = { git = "https://github.com/uglyoldbob/service.git", features = ["async"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+prompt = { git = "https://github.com/uglyoldbob/prompt.git", features = ["serde"] }

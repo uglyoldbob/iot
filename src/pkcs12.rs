@@ -1,6 +1,6 @@
 //! Defines how to import and export pkcs12 certificate data
 
-use crate::oid::*;
+use cert_common::oid::*;
 
 use cms::content_info::{CmsVersion, ContentInfo};
 use const_oid::db::rfc5911::{ID_DATA, ID_ENCRYPTED_DATA};

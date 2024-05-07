@@ -817,6 +817,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cert-common"
+version = "0.1.0"
+dependencies = [
+ "const-oid",
+ "der",
+ "egui",
+ "lazy_static",
+ "ocsp",
+ "pkcs8",
+ "prompt",
+ "rand 0.8.5",
+ "rcgen",
+ "rfd",
+ "rsa",
+ "serde",
+ "service",
+ "x509-cert",
+ "yasna",
+ "zeroize",
+]
+
+[[package]]
 name = "cesu8"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3830,6 +3852,7 @@ dependencies = [
  "async-sqlite",
  "base64 0.22.1",
  "bincode",
+ "cert-common",
  "clap",
  "cms",
  "const-oid",

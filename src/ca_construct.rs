@@ -1,8 +1,9 @@
 #[path = "ca/ca_common.rs"]
 mod ca_common;
 
-use crate::oid::*;
 pub use ca_common::*;
+use cert_common::oid::*;
+use cert_common::CertificateSigningMethod;
 use zeroize::Zeroizing;
 
 impl CaCertificateStorage {
@@ -241,30 +242,6 @@ impl Ca {
             pkey,
             name,
             id,
-        }
-    }
-}
-
-impl CertificateSigningMethod {
-    /// Generate a keypair
-    fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
-        match self {
-            Self::RsaSha1 | Self::RsaSha256 => {
-                use pkcs8::EncodePrivateKey;
-                let mut rng = rand::thread_rng();
-                let bits = 4096;
-                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
-                let private_key_der = private_key.to_pkcs8_der().unwrap();
-                let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
-                let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
-                Some((key_pair, Some(pkey)))
-            }
-            Self::EcdsaSha256 => {
-                let keypair = rcgen::KeyPair::generate().ok()?;
-                let pkcs8 = keypair.serialize_der();
-                let pkey = Zeroizing::new(pkcs8);
-                Some((keypair, Some(pkey)))
-            }
         }
     }
 }

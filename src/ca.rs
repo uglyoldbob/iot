@@ -4,7 +4,7 @@ use hyper::header::HeaderValue;
 
 use crate::{webserver, WebPageContext, WebRouter};
 
-use crate::oid::*;
+use cert_common::{oid::*, CertificateSigningMethod};
 
 /// The module for using a certificate authority
 pub mod ca_usage;
@@ -228,7 +228,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|a| a);
             div
         });
-        b.button(|b| b.text("Run test2").onclick("wasm_bindgen.greet()"));
+        b.button(|b| b.text("Run test2").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
         b
     });
     let html = html.build();
