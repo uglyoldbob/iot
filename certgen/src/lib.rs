@@ -7,6 +7,18 @@ extern "C" {
     fn alert(s: &str);
 }
 
+/// Present this file to the user
+fn download_file(d: &mut web_sys::Document, file: &web_sys::File) {
+    if let Ok(link) = d.create_element("temporary") {
+        if let Ok(url) = web_sys::Url::create_object_url_with_blob(file) {
+            
+        }
+    }
+
+    alert("I have a file for you");
+}
+
+/// Retrieve the htmlInputElement specified by name from the given document
 fn get_html_input_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::HtmlInputElement> {
     if let Some(t1) = d.get_element_by_id(name) {
         let jsval : wasm_bindgen::JsValue = t1.value_of().into();
@@ -17,6 +29,7 @@ fn get_html_input_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::
     }
 }
 
+/// Retrieve the htmlInputElement specified by name from the given document, getting the value of what is in the input element
 fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
     if let Some(t1) = get_html_input_by_name(d, name) {
         Some(t1.value())
@@ -26,6 +39,7 @@ fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<Str
     }
 }
 
+/// Retrieve the htmlInputElement specified by name from the given document, getting the checked value of the input element
 fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<bool> {
     if let Some(t1) = get_html_input_by_name(d, name) {
         Some(t1.checked())
@@ -41,7 +55,7 @@ pub fn generate_csr_rsa_sha256() {
     let mut params: rcgen::CertificateParams = Default::default();
 
     let w = web_sys::window().unwrap();
-    let d = w.document().unwrap();
+    let mut d = w.document().unwrap();
     let name = get_value_from_input_by_name(&d, "name");
     let email = get_value_from_input_by_name(&d, "email");
     let phone = get_value_from_input_by_name(&d, "phone");
@@ -117,6 +131,16 @@ pub fn generate_csr_rsa_sha256() {
             let pem_serialized = cert.pem();
             if let Ok(pem) = pem::parse(&pem_serialized) {
                 let der_serialized = pem.contents();
+                if let Some(private) = private {
+                    alert(&format!("Private key length {}", private.len()));
+                    let mut u8array = js_sys::Uint8Array::new_with_length(der_serialized.len() as u32);
+                    u8array.copy_from(der_serialized);
+                    let fdata = u8array.into();
+                    let mut foptions = web_sys::FilePropertyBag::new();
+                    foptions.type_("application/octet-stream");
+                    let file = web_sys::File::new_with_blob_sequence_and_options(&fdata, "testing.bin", &foptions).unwrap();
+                    download_file(&mut d, &file);
+                }
                 alert(&format!("Decoded some data {}", der_serialized.len()));
             }
         }

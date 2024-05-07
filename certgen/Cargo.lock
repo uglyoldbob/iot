@@ -450,6 +450,7 @@ dependencies = [
  "cert-common",
  "console_error_panic_hook",
  "getrandom",
+ "js-sys",
  "pem",
  "rcgen",
  "ring",
