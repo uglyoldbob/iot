@@ -15,7 +15,6 @@ default = ["console_error_panic_hook"]
 getrandom = { version = "0.2.14", features = ["js"]}
 ring = { version = "0.17.8", features = ["wasm32_unknown_unknown_js"]}
 pem = "3.0.4"
-rcgen = "0.13.1"
 wasm-bindgen = "0.2.84"
 web-sys = { version = "0.3.69", features = ["Document", "Element", "HtmlInputElement", "Node", "Window"] }
 # The `console_error_panic_hook` crate provides better debugging of panics by
@@ -23,6 +22,12 @@ web-sys = { version = "0.3.69", features = ["Document", "Element", "HtmlInputEle
 # all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[dependencies.rcgen]
+version = "0.13.0"
+git = "https://github.com/uglyoldbob/rcgen.git"
+branch = "main"
+features = ["ring", "pem", "x509-parser"]
 
 [dependencies.cert-common]
 path = "../cert-common"

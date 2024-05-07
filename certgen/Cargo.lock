@@ -433,7 +433,7 @@ dependencies = [
  "pkcs8",
  "prompt",
  "rand",
- "rcgen 0.13.0",
+ "rcgen",
  "rfd",
  "rsa",
  "serde",
@@ -451,7 +451,7 @@ dependencies = [
  "console_error_panic_hook",
  "getrandom",
  "pem",
- "rcgen 0.13.1",
+ "rcgen",
  "ring",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -1561,19 +1561,6 @@ dependencies = [
  "rustls-pki-types",
  "time",
  "x509-parser",
- "yasna",
-]
-
-[[package]]
-name = "rcgen"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54077e1872c46788540de1ea3d7f4ccb1983d12f9aa909b234468676c1a36779"
-dependencies = [
- "pem",
- "ring",
- "rustls-pki-types",
- "time",
  "yasna",
 ]
 
