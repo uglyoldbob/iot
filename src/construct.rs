@@ -45,10 +45,6 @@ struct Args {
     #[arg(short, long)]
     name: Option<String>,
 
-    /// The user to run the service under, pki is the default username
-    #[arg(short, long)]
-    user: Option<String>,
-
     /// Use a randomly generated password
     #[arg(long, default_value_t = false)]
     generate_password: bool,
@@ -97,8 +93,6 @@ async fn main() {
     println!("Config path is {}", config_path.display());
 
     let name = args.name.unwrap_or("default".to_string());
-
-    let username = args.user.unwrap_or("pki".to_string());
 
     if let Some(pb) = &args.save_answers {
         if pb.exists() {

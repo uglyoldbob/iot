@@ -179,6 +179,11 @@ impl DatabaseSettings {
     serde::Serialize,
 )]
 pub struct MainConfigurationAnswers {
+    /// The username to run the service as
+    pub username: String,
+    /// The password for the user
+    #[cfg(target_os = "windows")]
+    pub password: prompt::Password2,
     /// General settings
     pub general: GeneralSettings,
     /// Admin user settings
