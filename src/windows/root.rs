@@ -8,6 +8,7 @@ use crate::{
     main_config::MainConfigurationAnswers,
 };
 use egui_multiwin::egui_glow::EguiGlow;
+use interprocess::local_socket::ToFsName;
 use prompt::EguiPrompting;
 
 use crate::AppCommon;
@@ -100,11 +101,13 @@ impl TrackedWindow for RootWindow {
                             let ipc_name = tfile.path().to_owned();
                             drop(tfile);
                             println!("Name for ipc is {}", ipc_name.display());
-                            let local_socket =
-                                interprocess::local_socket::LocalSocketListener::bind(
-                                    ipc_name.clone(),
-                                )
+                            let lipc_name = ipc_name
+                                .clone()
+                                .to_fs_name::<interprocess::local_socket::GenericFilePath>()
                                 .unwrap();
+                            let opts =
+                                interprocess::local_socket::ListenerOptions::new().name(lipc_name);
+                            let local_socket = opts.create_sync().unwrap();
                             println!("Launching process");
                             let mode = self.generating.clone();
                             let sname = self.service_name.clone();
@@ -137,6 +140,7 @@ impl TrackedWindow for RootWindow {
                             });
                             let answers = self.answers.clone();
                             std::thread::spawn(move || {
+                                use interprocess::local_socket::traits::Listener;
                                 println!("Waiting for connection from process");
                                 let mut stream = local_socket.accept().unwrap();
                                 println!("Sending answers");

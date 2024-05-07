@@ -106,7 +106,12 @@ async fn main() {
     let answers: MainConfigurationAnswers;
     if let Some(ipc) = args.ipc {
         println!("IPC NAME IS {}", ipc);
-        let stream = interprocess::local_socket::LocalSocketStream::connect(ipc.clone()).unwrap();
+        use interprocess::local_socket::ToFsName;
+        let ipc_name = ipc
+            .clone()
+            .to_fs_name::<interprocess::local_socket::GenericFilePath>()
+            .unwrap();
+        let stream = <interprocess::local_socket::prelude::LocalSocketStream as interprocess::local_socket::traits::Stream>::connect(ipc_name.clone()).unwrap();
         println!("Waiting for answers");
         answers = bincode::deserialize_from(stream).unwrap();
         println!("Providing answers");
