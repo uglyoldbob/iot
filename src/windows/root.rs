@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use crate::{
-    ca::PkiConfigurationEnum,
     egui_multiwin_dynamic::{
         multi_window::NewWindowRequest,
         tracked_window::{RedrawResponse, TrackedWindow},
@@ -12,16 +11,6 @@ use egui_multiwin::egui_glow::EguiGlow;
 use prompt::EguiPrompting;
 
 use crate::AppCommon;
-
-/// Defines messages that can some from other threads
-enum Message {
-    ///The schematic is being loaded
-    HttpsCertificateName(std::path::PathBuf),
-    /// A path is selected for the certificate authority
-    CaPathSelected(crate::ca::CaCertificateStorageBuilder),
-    /// A path is selected for a entry in a pki
-    PkiPathSelected(String, crate::ca::CaCertificateStorageBuilder),
-}
 
 /// Specifies how the system should process input and provide feedback to the user
 enum GeneratingMode {
@@ -41,8 +30,6 @@ pub struct RootWindow {
     answers: MainConfigurationAnswers,
     /// The name of the service
     service_name: String,
-    /// The username to run the service as
-    username: String,
     /// The mode for showing when the instance is being generated
     generating: Arc<Mutex<GeneratingMode>>,
 }
@@ -50,11 +37,12 @@ pub struct RootWindow {
 impl RootWindow {
     /// Create a request for a new window
     pub fn request() -> NewWindowRequest {
+        let mut answers = MainConfigurationAnswers::default();
+        answers.username = whoami::username();
         NewWindowRequest {
             window_state: super::MyWindows::Root(RootWindow {
-                answers: MainConfigurationAnswers::default(),
+                answers,
                 service_name: "default".into(),
-                username: whoami::username(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
             }),
             builder: egui_multiwin::winit::window::WindowBuilder::new()
@@ -97,8 +85,6 @@ impl TrackedWindow for RootWindow {
                 .auto_shrink([false, false])
                 .show(ui, |ui| match *m {
                     GeneratingMode::Idle => {
-                        ui.label("User to run service as");
-                        ui.text_edit_singleline(&mut self.username);
                         ui.label("Name of the service");
                         ui.text_edit_singleline(&mut self.service_name);
                         let reason_no_generate = self.answers.build_gui(ui, None);
@@ -120,7 +106,6 @@ impl TrackedWindow for RootWindow {
                                 )
                                 .unwrap();
                             println!("Launching process");
-                            let username = self.username.clone();
                             let mode = self.generating.clone();
                             let sname = self.service_name.clone();
                             std::thread::spawn(move || {
@@ -135,7 +120,6 @@ impl TrackedWindow for RootWindow {
                                     .gui(true)
                                     .arg(format!("--ipc={}", ipc_name.display()))
                                     .arg(format!("--name={}", sname))
-                                    .arg(format!("--user={}", username))
                                     .status()
                                     .unwrap();
                                 println!("{:?}", asdf.code());

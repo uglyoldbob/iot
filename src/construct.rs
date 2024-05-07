@@ -100,8 +100,39 @@ async fn main() {
         }
     }
 
+    println!("The path for the iot instance config is {:?}", config_path);
+    tokio::fs::create_dir_all(&config_path).await.unwrap();
+
+    let mut config = main_config::MainConfiguration::new();
+    let answers: MainConfigurationAnswers;
+    if let Some(ipc) = args.ipc {
+        println!("IPC NAME IS {}", ipc);
+        let stream = interprocess::local_socket::LocalSocketStream::connect(ipc.clone()).unwrap();
+        println!("Waiting for answers");
+        answers = bincode::deserialize_from(stream).unwrap();
+        println!("Providing answers");
+        config.provide_answers(&answers);
+        let p = std::path::Path::new(&ipc);
+        let _ = std::fs::remove_file(p);
+    } else if let Some(answers_path) = &args.answers {
+        println!(
+            "Expect to read answers from {}",
+            answers_path.to_str().unwrap()
+        );
+        let answers_file = tokio::fs::read_to_string(answers_path)
+            .await
+            .expect("Expected some answers were specified");
+        answers = toml::from_str(&answers_file).expect("Failed to parse configuration");
+        config.provide_answers(&answers)
+    } else {
+        answers = MainConfigurationAnswers::prompt(None).unwrap();
+        config.provide_answers(&answers);
+    }
+
     #[cfg(target_family = "unix")]
-    let user_obj = nix::unistd::User::from_name(&username).unwrap().unwrap();
+    let user_obj = nix::unistd::User::from_name(&answers.username)
+        .unwrap()
+        .unwrap();
     #[cfg(target_family = "unix")]
     let user_uid = user_obj.uid;
 
@@ -110,38 +141,6 @@ async fn main() {
     #[cfg(target_family = "windows")]
     let options = ca::OwnerOptions::new(&username);
 
-    let mut exe = std::env::current_exe().unwrap();
-    exe.pop();
-
-    let mut service = service::Service::new(format!("rust-iot-{}", name));
-    if service.exists() {
-        panic!("Service already exists");
-    }
-
-    println!("The path for the iot instance config is {:?}", config_path);
-    tokio::fs::create_dir_all(&config_path).await.unwrap();
-
-    let mut config = main_config::MainConfiguration::new();
-    if let Some(ipc) = args.ipc {
-        println!("IPC NAME IS {}", ipc);
-        let stream = interprocess::local_socket::LocalSocketStream::connect(ipc.clone()).unwrap();
-        println!("Waiting for answers");
-        let answers: MainConfigurationAnswers = bincode::deserialize_from(stream).unwrap();
-        println!("Providing answers");
-        config.provide_answers(&answers);
-        let p = std::path::Path::new(&ipc);
-        let _ = std::fs::remove_file(p);
-    } else if let Some(answers) = &args.answers {
-        println!("Expect to read answers from {}", answers.to_str().unwrap());
-        let answers_file = tokio::fs::read_to_string(answers)
-            .await
-            .expect("Expected some answers were specified");
-        let answers: MainConfigurationAnswers =
-            toml::from_str(&answers_file).expect("Failed to parse configuration");
-        config.provide_answers(&answers)
-    } else {
-        config.prompt_for_answers();
-    }
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
         let answers = toml::to_string(&config).unwrap();
@@ -153,6 +152,14 @@ async fn main() {
             .await
             .expect("Failed to write answers file");
         options.set_owner(pb, 0o600).await;
+    }
+
+    let mut exe = std::env::current_exe().unwrap();
+    exe.pop();
+
+    let mut service = service::Service::new(format!("rust-iot-{}", name));
+    if service.exists() {
+        panic!("Service already exists");
     }
 
     let _ca_instance = ca::PkiInstance::init(&config.pki, &config, &options).await;
@@ -180,7 +187,7 @@ async fn main() {
         service_args,
         format!("{} Iot Certificate Authority and Iot Manager", name),
         exe.join("rust-iot"),
-        Some(username),
+        Some(answers.username.clone()),
     );
 
     #[cfg(target_os = "linux")]
@@ -190,7 +197,7 @@ async fn main() {
     #[cfg(target_family = "windows")]
     {
         service_config.display = format!("Rust Iot {} Service", name);
-        service_config.user_password = None;
+        service_config.user_password = answers.password.clone();
     }
 
     println!("Saving the configuration file");

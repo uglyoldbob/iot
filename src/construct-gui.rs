@@ -56,15 +56,3 @@ fn main() {
     let _e = multi_window.add(root_window, &mut ac, &event_loop);
     multi_window.run(event_loop, ac).unwrap();
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-///Run an asynchronous object on a new thread. Maybe not the best way of accomplishing this, but it does work.
-fn execute<F: std::future::Future<Output = ()> + Send + 'static>(f: F) {
-    std::thread::spawn(move || futures::executor::block_on(f));
-}
-/// This code will likely not be used, as it makes no sense to try to run this program in wasm
-#[cfg(target_arch = "wasm32")]
-///Run an asynchronous object on a new thread. Maybe not the best way of accomplishing this, but it does work.
-fn execute<F: std::future::Future<Output = ()> + 'static>(f: F) {
-    wasm_bindgen_futures::spawn_local(f);
-}

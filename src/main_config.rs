@@ -2,10 +2,6 @@
 
 use egui_multiwin::egui;
 
-use std::path::PathBuf;
-
-use prompt::Prompting;
-
 use crate::ca::{ComplexName, ProxyConfig};
 
 #[cfg(target_os = "linux")]
@@ -182,8 +178,7 @@ pub struct MainConfigurationAnswers {
     /// The username to run the service as
     pub username: String,
     /// The password for the user
-    #[cfg(target_os = "windows")]
-    pub password: prompt::Password2,
+    pub password: Option<prompt::Password2>,
     /// General settings
     pub general: GeneralSettings,
     /// Admin user settings
@@ -267,12 +262,6 @@ impl MainConfiguration {
             }
         }
         self.pki.remove_relative_paths();
-    }
-
-    /// Fill out the configuration by asking the user for input, using standard input and output
-    pub fn prompt_for_answers(&mut self) {
-        let a: MainConfigurationAnswers = MainConfigurationAnswers::prompt(None).unwrap();
-        self.process_answers(&a);
     }
 
     /// Fill out this configuration file with answers from the specified answer configuration
