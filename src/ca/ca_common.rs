@@ -637,6 +637,15 @@ pub enum CaCertificateStorage {
     Sqlite(async_sqlite::Pool),
 }
 
+impl std::fmt::Debug for CaCertificateStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Nowhere => write!(f, "Nowhere"),
+            Self::Sqlite(arg0) => write!(f, "Sqlite"),
+        }
+    }
+}
+
 /// Represents a certificate that has not been signed yet.
 pub struct CaCertificateToBeSigned {
     /// The algorithm used for the certificate
@@ -759,7 +768,7 @@ impl CaCertificateStorage {
 }
 
 /// Represents a certificate that might be able to sign things
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CaCertificate {
     /// The algorithm used for the ceertificate
     pub algorithm: CertificateSigningMethod,
@@ -1166,6 +1175,7 @@ impl PkiConfigurationEnum {
 }
 
 /// A normal pki object, containing one or more Certificate authorities
+#[derive(Debug)]
 pub struct Pki {
     /// All of the root certificate authorities
     pub roots: std::collections::HashMap<String, Ca>,
@@ -1221,6 +1231,7 @@ impl PkiInstance {
 }
 
 /// The actual ca object
+#[derive(Debug)]
 pub struct Ca {
     /// Where certificates are stored
     pub medium: CaCertificateStorage,
