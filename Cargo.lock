@@ -1391,9 +1391,9 @@ dependencies = [
 
 [[package]]
 name = "egui-multiwin"
-version = "0.4.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73bf16692cecc1e71bd33808d10a0631f96238e6323b490cbe84a81859342efe"
+checksum = "49add8ad8f41fed5d4f38a9de489d87eedde4532f2c82b342c7eaae649e7db43"
 dependencies = [
  "arboard",
  "egui",

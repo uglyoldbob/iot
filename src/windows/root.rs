@@ -39,25 +39,25 @@ impl RootWindow {
     pub fn request() -> NewWindowRequest {
         let mut answers = MainConfigurationAnswers::default();
         answers.username = whoami::username();
-        NewWindowRequest {
-            window_state: super::MyWindows::Root(RootWindow {
+        NewWindowRequest::new(
+            super::MyWindows::Root(RootWindow {
                 answers,
                 service_name: "default".into(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
             }),
-            builder: egui_multiwin::winit::window::WindowBuilder::new()
+            egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
                 .with_inner_size(egui_multiwin::winit::dpi::LogicalSize {
                     width: 800.0,
                     height: 600.0,
                 })
                 .with_title("Certificate Authority Service Builder"),
-            options: egui_multiwin::tracked_window::TrackedWindowOptions {
+            egui_multiwin::tracked_window::TrackedWindowOptions {
                 vsync: false,
                 shader: None,
             },
-            id: egui_multiwin::multi_window::new_id(),
-        }
+            egui_multiwin::multi_window::new_id(),
+        )
     }
 }
 
