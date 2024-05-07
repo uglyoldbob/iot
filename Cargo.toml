@@ -35,10 +35,10 @@ scrypt = "0.11.0"
 sha1 = "0.10.6"
 sha2 = "^0.10"
 sha256 = "1.5.0"
-simple_logger = "4.3.3"
+simple_logger = "5.0.0"
 tempfile = "3.0.1"
 time = "0.3.34"
-tokio-rustls = "0.25.0"
+tokio-rustls = "0.26.0"
 toml = "0.8.11"
 untrusted = "0.9.0"
 url_encoded_data = "0.6.1"
@@ -76,7 +76,7 @@ default-features = false
 features = ["server"]
 
 [dependencies.mysql]
-version = "24.0.0"
+version = "25.0.0"
 default-features = false
 features = ["default-rustls"]
 
