@@ -119,9 +119,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             s.text("async function run() {\n")
                 .text("await wasm_bindgen();\n")
                 .text("}\n")
-                .text("var groot = run();\n")
-                .text("const checkme = wasm_bindgen.greet;\n")
-                .text("console.log('I am groot');\n")
+                .text("run();\n")
         });
         b.division(|div| {
             div.class("cert-gen-stuff");
@@ -230,7 +228,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|a| a);
             div
         });
-        b.button(|b| b.text("Run test").onclick("checkme()"));
+        b.button(|b| b.text("Run test2").onclick("wasm_bindgen.greet()"));
         b
     });
     let html = html.build();
