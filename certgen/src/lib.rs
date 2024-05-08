@@ -90,29 +90,18 @@ fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<b
     }
 }
 
-#[wasm_bindgen]
-pub fn testing() {
-    crate::utils::set_panic_hook();
+fn hide(collection: &web_sys::HtmlCollection) {
+    let quantity = collection.length();
 
-    wasm_logger::init(wasm_logger::Config::default());
-
-    let w = web_sys::window().unwrap();
-    let mut d = w.document().unwrap();
-
-    let data : Vec<u8> = vec![1,2,3,4];
-    log::debug!("Testing {:02X?}", data);
-    let file = build_file(&data);
-    download_file(&mut d, &file, "testing.bin");
 }
 
-#[wasm_bindgen]
-pub fn generate_csr_rsa_sha256() {
-    crate::utils::set_panic_hook();
-    wasm_logger::init(wasm_logger::Config::default());
+fn generate_csr(signing: cert_common::CertificateSigningMethod)
+{
     let mut params: rcgen::CertificateParams = Default::default();
 
     let w = web_sys::window().unwrap();
     let mut d = w.document().unwrap();
+
     let name = get_value_from_input_by_name(&d, "name");
     let email = get_value_from_input_by_name(&d, "email");
     let phone = get_value_from_input_by_name(&d, "phone");
@@ -182,7 +171,10 @@ pub fn generate_csr_rsa_sha256() {
         rcgen::SanType::DnsName("localhost".try_into().unwrap()),
     ];
     */
-    let signing = cert_common::CertificateSigningMethod::RsaSha256;
+
+    let elements_form = d.get_elements_by_class_name("cert-gen-stuff");
+    let loading_form = d.get_elements_by_class_name("cert_generating");
+
     if let Some((key_pair, private)) = signing.generate_keypair() {
         if let Ok(cert) = params.serialize_request(&key_pair) {
             if let Ok(pem_serialized) = cert.pem() {
@@ -195,13 +187,10 @@ pub fn generate_csr_rsa_sha256() {
                         let data: &[u8] = private.as_ref();
                         use der::Decode;
                         let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
-                        log::debug!("The algorithm is {:?}", private_key);
                         let rng = rand::thread_rng();
                         if let Some(private_key_password) = private_key_password {
-                            log::debug!("The password is {}", private_key_password);
                             let protected = private_key.encrypt(rng, private_key_password).unwrap();
                             let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
-                            log::debug!("EPKI IS {:?}", epki);
                             let file = build_file(protected.as_bytes());
                             download_file(&mut d, &file, "testing.bin");
                         }
@@ -213,4 +202,11 @@ pub fn generate_csr_rsa_sha256() {
             }
         }
     }
+}
+
+#[wasm_bindgen]
+pub fn generate_csr_rsa_sha256() {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
+    generate_csr(cert_common::CertificateSigningMethod::RsaSha256);
 }

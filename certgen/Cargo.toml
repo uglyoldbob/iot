@@ -31,6 +31,7 @@ web-sys = { version = "0.3.69", features = [
     "File",
     "FilePropertyBag",
     "HtmlAnchorElement",
+    "HtmlCollection",
     "HtmlElement",
     "HtmlInputElement",
     "HtmlLinkElement",
