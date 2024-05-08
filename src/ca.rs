@@ -228,6 +228,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|a| a);
             div
         });
+        b.button(|b| b.text("Run test").onclick("wasm_bindgen.testing()"));
         b.button(|b| b.text("Run test2").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
         b
     });

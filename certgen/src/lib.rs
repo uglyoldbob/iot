@@ -8,14 +8,20 @@ extern "C" {
 }
 
 /// Present this file to the user
-fn download_file(d: &mut web_sys::Document, file: &web_sys::File) {
-    if let Ok(link) = d.create_element("temporary") {
-        if let Ok(url) = web_sys::Url::create_object_url_with_blob(file) {
-            
-        }
-    }
-
-    alert("I have a file for you");
+fn download_file(d: &mut web_sys::Document, file: &web_sys::File) -> Result<(),()> {
+    let anchor = d.create_element("a").map_err(|_|())?;
+    let jsval_anchor : wasm_bindgen::JsValue = anchor.value_of().into();
+    let anchor : web_sys::HtmlAnchorElement = jsval_anchor.into();
+    let url = web_sys::Url::create_object_url_with_blob(file).map_err(|_|())?;
+    anchor.set_href(&url);
+    anchor.set_download(&file.name());
+    let body = d.body().ok_or(())?;
+    let body_node : web_sys::Node = body.into();
+    body_node.append_child(&anchor.clone().into());
+    anchor.click();
+    body_node.remove_child(&anchor.into());
+    web_sys::Url::revoke_object_url(&url);
+    Ok(())
 }
 
 /// Retrieve the htmlInputElement specified by name from the given document
@@ -47,6 +53,23 @@ fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<b
     else {
         None
     }
+}
+
+#[wasm_bindgen]
+pub fn testing() {
+    crate::utils::set_panic_hook();
+
+    let w = web_sys::window().unwrap();
+    let mut d = w.document().unwrap();
+
+    let data : Vec<u8> = vec![1,2,3,4];
+    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    u8array.copy_from(&data);
+    let fdata = u8array.into();
+    let mut foptions = web_sys::FilePropertyBag::new();
+    foptions.type_("application/octet-stream");
+    let file = web_sys::File::new_with_blob_sequence_and_options(&fdata, "testing.bin", &foptions).unwrap();
+    download_file(&mut d, &file);
 }
 
 #[wasm_bindgen]

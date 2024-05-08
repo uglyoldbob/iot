@@ -2,6 +2,10 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=./certgen");
 
+    let out_path =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").expect("No output directory given"));
+
+    std::env::set_var("CARGO_TARGET_DIR", out_path.clone());
     let wasm_build = std::process::Command::new("wasm-pack")
         .arg("build")
         .arg("--release")
@@ -20,8 +24,6 @@ fn main() {
     // true - run npm out of the build directory
     let use_out = false;
 
-    let out_path =
-        std::path::PathBuf::from(std::env::var("OUT_DIR").expect("No output directory given"));
     let source_path =
         std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("No source directory"));
 
