@@ -296,7 +296,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
 
                 b.anchor(|ab| {
                     ab.text("Visit this CA");
-                    ab.href(format!("{}{}/ca", s.proxy, name));
+                    ab.href(format!("{}pki/{}/ca", s.proxy, name));
                     ab
                 })
                 .line_break(|lb| lb);
