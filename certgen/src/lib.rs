@@ -184,26 +184,27 @@ pub fn generate_csr_rsa_sha256() {
     */
     let signing = cert_common::CertificateSigningMethod::RsaSha256;
     if let Some((key_pair, private)) = signing.generate_keypair() {
-        if let Ok(cert) = params.self_signed(&key_pair) {
-            let pem_serialized = cert.pem();
-            if let Some(csr) = get_html_input_by_name(&d, "csr") {
-                csr.set_value(&pem_serialized);
-            }
-            if let Ok(pem) = pem::parse(&pem_serialized) {
-                let der_serialized = pem.contents();
-                if let Some(private) = private {
-                    let data: &[u8] = private.as_ref();
-                    use der::Decode;
-                    let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
-                    log::debug!("The algorithm is {:?}", private_key);
-                    let rng = rand::thread_rng();
-                    if let Some(private_key_password) = private_key_password {
-                        log::debug!("The password is {}", private_key_password);
-                        let protected = private_key.encrypt(rng, private_key_password).unwrap();
-                        let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
-                        log::debug!("EPKI IS {:?}", epki);
-                        let file = build_file(protected.as_bytes());
-                        download_file(&mut d, &file, "testing.bin");
+        if let Ok(cert) = params.serialize_request(&key_pair) {
+            if let Ok(pem_serialized) = cert.pem() {
+                if let Some(csr) = get_html_input_by_name(&d, "csr") {
+                    csr.set_value(&pem_serialized);
+                }
+                if let Ok(pem) = pem::parse(&pem_serialized) {
+                    let der_serialized = pem.contents();
+                    if let Some(private) = private {
+                        let data: &[u8] = private.as_ref();
+                        use der::Decode;
+                        let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
+                        log::debug!("The algorithm is {:?}", private_key);
+                        let rng = rand::thread_rng();
+                        if let Some(private_key_password) = private_key_password {
+                            log::debug!("The password is {}", private_key_password);
+                            let protected = private_key.encrypt(rng, private_key_password).unwrap();
+                            let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
+                            log::debug!("EPKI IS {:?}", epki);
+                            let file = build_file(protected.as_bytes());
+                            download_file(&mut d, &file, "testing.bin");
+                        }
                     }
                 }
             }
