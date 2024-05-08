@@ -8,13 +8,13 @@ extern "C" {
 }
 
 /// Present this file to the user
-fn download_file(d: &mut web_sys::Document, file: &web_sys::File) -> Result<(),()> {
+fn download_file(d: &mut web_sys::Document, file: &web_sys::Blob, filename: &str) -> Result<(),()> {
     let anchor = d.create_element("a").map_err(|_|())?;
     let jsval_anchor : wasm_bindgen::JsValue = anchor.value_of().into();
     let anchor : web_sys::HtmlAnchorElement = jsval_anchor.into();
     let url = web_sys::Url::create_object_url_with_blob(file).map_err(|_|())?;
     anchor.set_href(&url);
-    anchor.set_download(&file.name());
+    anchor.set_download(filename);
     let body = d.body().ok_or(())?;
     let body_node : web_sys::Node = body.into();
     body_node.append_child(&anchor.clone().into());
@@ -22,6 +22,41 @@ fn download_file(d: &mut web_sys::Document, file: &web_sys::File) -> Result<(),(
     body_node.remove_child(&anchor.into());
     web_sys::Url::revoke_object_url(&url);
     Ok(())
+}
+
+/// Build a file with the specified data
+fn build_file(data: &[u8]) -> web_sys::File {
+    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    u8array.copy_from(&data);
+    let array = js_sys::Array::new();
+    array.push(&u8array.buffer());
+    let mut foptions = web_sys::FilePropertyBag::new();
+    foptions.type_("application/octet-stream");
+    let file = web_sys::File::new_with_blob_sequence_and_options(&array, "whatever.bin", &foptions).unwrap();
+    file
+}
+
+/// Build a file with the specified data
+fn build_blob(data: &[u8]) -> web_sys::Blob {
+    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    u8array.copy_from(&data);
+    let array = js_sys::Array::new();
+    array.push(&u8array.buffer());
+    let mut foptions = web_sys::BlobPropertyBag::new();
+    foptions.type_("application/octet-stream");
+    let file = web_sys::Blob::new_with_blob_sequence_and_options(&array, &foptions).unwrap();
+    file
+}
+
+/// Retrieve an htmlElement by name
+fn get_html_element_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::HtmlElement> {
+    if let Some(t1) = d.get_element_by_id(name) {
+        let jsval : wasm_bindgen::JsValue = t1.value_of().into();
+        web_sys::HtmlElement::try_from(jsval).ok()
+    }
+    else {
+        None
+    }
 }
 
 /// Retrieve the htmlInputElement specified by name from the given document
@@ -59,22 +94,21 @@ fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<b
 pub fn testing() {
     crate::utils::set_panic_hook();
 
+    wasm_logger::init(wasm_logger::Config::default());
+
     let w = web_sys::window().unwrap();
     let mut d = w.document().unwrap();
 
     let data : Vec<u8> = vec![1,2,3,4];
-    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
-    u8array.copy_from(&data);
-    let fdata = u8array.into();
-    let mut foptions = web_sys::FilePropertyBag::new();
-    foptions.type_("application/octet-stream");
-    let file = web_sys::File::new_with_blob_sequence_and_options(&fdata, "testing.bin", &foptions).unwrap();
-    download_file(&mut d, &file);
+    log::debug!("Testing {:02X?}", data);
+    let file = build_file(&data);
+    download_file(&mut d, &file, "testing.bin");
 }
 
 #[wasm_bindgen]
 pub fn generate_csr_rsa_sha256() {
     crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
     let mut params: rcgen::CertificateParams = Default::default();
 
     let w = web_sys::window().unwrap();
@@ -152,19 +186,29 @@ pub fn generate_csr_rsa_sha256() {
     if let Some((key_pair, private)) = signing.generate_keypair() {
         if let Ok(cert) = params.self_signed(&key_pair) {
             let pem_serialized = cert.pem();
+            if let Some(csr) = get_html_input_by_name(&d, "csr") {
+                csr.set_value(&pem_serialized);
+            }
             if let Ok(pem) = pem::parse(&pem_serialized) {
                 let der_serialized = pem.contents();
                 if let Some(private) = private {
-                    alert(&format!("Private key length {}", private.len()));
-                    let mut u8array = js_sys::Uint8Array::new_with_length(der_serialized.len() as u32);
-                    u8array.copy_from(der_serialized);
-                    let fdata = u8array.into();
-                    let mut foptions = web_sys::FilePropertyBag::new();
-                    foptions.type_("application/octet-stream");
-                    let file = web_sys::File::new_with_blob_sequence_and_options(&fdata, "testing.bin", &foptions).unwrap();
-                    download_file(&mut d, &file);
+                    let data: &[u8] = private.as_ref();
+                    use der::Decode;
+                    let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
+                    log::debug!("The algorithm is {:?}", private_key);
+                    let rng = rand::thread_rng();
+                    if let Some(private_key_password) = private_key_password {
+                        log::debug!("The password is {}", private_key_password);
+                        let protected = private_key.encrypt(rng, private_key_password).unwrap();
+                        let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
+                        log::debug!("EPKI IS {:?}", epki);
+                        let file = build_file(protected.as_bytes());
+                        download_file(&mut d, &file, "testing.bin");
+                    }
                 }
-                alert(&format!("Decoded some data {}", der_serialized.len()));
+            }
+            if let Some(button) = get_html_element_by_name(&d, "submit") {
+                button.click();
             }
         }
     }
