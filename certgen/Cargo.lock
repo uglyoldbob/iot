@@ -462,6 +462,7 @@ dependencies = [
  "wasm-bindgen-test",
  "wasm-logger",
  "web-sys",
+ "zeroize",
 ]
 
 [[package]]

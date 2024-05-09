@@ -1,6 +1,7 @@
 mod utils;
 
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroizing;
 
 #[wasm_bindgen]
 extern "C" {
@@ -8,7 +9,7 @@ extern "C" {
 }
 
 /// Present this file to the user
-fn download_file(d: &mut web_sys::Document, file: &web_sys::Blob, filename: &str) -> Result<(),()> {
+fn download_file(d: &web_sys::Document, file: &web_sys::Blob, filename: &str) -> Result<(),()> {
     let anchor = d.create_element("a").map_err(|_|())?;
     let jsval_anchor : wasm_bindgen::JsValue = anchor.value_of().into();
     let anchor : web_sys::HtmlAnchorElement = jsval_anchor.into();
@@ -90,74 +91,86 @@ fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<b
     }
 }
 
-fn hide(collection: &web_sys::HtmlCollection) {
+fn show(collection: &web_sys::HtmlCollection) {
     let quantity = collection.length();
-
+    for i in 0..quantity {
+        let e = collection.get_with_index(i);
+        if let Some(e) = e {
+            let jsval : wasm_bindgen::JsValue = e.value_of().into();
+            let el = web_sys::HtmlElement::try_from(jsval).ok();
+            if let Some(el) = el {
+                let style = el.style();
+                style.set_property("display", "block");
+            }
+        }
+    }
 }
 
-fn generate_csr(signing: cert_common::CertificateSigningMethod)
+fn hide(collection: &web_sys::HtmlCollection) {
+    let quantity = collection.length();
+    for i in 0..quantity {
+        let e = collection.get_with_index(i);
+        if let Some(e) = e {
+            let jsval : wasm_bindgen::JsValue = e.value_of().into();
+            let el = web_sys::HtmlElement::try_from(jsval).ok();
+            if let Some(el) = el {
+                let style = el.style();
+                style.set_property("display", "none");
+            }
+        }
+    }
+}
+
+fn do_csr_work(w: &web_sys::Window, d: &web_sys::Document, form: &CsrFormData, params: &rcgen::CertificateParams, signing: cert_common::CertificateSigningMethod) {
+    if let Some((key_pair, private)) = signing.generate_keypair() {
+        if let Ok(cert) = params.serialize_request(&key_pair) {
+            if let Ok(pem_serialized) = cert.pem() {
+                if let Some(csr) = get_html_input_by_name(&d, "csr") {
+                    csr.set_value(&pem_serialized);
+                }
+                if let Ok(pem) = pem::parse(&pem_serialized) {
+                    let der_serialized = pem.contents();
+                    if let Some(private) = private {
+                        let data: &[u8] = private.as_ref();
+                        use der::Decode;
+                        let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
+                        let rng = rand::thread_rng();
+                        let protected = private_key.encrypt(rng, &form.private_key_password).unwrap();
+                        let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
+                        let file = build_file(protected.as_bytes());
+                        download_file(&d, &file, "testing.bin");
+                    }
+                }
+            }
+            if let Some(button) = get_html_element_by_name(&d, "submit") {
+                button.click();
+            }
+        }
+    }
+}
+
+fn generate_csr_with_form(w: &web_sys::Window, d: &web_sys::Document, form: &CsrFormData, signing: cert_common::CertificateSigningMethod)
 {
     let mut params: rcgen::CertificateParams = Default::default();
 
-    let w = web_sys::window().unwrap();
-    let mut d = w.document().unwrap();
-
-    let name = get_value_from_input_by_name(&d, "name");
-    let email = get_value_from_input_by_name(&d, "email");
-    let phone = get_value_from_input_by_name(&d, "phone");
-    let private_key_password = get_value_from_input_by_name(&d, "password");
-
-    let client_id = get_checked_from_input_by_name(&d, "usage-client");
-    let code_usage = get_checked_from_input_by_name(&d, "usage-code");
-    let server_id = get_checked_from_input_by_name(&d, "usage-server");
-
-    let cname = get_value_from_input_by_name(&d, "cname");
-    let country = get_value_from_input_by_name(&d, "country");
-    let state = get_value_from_input_by_name(&d, "state");
-    let locality = get_value_from_input_by_name(&d, "locality");
-    let organization = get_value_from_input_by_name(&d, "organization");
-    let ou = get_value_from_input_by_name(&d, "organization-unit");
-    let cpassword = get_value_from_input_by_name(&d, "challenge-pass");
-    let challenge_name = get_value_from_input_by_name(&d, "challenge-name");
-
-    let mut good_name = false;
-
     params.distinguished_name = rcgen::DistinguishedName::new();
-    if let Some(cname) = cname {
-        if !cname.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::CommonName, cname);
-        }
+    if !form.cname.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::CommonName, &form.cname);
     }
-    if let Some(country) = country {
-        if !country.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::CountryName, country);
-        }
+    if !form.country.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::CountryName, &form.country);
     }
-    if let Some(state) = state {
-        if !state.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::StateOrProvinceName, state);
-        }
+    if !form.state.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::StateOrProvinceName, &form.state);
     }
-    if let Some(locality) = locality {
-        if !locality.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::LocalityName, locality);
-        }
+    if !form.locality.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::LocalityName, &form.locality);
     }
-    if let Some(organization) = organization {
-        if !organization.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::OrganizationName, organization);
-        }
+    if !form.organization.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::OrganizationName, &form.organization);
     }
-    if let Some(ou) = ou {
-        if !ou.is_empty() {
-            good_name = true;
-            params.distinguished_name.push(rcgen::DnType::OrganizationalUnitName, ou);
-        }
+    if !form.ou.is_empty() {
+        params.distinguished_name.push(rcgen::DnType::OrganizationalUnitName, &form.ou);
     }
 
     // These values are ignored
@@ -175,32 +188,110 @@ fn generate_csr(signing: cert_common::CertificateSigningMethod)
     let elements_form = d.get_elements_by_class_name("cert-gen-stuff");
     let loading_form = d.get_elements_by_class_name("cert_generating");
 
-    if let Some((key_pair, private)) = signing.generate_keypair() {
-        if let Ok(cert) = params.serialize_request(&key_pair) {
-            if let Ok(pem_serialized) = cert.pem() {
-                if let Some(csr) = get_html_input_by_name(&d, "csr") {
-                    csr.set_value(&pem_serialized);
-                }
-                if let Ok(pem) = pem::parse(&pem_serialized) {
-                    let der_serialized = pem.contents();
-                    if let Some(private) = private {
-                        let data: &[u8] = private.as_ref();
-                        use der::Decode;
-                        let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
-                        let rng = rand::thread_rng();
-                        if let Some(private_key_password) = private_key_password {
-                            let protected = private_key.encrypt(rng, private_key_password).unwrap();
-                            let epki = pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
-                            let file = build_file(protected.as_bytes());
-                            download_file(&mut d, &file, "testing.bin");
-                        }
-                    }
-                }
-            }
-            if let Some(button) = get_html_element_by_name(&d, "submit") {
-                button.click();
-            }
-        }
+    show(&loading_form);
+    hide(&elements_form);
+    do_csr_work(w, d, form, &params, signing);
+}
+
+struct CsrFormData {
+    name: String,
+    email: String,
+    phone: String,
+    private_key_password: Zeroizing<String>,
+    client_id: bool,
+    code_usage: bool,
+    server_id: bool,
+    cname: String,
+    country: String,
+    state: String,
+    locality: String,
+    organization: String,
+    ou: String,
+    cpassword: Zeroizing<String>,
+    challenge_name: String,
+}
+
+fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
+    let name = get_value_from_input_by_name(&d, "name").ok_or("Missing form value")?;
+    let email = get_value_from_input_by_name(&d, "email").ok_or("Missing form value")?;
+    let phone = get_value_from_input_by_name(&d, "phone").ok_or("Missing form value")?;
+    let private_key_password = get_value_from_input_by_name(&d, "password").ok_or("Missing form value")?;
+
+    let client_id = get_checked_from_input_by_name(&d, "usage-client").ok_or("Missing form value")?;
+    let code_usage = get_checked_from_input_by_name(&d, "usage-code").ok_or("Missing form value")?;
+    let server_id = get_checked_from_input_by_name(&d, "usage-server").ok_or("Missing form value")?;
+
+    let cname = get_value_from_input_by_name(&d, "cname").ok_or("Missing form value")?;
+    let country = get_value_from_input_by_name(&d, "country").ok_or("Missing form value")?;
+    let state = get_value_from_input_by_name(&d, "state").ok_or("Missing form value")?;
+    let locality = get_value_from_input_by_name(&d, "locality").ok_or("Missing form value")?;
+    let organization = get_value_from_input_by_name(&d, "organization").ok_or("Missing form value")?;
+    let ou = get_value_from_input_by_name(&d, "organization-unit").ok_or("Missing form value")?;
+    let cpassword = get_value_from_input_by_name(&d, "challenge-pass").ok_or("Missing form value")?;
+    let challenge_name = get_value_from_input_by_name(&d, "challenge-name").ok_or("Missing form value")?;
+
+    let form = CsrFormData {
+        name,
+        email,
+        phone,
+        private_key_password: Zeroizing::new(private_key_password),
+        client_id,
+        code_usage,
+        server_id,
+        cname,
+        country,
+        state,
+        locality,
+        organization,
+        ou,
+        cpassword: Zeroizing::new(cpassword),
+        challenge_name,
+    };
+
+    let mut good_name = false;
+
+    if !form.cname.is_empty() {
+        good_name = true;
+    }
+    if !form.country.is_empty() {
+        good_name = true;
+    }
+    if !form.state.is_empty() {
+        good_name = true;
+    }
+    if !form.locality.is_empty() {
+        good_name = true;
+    }
+    if !form.organization.is_empty() {
+        good_name = true;
+    }
+    if !form.ou.is_empty() {
+        good_name = true;
+    }
+    if !good_name {
+        alert("All Certificate Information is blank");
+        Err("All certificate information is blank".to_string())
+    }
+    else {
+        Ok(form)
+    }
+}
+
+#[wasm_bindgen]
+pub fn testing() {
+    let w = web_sys::window().unwrap();
+    let mut d = w.document().unwrap();
+}
+
+fn generate_csr(signing: cert_common::CertificateSigningMethod) {
+    let w = web_sys::window().unwrap();
+    let d = w.document().unwrap();
+
+    let form = validate_form(&d);
+
+    match form {
+        Ok(form) => generate_csr_with_form(&w, &d, &form, signing),
+        Err(e) => log::debug!("{}", e),
     }
 }
 
@@ -208,5 +299,6 @@ fn generate_csr(signing: cert_common::CertificateSigningMethod)
 pub fn generate_csr_rsa_sha256() {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
+
     generate_csr(cert_common::CertificateSigningMethod::RsaSha256);
 }
