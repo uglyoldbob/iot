@@ -12,3 +12,16 @@ impl TimeoutHandle {
         }
     }
 }
+
+#[wasm_bindgen]
+pub struct TimeoutHandle1 {
+    _closure: wasm_bindgen::closure::Closure<dyn FnMut(String)>,
+}
+
+impl TimeoutHandle1 {
+    pub fn new(a: wasm_bindgen::closure::Closure<dyn FnMut(String)>) -> Self {
+        Self {
+            _closure: a,
+        }
+    }
+}

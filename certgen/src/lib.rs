@@ -280,16 +280,23 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
 }
 
 #[wasm_bindgen]
-pub fn testing() -> timeout::TimeoutHandle {
+pub fn testing() -> timeout::TimeoutHandle1 {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
+    
     let w = web_sys::window().unwrap();
     let mut d = w.document().unwrap();
 
-    let cb : wasm_bindgen::closure::Closure<dyn FnMut()> = wasm_bindgen::closure::Closure::new(|| {
+    let cb : wasm_bindgen::closure::Closure<dyn FnMut(String)> = wasm_bindgen::closure::Closure::new(|a| {
+        log::debug!("Stuff {}", a);
         alert("Stuff");
     });
 
-    w.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), 1);
-    timeout::TimeoutHandle::new(cb)
+    let args = js_sys::Array::new();
+    args.push(&("asdf".to_string().into()));
+
+    w.set_timeout_with_callback_and_timeout_and_arguments(cb.as_ref().unchecked_ref(), 1, &args);
+    timeout::TimeoutHandle1::new(cb)
 }
 
 fn generate_csr(signing: cert_common::CertificateSigningMethod) {
