@@ -28,7 +28,7 @@ fn download_file(d: &web_sys::Document, file: &web_sys::Blob, filename: &str) ->
 
 /// Build a file with the specified data
 fn build_file(data: &[u8]) -> web_sys::File {
-    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    let u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
     u8array.copy_from(&data);
     let array = js_sys::Array::new();
     array.push(&u8array.buffer());
@@ -41,7 +41,7 @@ fn build_file(data: &[u8]) -> web_sys::File {
 
 /// Build a file with the specified data
 fn build_blob(data: &[u8]) -> web_sys::Blob {
-    let mut u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
+    let u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
     u8array.copy_from(&data);
     let array = js_sys::Array::new();
     array.push(&u8array.buffer());
@@ -121,20 +121,20 @@ fn hide(collection: &web_sys::HtmlCollection) {
 
 #[wasm_bindgen]
 pub struct CsrWork {
-    form: CsrFormData,
+    private_key_password: Zeroizing<String>,
     params: rcgen::CertificateParams,
     signing: cert_common::CertificateSigningMethod,
 }
 
 fn do_csr_work(work: CsrWork) {
     let CsrWork {
-        form,
+        private_key_password,
         params,
         signing,
     } = work;
 
     let w = web_sys::window().unwrap();
-    let mut d = w.document().unwrap();
+    let d = w.document().unwrap();
 
     if let Some((key_pair, private)) = signing.generate_keypair() {
         if let Ok(cert) = params.serialize_request(&key_pair) {
@@ -142,21 +142,14 @@ fn do_csr_work(work: CsrWork) {
                 if let Some(csr) = get_html_input_by_name(&d, "csr") {
                     csr.set_value(&pem_serialized);
                 }
-                if let Ok(pem) = pem::parse(&pem_serialized) {
-                    let der_serialized = pem.contents();
-                    if let Some(private) = private {
-                        let data: &[u8] = private.as_ref();
-                        use der::Decode;
-                        let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
-                        let rng = rand::thread_rng();
-                        let protected = private_key
-                            .encrypt(rng, &form.private_key_password)
-                            .unwrap();
-                        let epki =
-                            pkcs8::EncryptedPrivateKeyInfo::from_der(protected.as_bytes()).unwrap();
-                        let file = build_file(protected.as_bytes());
-                        download_file(&d, &file, "testing.bin");
-                    }
+                if let Some(private) = private {
+                    let data: &[u8] = private.as_ref();
+                    use der::Decode;
+                    let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
+                    let rng = rand::thread_rng();
+                    let protected = private_key.encrypt(rng, &private_key_password).unwrap();
+                    let file = build_file(protected.as_bytes());
+                    download_file(&d, &file, "testing.bin");
                 }
             }
             if let Some(button) = get_html_element_by_name(&d, "submit") {
@@ -174,41 +167,72 @@ fn generate_csr_with_form(
 ) -> timeout::TimeoutHandleCsrWork {
     let mut params: rcgen::CertificateParams = Default::default();
 
+    let CsrFormData {
+        private_key_password,
+        client_id,
+        code_usage,
+        server_id,
+        cname,
+        country,
+        state,
+        locality,
+        organization,
+        ou,
+        cpassword,
+        challenge_name,
+    } = form;
+
     params.distinguished_name = rcgen::DistinguishedName::new();
-    if !form.cname.is_empty() {
+    if !cname.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::CommonName, &form.cname);
+            .push(rcgen::DnType::CommonName, &cname);
     }
-    if !form.country.is_empty() {
+    if !country.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::CountryName, &form.country);
+            .push(rcgen::DnType::CountryName, &country);
     }
-    if !form.state.is_empty() {
+    if !state.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::StateOrProvinceName, &form.state);
+            .push(rcgen::DnType::StateOrProvinceName, &state);
     }
-    if !form.locality.is_empty() {
+    if !locality.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::LocalityName, &form.locality);
+            .push(rcgen::DnType::LocalityName, &locality);
     }
-    if !form.organization.is_empty() {
+    if !organization.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::OrganizationName, &form.organization);
+            .push(rcgen::DnType::OrganizationName, &organization);
     }
-    if !form.ou.is_empty() {
+    if !ou.is_empty() {
         params
             .distinguished_name
-            .push(rcgen::DnType::OrganizationalUnitName, &form.ou);
+            .push(rcgen::DnType::OrganizationalUnitName, &ou);
     }
 
     // These values are ignored
     params.not_before = rcgen::date_time_ymd(1975, 1, 1);
     params.not_after = rcgen::date_time_ymd(4096, 1, 1);
+
+    if client_id {
+        params
+            .extended_key_usages
+            .push(rcgen::ExtendedKeyUsagePurpose::ClientAuth);
+    }
+    if code_usage {
+        params
+            .extended_key_usages
+            .push(rcgen::ExtendedKeyUsagePurpose::CodeSigning);
+    }
+    if server_id {
+        params
+            .extended_key_usages
+            .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
+    }
 
     //TODO implement these items
     /*
@@ -225,7 +249,7 @@ fn generate_csr_with_form(
     hide(&elements_form);
 
     let work = CsrWork {
-        form,
+        private_key_password,
         params,
         signing,
     };
@@ -243,9 +267,6 @@ fn generate_csr_with_form(
 }
 
 struct CsrFormData {
-    name: String,
-    email: String,
-    phone: String,
     private_key_password: Zeroizing<String>,
     client_id: bool,
     code_usage: bool,
@@ -264,6 +285,17 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
     let name = get_value_from_input_by_name(&d, "name").ok_or("Missing form value")?;
     let email = get_value_from_input_by_name(&d, "email").ok_or("Missing form value")?;
     let phone = get_value_from_input_by_name(&d, "phone").ok_or("Missing form value")?;
+
+    if name.is_empty() {
+        return Err("Name is empty".to_string());
+    }
+    if email.is_empty() {
+        return Err("Email is empty".to_string());
+    }
+    if phone.is_empty() {
+        return Err("Phone is empty".to_string());
+    }
+
     let private_key_password =
         get_value_from_input_by_name(&d, "password").ok_or("Missing form value")?;
 
@@ -286,10 +318,28 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
     let challenge_name =
         get_value_from_input_by_name(&d, "challenge-name").ok_or("Missing form value")?;
 
+    let mut good_name = false;
+
+    if !cname.is_empty() {
+        good_name = true;
+    }
+    if !country.is_empty() {
+        good_name = true;
+    }
+    if !state.is_empty() {
+        good_name = true;
+    }
+    if !locality.is_empty() {
+        good_name = true;
+    }
+    if !organization.is_empty() {
+        good_name = true;
+    }
+    if !ou.is_empty() {
+        good_name = true;
+    }
+
     let form = CsrFormData {
-        name,
-        email,
-        phone,
         private_key_password: Zeroizing::new(private_key_password),
         client_id,
         code_usage,
@@ -304,26 +354,6 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
         challenge_name,
     };
 
-    let mut good_name = false;
-
-    if !form.cname.is_empty() {
-        good_name = true;
-    }
-    if !form.country.is_empty() {
-        good_name = true;
-    }
-    if !form.state.is_empty() {
-        good_name = true;
-    }
-    if !form.locality.is_empty() {
-        good_name = true;
-    }
-    if !form.organization.is_empty() {
-        good_name = true;
-    }
-    if !form.ou.is_empty() {
-        good_name = true;
-    }
     if !good_name {
         alert("All Certificate Information is blank");
         Err("All certificate information is blank".to_string())
@@ -338,7 +368,6 @@ pub fn testing() -> timeout::TimeoutHandle1 {
     wasm_logger::init(wasm_logger::Config::default());
 
     let w = web_sys::window().unwrap();
-    let mut d = w.document().unwrap();
 
     let cb: wasm_bindgen::closure::Closure<dyn FnMut(String)> =
         wasm_bindgen::closure::Closure::new(|a| {
