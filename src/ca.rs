@@ -505,7 +505,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                             let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
                             csr.params.serial_number = Some(sn);
                             let cert_to_sign = CaCertificateToBeSigned {
-                                algorithm: CertificateSigningMethod::RsaSha256,
+                                algorithm: ca.config.sign_method,
                                 medium: ca.medium.clone(),
                                 csr,
                                 pkey: None,
