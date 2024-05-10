@@ -3459,7 +3459,7 @@ checksum = "8cc3bcbdb1ddfc11e700e62968e6b4cc9c75bb466464ad28fb61c5b2c964418b"
 [[package]]
 name = "rcgen"
 version = "0.13.0"
-source = "git+https://github.com/uglyoldbob/rcgen.git?branch=main#fb63a4a4f86b44e1ae288a9a5cb2b1d6c8b4e5a4"
+source = "git+https://github.com/uglyoldbob/rcgen.git?branch=attributes#776f76f9f9f4c2ecec3a29aee9d84b077f2290d8"
 dependencies = [
  "pem",
  "ring",

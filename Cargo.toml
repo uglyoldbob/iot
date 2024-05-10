@@ -98,7 +98,7 @@ features = ["serde", "egui"]
 [dependencies.rcgen]
 version = "0.13.0"
 git = "https://github.com/uglyoldbob/rcgen.git"
-branch = "main"
+branch = "attributes"
 features = ["ring", "pem", "x509-parser"]
 
 [dependencies.runas]

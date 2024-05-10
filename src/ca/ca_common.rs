@@ -1547,139 +1547,6 @@ impl Ca {
     }
 }
 
-/// The ways in which a certificate can be used, the extended form
-#[derive(Debug)]
-pub enum ExtendedKeyUsage {
-    /// The certificate is used to identify a client
-    ClientIdentification,
-    /// The certificate is used to identify a server
-    ServerIdentification,
-    /// The certificate is used to sign code
-    CodeSigning,
-    /// The certificate is used for ocsp signning
-    OcspSigning,
-    /// The key usage is unrecognized
-    Unrecognized(Oid),
-}
-
-impl From<Oid> for ExtendedKeyUsage {
-    fn from(value: Oid) -> Self {
-        if value == *OID_EXTENDED_KEY_USAGE_CLIENT_AUTH {
-            ExtendedKeyUsage::ClientIdentification
-        } else if value == *OID_EXTENDED_KEY_USAGE_SERVER_AUTH {
-            ExtendedKeyUsage::ServerIdentification
-        } else if value == *OID_EXTENDED_KEY_USAGE_CODE_SIGNING {
-            ExtendedKeyUsage::CodeSigning
-        } else if value == *OID_EXTENDED_KEY_USAGE_OCSP_SIGNING {
-            ExtendedKeyUsage::OcspSigning
-        } else {
-            ExtendedKeyUsage::Unrecognized(value)
-        }
-    }
-}
-
-impl ExtendedKeyUsage {
-    /// Convert Self to an Oid
-    fn to_oid(&self) -> Oid {
-        match self {
-            ExtendedKeyUsage::ClientIdentification => OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone(),
-            ExtendedKeyUsage::ServerIdentification => OID_EXTENDED_KEY_USAGE_SERVER_AUTH.clone(),
-            ExtendedKeyUsage::CodeSigning => OID_EXTENDED_KEY_USAGE_CODE_SIGNING.clone(),
-            ExtendedKeyUsage::OcspSigning => OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.clone(),
-            ExtendedKeyUsage::Unrecognized(s) => s.clone(),
-        }
-    }
-}
-
-/// The types of attributes that can be present in a csr
-pub enum CsrAttribute {
-    /// What the certificate can be used for
-    ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
-    /// The challenge password
-    ChallengePassword(String),
-    /// The unstructured name
-    UnstructuredName(String),
-    /// All others
-    Unrecognized(Oid, der::Any),
-}
-
-impl CsrAttribute {
-    /// Convert self to an `rcgen::CustomExtension`
-    pub fn to_custom_extension(&self) -> Option<rcgen::CustomExtension> {
-        match self {
-            CsrAttribute::ExtendedKeyUsage(oids) => {
-                let oid = &OID_CERT_EXTENDED_KEY_USAGE.components();
-                let content = yasna::construct_der(|w| {
-                    w.write_sequence_of(|w| {
-                        for o in oids {
-                            w.next().write_oid(&o.to_oid().to_yasna());
-                        }
-                    });
-                });
-                Some(rcgen::CustomExtension::from_oid_content(oid, content))
-            }
-            CsrAttribute::ChallengePassword(p) => {
-                let oid = &OID_PKCS9_CHALLENGE_PASSWORD.components();
-                let content = yasna::construct_der(|w| {
-                    w.write_set(|w| w.next().write_utf8_string(p));
-                });
-                Some(rcgen::CustomExtension::from_oid_content(oid, content))
-            }
-            CsrAttribute::UnstructuredName(n) => {
-                let oid = &OID_PKCS9_UNSTRUCTURED_NAME.components();
-                let content = yasna::construct_der(|w| {
-                    w.write_set(|w| w.next().write_utf8_string(n));
-                });
-                Some(rcgen::CustomExtension::from_oid_content(oid, content))
-            }
-            CsrAttribute::Unrecognized(_oid, _any) => None,
-        }
-    }
-
-    #[allow(dead_code)]
-    /// Build a Self with a list of Oid
-    pub fn build_extended_key_usage(usage: Vec<Oid>) -> Self {
-        let ks = usage.iter().map(|o| o.clone().into()).collect();
-        Self::ExtendedKeyUsage(ks)
-    }
-
-    #[allow(dead_code)]
-    /// Build a self with the specified oid and data
-    pub fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
-        if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
-            let n = any.decode_as().unwrap();
-            Self::UnstructuredName(n)
-        } else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
-            let n = any.decode_as().unwrap();
-            Self::ChallengePassword(n)
-        } else if oid == *OID_CERT_EXTENDED_KEY_USAGE {
-            let oids: Vec<der::asn1::ObjectIdentifier> = any.decode_as().unwrap();
-            let oids = oids.iter().map(|o| Oid::from_const(*o).into()).collect();
-            Self::ExtendedKeyUsage(oids)
-        } else if oid == *OID_PKCS9_EXTENSION_REQUEST {
-            use der::Encode;
-            let params = yasna::parse_der(&any.to_der().unwrap(), |r| {
-                r.read_sequence(|r| {
-                    r.next().read_sequence(|r| {
-                        let _oid = r.next().read_oid();
-                        r.next().read_bytes()
-                    })
-                })
-            })
-            .unwrap();
-            let oids: Vec<yasna::models::ObjectIdentifier> =
-                yasna::parse_der(&params, |r| r.collect_sequence_of(|r| r.read_oid())).unwrap();
-            let oids = oids
-                .iter()
-                .map(|o| Oid::from_yasna(o.clone()).into())
-                .collect();
-            Self::ExtendedKeyUsage(oids)
-        } else {
-            Self::Unrecognized(oid, any)
-        }
-    }
-}
-
 /// Errors that can occur when signing a csr
 #[allow(dead_code)]
 pub enum CertificateSigningError {
@@ -1745,7 +1612,7 @@ pub enum CertAttribute {
     /// The subject key identifier
     SubjectKeyIdentifier(Vec<u8>),
     /// What the certificate can be used for
-    ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
+    ExtendedKeyUsage(Vec<cert_common::ExtendedKeyUsage>),
     /// The basic constraints extension
     BasicContraints {
         /// Is this certificate a certificate authority

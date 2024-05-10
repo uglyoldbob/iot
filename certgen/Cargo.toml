@@ -50,7 +50,7 @@ console_error_panic_hook = { version = "0.1.7", optional = true }
 [dependencies.rcgen]
 version = "0.13.0"
 git = "https://github.com/uglyoldbob/rcgen.git"
-branch = "main"
+branch = "attributes"
 features = ["ring", "pem", "x509-parser"]
 
 [dependencies.cert-common]

@@ -234,6 +234,20 @@ fn generate_csr_with_form(
             .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
     }
 
+    if !cpassword.is_empty() {
+        let s: &String = &cpassword;
+        let attr = cert_common::CsrAttribute::ChallengePassword(s.to_owned());
+        if let Some(a) = attr.to_custom_attribute() {
+            params.extra_attributes.push(a);
+        }
+    }
+    if !challenge_name.is_empty() {
+        let attr = cert_common::CsrAttribute::UnstructuredName(challenge_name);
+        if let Some(a) = attr.to_custom_attribute() {
+            params.extra_attributes.push(a);
+        }
+    }
+
     //TODO implement these items
     /*
     params.subject_alt_names = vec![

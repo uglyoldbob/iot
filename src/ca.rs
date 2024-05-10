@@ -631,26 +631,26 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                         for attr in csr.info.attributes.iter() {
                             for p in attr.values.iter() {
-                                let pa = CsrAttribute::with_oid_and_any(
+                                let pa = cert_common::CsrAttribute::with_oid_and_any(
                                     Oid::from_const(attr.oid),
                                     p.to_owned(),
                                 );
                                 match pa {
-                                    CsrAttribute::ExtendedKeyUsage(ek) => {
+                                    cert_common::CsrAttribute::ExtendedKeyUsage(ek) => {
                                         for key_use in ek {
                                             b.text(format!("\tUsage: {:?}", key_use))
                                                 .line_break(|a| a);
                                         }
                                     }
-                                    CsrAttribute::ChallengePassword(p) => {
+                                    cert_common::CsrAttribute::ChallengePassword(p) => {
                                         b.text(format!("\tChallenge password: {}", p))
                                             .line_break(|a| a);
                                     }
-                                    CsrAttribute::UnstructuredName(n) => {
+                                    cert_common::CsrAttribute::UnstructuredName(n) => {
                                         b.text(format!("\tChallenge name: {}", n))
                                             .line_break(|a| a);
                                     }
-                                    CsrAttribute::Unrecognized(oid, _a) => {
+                                    cert_common::CsrAttribute::Unrecognized(oid, _a) => {
                                         b.text(format!("\tUnrecognized: {:?}", oid))
                                             .line_break(|a| a);
                                     }
