@@ -124,7 +124,17 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
         b.division(|div| {
             div.class("cert-gen-stuff");
             div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
-            div.button(|b| b.text("Generate a certificate").onclick("generate_cert()"));
+            match ca.config.sign_method {
+                CertificateSigningMethod::RsaSha1 => {
+                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha1()"));
+                }
+                CertificateSigningMethod::RsaSha256 => {
+                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
+                }
+                CertificateSigningMethod::EcdsaSha256 => {
+                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_ecdsa_sha256()"));
+                }
+            }
             div.line_break(|lb| lb);
             div.division(|div| {
                 div.class("advanced");
@@ -228,8 +238,6 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|a| a);
             div
         });
-        b.button(|b| b.text("Run test").onclick("wasm_bindgen.testing()"));
-        b.button(|b| b.text("Run test2").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
         b
     });
     let html = html.build();

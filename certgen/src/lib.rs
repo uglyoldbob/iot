@@ -419,3 +419,10 @@ pub fn generate_csr_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     wasm_logger::init(wasm_logger::Config::default());
     generate_csr(cert_common::CertificateSigningMethod::RsaSha256)
 }
+
+#[wasm_bindgen]
+pub fn generate_csr_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
+    generate_csr(cert_common::CertificateSigningMethod::EcdsaSha256)
+}

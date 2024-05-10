@@ -1774,17 +1774,24 @@ impl RawCsrRequest {
         let parsed = yasna::parse_der(der, |r| {
             let info = r.read_sequence(|r| {
                 let a = r.next().read_der()?;
-                let sig_alg = r.next().read_sequence(|r| {
+                let (sig_alg, sig_param) = r.next().read_sequence(|r| {
                     let alg = r.next().read_oid()?;
-                    r.next().read_null()?;
-                    Ok(alg)
+                    let param = if alg == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
+                        r.next().read_null()?;
+                        Ok(der::asn1::Any::null())
+                    } else if alg == OID_ECDSA_P256_SHA256_SIGNING.to_yasna() {
+                        Ok(der::asn1::Any::null())
+                    } else {
+                        Err(yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid))
+                    }?;
+                    Ok((alg, param))
                 })?;
                 let (sig, _) = r.next().read_bitvec_bytes()?;
-                Ok((a, sig_alg, sig))
+                Ok((a, sig_alg, sig_param, sig))
             })?;
             Ok(info)
         });
-        if let Ok((info, alg, sig)) = parsed {
+        if let Ok((info, alg, alg_param, sig)) = parsed {
             use der::Decode;
             use der::Encode;
             use yasna::parse_der;
@@ -1797,17 +1804,23 @@ impl RawCsrRequest {
             })
             .unwrap();
 
-            if alg == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
-                let csr_key = ring::signature::UnparsedPublicKey::new(
+            let csr_key = if alg == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
+                ring::signature::UnparsedPublicKey::new(
                     &ring::signature::RSA_PKCS1_2048_8192_SHA256,
                     &pkey,
-                );
-                csr_key.verify(&info, &sig).map_err(|_| {
-                    println!("Error verifying the signature2 on the csr 1");
-                })
+                )
+            } else if alg == OID_ECDSA_P256_SHA256_SIGNING.to_yasna() {
+                ring::signature::UnparsedPublicKey::new(
+                    &ring::signature::ECDSA_P256_SHA256_ASN1,
+                    &pkey,
+                )
             } else {
-                todo!();
-            }
+                service::log::error!("Algorithm {:?} unhandled", alg);
+                return Err(());
+            };
+            csr_key.verify(&info, &sig).map_err(|_| {
+                println!("Error verifying the signature2 on the csr 1");
+            })
         } else {
             Err(())
         }

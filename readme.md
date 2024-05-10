@@ -34,8 +34,9 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Add a gui configuration tool for building an instance.
 - [x] Update print statements to use a custom logging crate
 - [x] Allow selecting the certificate type when building a root ca.
+- [x] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Implement code where todo statements exist.
-- [ ] Implement keygen on client side with rust wasm instead of javscript.
+- [ ] Immplement code in wasm to construct p12 certificate for user.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
