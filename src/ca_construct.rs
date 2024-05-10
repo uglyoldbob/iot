@@ -140,9 +140,12 @@ impl Ca {
             ca.root_cert = Ok(cacert);
             println!("Generating OCSP responder certificate");
             let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned()];
-            let extensions = vec![cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
-                .to_custom_extension()
-                .unwrap()];
+            let extensions =
+                vec![
+                    cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                        .to_custom_extension()
+                        .unwrap(),
+                ];
 
             let id = ca.get_new_request_id().await.unwrap();
             let ocsp_csr = ca.generate_signing_request(
@@ -166,9 +169,12 @@ impl Ca {
             ca.ocsp_signer = Ok(ocsp_cert);
 
             let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
-            let extensions = vec![cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
-                .to_custom_extension()
-                .unwrap()];
+            let extensions =
+                vec![
+                    cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                        .to_custom_extension()
+                        .unwrap(),
+                ];
 
             println!("Generating administrator certificate");
             let id = ca.get_new_request_id().await.unwrap();

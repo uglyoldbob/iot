@@ -635,25 +635,29 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                                     Oid::from_const(attr.oid),
                                     p.to_owned(),
                                 );
-                                match pa {
-                                    cert_common::CsrAttribute::ExtendedKeyUsage(ek) => {
-                                        for key_use in ek {
-                                            b.text(format!("\tUsage: {:?}", key_use))
+                                if let Some(pa) = pa {
+                                    match pa {
+                                        cert_common::CsrAttribute::ExtendedKeyUsage(ek) => {
+                                            for key_use in ek {
+                                                b.text(format!("\tUsage: {:?}", key_use))
+                                                    .line_break(|a| a);
+                                            }
+                                        }
+                                        cert_common::CsrAttribute::ChallengePassword(p) => {
+                                            b.text(format!("\tChallenge password: {}", p))
+                                                .line_break(|a| a);
+                                        }
+                                        cert_common::CsrAttribute::UnstructuredName(n) => {
+                                            b.text(format!("\tChallenge name: {}", n))
+                                                .line_break(|a| a);
+                                        }
+                                        cert_common::CsrAttribute::Unrecognized(oid, _a) => {
+                                            b.text(format!("\tUnrecognized: {:?}", oid))
                                                 .line_break(|a| a);
                                         }
                                     }
-                                    cert_common::CsrAttribute::ChallengePassword(p) => {
-                                        b.text(format!("\tChallenge password: {}", p))
-                                            .line_break(|a| a);
-                                    }
-                                    cert_common::CsrAttribute::UnstructuredName(n) => {
-                                        b.text(format!("\tChallenge name: {}", n))
-                                            .line_break(|a| a);
-                                    }
-                                    cert_common::CsrAttribute::Unrecognized(oid, _a) => {
-                                        b.text(format!("\tUnrecognized: {:?}", oid))
-                                            .line_break(|a| a);
-                                    }
+                                } else {
+                                    b.text("Attribute not processed").line_break(|a| a);
                                 }
                             }
                         }

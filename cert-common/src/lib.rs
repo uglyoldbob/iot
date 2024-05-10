@@ -134,17 +134,17 @@ impl CsrAttribute {
 
     #[allow(dead_code)]
     /// Build a self with the specified oid and data
-    pub fn with_oid_and_any(oid: Oid, any: der::Any) -> Self {
+    pub fn with_oid_and_any(oid: Oid, any: der::Any) -> Option<Self> {
         if oid == *OID_PKCS9_UNSTRUCTURED_NAME {
-            let n = any.decode_as().unwrap();
-            Self::UnstructuredName(n)
+            let n = any.decode_as().ok()?;
+            Some(Self::UnstructuredName(n))
         } else if oid == *OID_PKCS9_CHALLENGE_PASSWORD {
-            let n = any.decode_as().unwrap();
-            Self::ChallengePassword(n)
+            let n = any.decode_as().ok()?;
+            Some(Self::ChallengePassword(n))
         } else if oid == *OID_CERT_EXTENDED_KEY_USAGE {
-            let oids: Vec<der::asn1::ObjectIdentifier> = any.decode_as().unwrap();
+            let oids: Vec<der::asn1::ObjectIdentifier> = any.decode_as().ok()?;
             let oids = oids.iter().map(|o| Oid::from_const(*o).into()).collect();
-            Self::ExtendedKeyUsage(oids)
+            Some(Self::ExtendedKeyUsage(oids))
         } else if oid == *OID_PKCS9_EXTENSION_REQUEST {
             use der::Encode;
             let params = yasna::parse_der(&any.to_der().unwrap(), |r| {
@@ -154,17 +154,16 @@ impl CsrAttribute {
                         r.next().read_bytes()
                     })
                 })
-            })
-            .unwrap();
+            }).ok()?;
             let oids: Vec<yasna::models::ObjectIdentifier> =
-                yasna::parse_der(&params, |r| r.collect_sequence_of(|r| r.read_oid())).unwrap();
+                yasna::parse_der(&params, |r| r.collect_sequence_of(|r| r.read_oid())).ok()?;
             let oids = oids
                 .iter()
                 .map(|o| Oid::from_yasna(o.clone()).into())
                 .collect();
-            Self::ExtendedKeyUsage(oids)
+            Some(Self::ExtendedKeyUsage(oids))
         } else {
-            Self::Unrecognized(oid, any)
+            Some(Self::Unrecognized(oid, any))
         }
     }
 }
