@@ -143,7 +143,7 @@ async fn main() {
     #[cfg(target_family = "unix")]
     let options = ca::OwnerOptions::new(user_uid.as_raw());
     #[cfg(target_family = "windows")]
-    let options = ca::OwnerOptions::new(&username);
+    let options = ca::OwnerOptions::new(&answers.username);
 
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
@@ -201,7 +201,7 @@ async fn main() {
     #[cfg(target_family = "windows")]
     {
         service_config.display = format!("Rust Iot {} Service", name);
-        service_config.user_password = answers.password.clone();
+        service_config.user_password = answers.password.clone().map(|a| a.to_string());
     }
 
     println!("Saving the configuration file");
