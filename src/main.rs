@@ -250,8 +250,7 @@ struct Args {
     config: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+async fn smain() {
     #[cfg(target_family = "windows")]
     {
         std::panic::set_hook(Box::new(|p| {
@@ -268,9 +267,6 @@ async fn main() {
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     let name = args.name.unwrap_or("default".to_string());
-
-    let service = service::Service::new(format!("rust-iot-{}", name));
-    service.new_log(service::LogLevel::Debug);
 
     service::log::debug!("Load config from {:?}", config_path);
     service::log::debug!(
@@ -510,4 +506,28 @@ async fn main() {
         }
     }
     service::log::error!("Closing server now");
+}
+
+service::ServiceAsyncMacro!(service_starter, smain, u64);
+
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+    let config_path = if let Some(p) = args.config {
+        std::path::PathBuf::from(p)
+    } else {
+        crate::main_config::default_config_path()
+    };
+    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
+
+    let name = args.name.unwrap_or("default".to_string());
+
+    let service = service::Service::new(format!("rust-iot-{}", name));
+    service.new_log(service::LogLevel::Debug);
+
+    service::log::debug!("Service dispatching now {:?}", std::env::args());
+    if let Err(e) = service::DispatchAsync!(service, service_starter) {
+        service::log::error!("Failed to dispatch service: {:?}", e);
+    }
+    service::log::debug!("Service stopping");
 }
