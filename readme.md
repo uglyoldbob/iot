@@ -14,7 +14,7 @@ Systemd is used for the service manager. journalctl -u rust-iot-{name} can be us
 
 ***Windows***
 
-services.msc can be used to manage the services for the system in general. The service will be named rust-iot-{name}.
+services.msc can be used to manage the services for the system in general. The service will be named rust-iot-{name}. Service messages can be found with the event viewer.
 
 Helpful openssl commands see [openssl](openssl.md)
 
@@ -36,7 +36,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Allow selecting the certificate type when building a root ca.
 - [x] Implement keygen on client side with rust wasm instead of javscript.
 - [ ] Implement code where todo statements exist.
-- [ ] Immplement code in wasm to construct p12 certificate for user.
+- [ ] Implement code in wasm to construct p12 certificate for user.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
