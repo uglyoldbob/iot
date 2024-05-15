@@ -426,3 +426,28 @@ pub fn generate_csr_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     wasm_logger::init(wasm_logger::Config::default());
     generate_csr(cert_common::CertificateSigningMethod::EcdsaSha256)
 }
+
+fn build_cert(signing: cert_common::CertificateSigningMethod,
+) -> Option<timeout::TimeoutHandleCsrWork> {
+    let w = web_sys::window().unwrap();
+    let d = w.document().unwrap();
+
+    if let Some(button) = get_html_element_by_name(&d, "file-selector") {
+        button.click();
+    }
+    None
+}
+
+#[wasm_bindgen]
+pub fn build_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
+    build_cert(cert_common::CertificateSigningMethod::RsaSha256)
+}
+
+#[wasm_bindgen]
+pub fn build_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
+    build_cert(cert_common::CertificateSigningMethod::EcdsaSha256)
+}

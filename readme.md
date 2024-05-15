@@ -47,3 +47,5 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add more database backends, feature gated
 - [ ] Add certificate viewer for users.
 - [ ] Add code for windows service on the windows platform.
+- [ ] Add a method for adding more ca entities after construction has occurred.
+- [ ] Switch over from javascript to wasm for key generation fully.

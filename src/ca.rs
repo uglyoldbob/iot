@@ -872,11 +872,21 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 sb
             })
             .script(|sb| {
+                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb
+            })
+            .script(|sb| {
                 sb.src(format!("{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
     .body(|b| {
+        b.script(|s| {
+            s.text("async function run() {\n")
+                .text("await wasm_bindgen();\n")
+                .text("}\n")
+                .text("run();\n")
+        });
         if let Some(cert_der) = cert {
             use der::Decode;
             let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
@@ -943,6 +953,26 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                         }
                     }
                     b.button(|b| b.text("Build certificate").onclick("build_cert()"));
+                    match ca.config.sign_method {
+                        CertificateSigningMethod::RsaSha1 => {
+                            b.button(|b| {
+                                b.text("Test build")
+                                    .onclick("wasm_bindgen.build_rsa_sha1()")
+                            });
+                        }
+                        CertificateSigningMethod::RsaSha256 => {
+                            b.button(|b| {
+                                b.text("Test build")
+                                    .onclick("wasm_bindgen.build_rsa_sha256()")
+                            });
+                        }
+                        CertificateSigningMethod::EcdsaSha256 => {
+                            b.button(|b| {
+                                b.text("Test build")
+                                    .onclick("wasm_bindgen.build_ecdsa_sha256()")
+                            });
+                        }
+                    }
                     b.form(|form| {
                         form.input(|i| i.type_("file").id("file-selector"))
                             .line_break(|a| a);
