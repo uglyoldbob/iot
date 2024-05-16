@@ -517,17 +517,33 @@ fn build_cert(
                         let t = tp_a.await.unwrap();
                         let cert_pem = t.as_string().unwrap();
                         log::debug!("The cert is {}", cert_pem);
-                    }
-
-                    if let Some(d) = get_file_contents(file).await {
-                        let secret = pkcs8::EncryptedPrivateKeyInfo::try_from(d.as_ref());
-                        if let Ok(secret) = secret {
-                            if let Ok(password) = private_key_password {
-                                let sd = secret.decrypt(password);
-                                if let Ok(sd) = sd {
-                                    let pri_key =
-                                        pkcs8::PrivateKeyInfo::try_from(sd.as_bytes()).unwrap();
-                                    log::debug!("Decoded the key {:02x?}", pri_key);
+                        let pem = pem::parse(cert_pem).unwrap();
+                        if let Some(doc) = get_file_contents(file).await {
+                            let secret = pkcs8::EncryptedPrivateKeyInfo::try_from(doc.as_ref());
+                            if let Ok(secret) = secret {
+                                if let Ok(password) = private_key_password {
+                                    let sd = secret.decrypt(password);
+                                    if let Ok(sd) = sd {
+                                        let pri_key =
+                                            pkcs8::PrivateKeyInfo::try_from(sd.as_bytes()).unwrap();
+                                        log::debug!("Decoded the key {:02x?}", pri_key);
+                                        let pkcs12 = cert_common::pkcs12::Pkcs12 {
+                                            cert: pem.into_contents(),
+                                            pkey: Zeroizing::new(sd.as_bytes().to_vec()),
+                                            attributes: vec![
+                                                cert_common::pkcs12::BagAttribute::LocalKeyId(
+                                                    vec![42; 16],
+                                                ), //TODO
+                                                cert_common::pkcs12::BagAttribute::FriendlyName(
+                                                    "User Certificate".to_string(),
+                                                ), //TODO
+                                            ],
+                                            id: 42,
+                                        };
+                                        let p12 = pkcs12.get_pkcs12(&certificate_password.unwrap());
+                                        let file = build_file(&p12);
+                                        download_file(&d, &file, "certificate.p12");
+                                    }
                                 }
                             }
                         }
