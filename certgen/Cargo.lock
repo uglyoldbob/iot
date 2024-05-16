@@ -459,6 +459,7 @@ dependencies = [
  "rcgen",
  "ring",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "wasm-logger",
  "web-sys",

@@ -427,13 +427,92 @@ pub fn generate_csr_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     generate_csr(cert_common::CertificateSigningMethod::EcdsaSha256)
 }
 
-fn build_cert(signing: cert_common::CertificateSigningMethod,
+/// Retrieve the contents of the specified file in a nice Vec<u8>, if possible.
+async fn get_file_contents(file: web_sys::File) -> Option<Vec<u8>> {
+    let r = file
+        .stream()
+        .get_reader()
+        .dyn_into::<web_sys::ReadableStreamDefaultReader>();
+    if let Ok(r) = r {
+        let mut data: Vec<u8> = Vec::new();
+        loop {
+            let chunk = wasm_bindgen_futures::JsFuture::from(r.read()).await;
+            if let Ok(c) = chunk {
+                let obj = js_sys::Object::try_from(&c).unwrap();
+                let entries = js_sys::Object::entries(&obj);
+                let a1 = entries.get(0);
+                let a2 = entries.get(1);
+                let a1 = js_sys::Array::try_from(a1).unwrap();
+                let a2 = js_sys::Array::try_from(a2).unwrap();
+                let a1a = a1.get(0);
+                let a1b = a1.get(1);
+                if let Some(s) = a1a.as_string() {
+                    if s.as_str() == "done" {
+                        if a1b.as_bool().unwrap() {
+                            break;
+                        }
+                    }
+                }
+                let a2a = a2.get(0);
+                let a2b = a2.get(1);
+                if let Some(s) = a2a.as_string() {
+                    if s.as_str() == "value" {
+                        let chunk = js_sys::Uint8Array::try_from(a2b).unwrap();
+                        let data_len = data.len();
+                        data.resize(data_len + chunk.length() as usize, 0);
+                        chunk.copy_to(&mut data[data_len..]);
+                    }
+                }
+            }
+        }
+        Some(data)
+    } else {
+        None
+    }
+}
+
+fn build_cert(
+    signing: cert_common::CertificateSigningMethod,
 ) -> Option<timeout::TimeoutHandleCsrWork> {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
 
-    if let Some(button) = get_html_element_by_name(&d, "file-selector") {
+    let private_key_password =
+        get_value_from_input_by_name(&d, "password").ok_or("Missing form value");
+
+    if let Some(button) = get_html_input_by_name(&d, "file-selector") {
         button.click();
+
+        let button2 = button.clone();
+        let cb = cert_common::WasmClosureAsync!({
+            let files = button2.files();
+            if let Some(f) = files {
+                if let Some(file) = f.item(0) {
+                    if let Some(d) = get_file_contents(file).await {
+                        let secret = pkcs8::EncryptedPrivateKeyInfo::try_from(d.as_ref());
+                        if let Ok(secret) = secret {
+                            if let Ok(password) = private_key_password {
+                                let sd = secret.decrypt(password);
+                                if let Ok(sd) = sd {
+                                    let pri_key =
+                                        pkcs8::PrivateKeyInfo::try_from(sd.as_bytes()).unwrap();
+                                    log::debug!("Decoded the key {:02x?}", pri_key);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let cref = cb.as_ref().borrow();
+        let c2 = cref.as_ref().unwrap();
+        let func: &js_sys::Function = c2.as_ref().unchecked_ref();
+
+        let mut options = web_sys::AddEventListenerOptions::new();
+        options.once(true);
+        button.add_event_listener_with_callback_and_add_event_listener_options(
+            "change", func, &options,
+        );
     }
     None
 }

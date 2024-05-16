@@ -237,3 +237,66 @@ impl CertificateSigningMethod {
         }
     }
 }
+
+/// A helper function for generating a closure that is run once
+/// Usage
+/// ```
+/// let cb = cert_common::WasmClosure!({
+/// log::debug!("Entered closure for file selection");
+/// });
+/// 
+/// let cref = cb.as_ref().borrow();
+/// let c2 = cref.as_ref().unwrap();
+/// let func : &js_sys::Function = c2.as_ref().unchecked_ref();
+/// //Use func as needed, as long as it is only used one time
+/// ```
+#[macro_export]
+macro_rules! WasmClosure {
+    ($code:expr) => {{
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        type C = Closure<dyn FnMut()>;
+        let handler: Rc<RefCell<Option<C>>> = Rc::new(RefCell::new(None));
+        let copy = handler.clone();
+        let closure : wasm_bindgen::closure::Closure<dyn FnMut()> =
+        wasm_bindgen::closure::Closure::once(move || {
+            $code
+            drop(copy);
+        });
+        handler.borrow_mut().replace(closure);
+        handler
+    }};
+}
+
+/// A helper function for generating an async closure that is run once
+/// 
+/// Usage
+/// ```
+/// let cb = cert_common::WasmClosureAsync!({
+/// log::debug!("Entered closure for file selection");
+/// });
+/// 
+/// let cref = cb.as_ref().borrow();
+/// let c2 = cref.as_ref().unwrap();
+/// let func : &js_sys::Function = c2.as_ref().unchecked_ref();
+/// //Use func as needed, as long as it is only used one time
+/// ```
+#[macro_export]
+macro_rules! WasmClosureAsync {
+    ($code:expr) => {{
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        type C = Closure<dyn FnMut()>;
+        let handler: Rc<RefCell<Option<C>>> = Rc::new(RefCell::new(None));
+        let copy = handler.clone();
+        let closure : wasm_bindgen::closure::Closure<dyn FnMut()> =
+        wasm_bindgen::closure::Closure::once(move || {
+            wasm_bindgen_futures::spawn_local(async move {
+                $code
+            });
+            drop(copy);
+        });
+        handler.borrow_mut().replace(closure);
+        handler
+    }};
+}
