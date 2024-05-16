@@ -43,6 +43,10 @@ web-sys = { version = "0.3.69", features = [
     "Node",
     "ReadableStream",
     "ReadableStreamDefaultReader",
+    "ReferrerPolicy",
+    "RequestInit",
+    "RequestMode",
+    "Response",
     "Url",
     "Window"
 ] }

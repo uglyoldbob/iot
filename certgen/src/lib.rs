@@ -71,6 +71,15 @@ fn get_html_input_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::
     }
 }
 
+/// Retrieve the htmlElement specified by name from the given document, getting the value of what is in the input element
+fn get_value_from_element_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
+    if let Some(t1) = get_html_element_by_name(d, name) {
+        Some(t1.inner_text())
+    } else {
+        None
+    }
+}
+
 /// Retrieve the htmlInputElement specified by name from the given document, getting the value of what is in the input element
 fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
     if let Some(t1) = get_html_input_by_name(d, name) {
@@ -480,6 +489,12 @@ fn build_cert(
     let private_key_password =
         get_value_from_input_by_name(&d, "password").ok_or("Missing form value");
 
+    let certificate_password =
+        get_value_from_input_by_name(&d, "cert-password").ok_or("Missing form value");
+
+    let cert_url = get_value_from_element_by_name(&d, "get_request");
+    log::debug!("Url is {:?}", cert_url);
+
     if let Some(button) = get_html_input_by_name(&d, "file-selector") {
         button.click();
 
@@ -488,6 +503,22 @@ fn build_cert(
             let files = button2.files();
             if let Some(f) = files {
                 if let Some(file) = f.item(0) {
+                    if let Some(url) = cert_url {
+                        let mut ri = web_sys::RequestInit::new();
+                        ri.method("get");
+                        ri.mode(web_sys::RequestMode::NoCors);
+                        ri.referrer_policy(web_sys::ReferrerPolicy::NoReferrer);
+                        let cert_fetch = w.fetch_with_str_and_init(&url, &ri);
+                        let cert_a = wasm_bindgen_futures::JsFuture::from(cert_fetch);
+                        let cert = cert_a.await.unwrap();
+                        let rsp = web_sys::Response::try_from(cert).unwrap();
+                        let tp = rsp.text().unwrap();
+                        let tp_a = wasm_bindgen_futures::JsFuture::from(tp);
+                        let t = tp_a.await.unwrap();
+                        let cert_pem = t.as_string().unwrap();
+                        log::debug!("The cert is {}", cert_pem);
+                    }
+
                     if let Some(d) = get_file_contents(file).await {
                         let secret = pkcs8::EncryptedPrivateKeyInfo::try_from(d.as_ref());
                         if let Ok(secret) = secret {
