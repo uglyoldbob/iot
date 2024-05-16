@@ -81,7 +81,7 @@ where
     let mut certf = File::open(&certfile)?;
     certf.read_to_end(&mut certbytes)?;
 
-    let pkcs12 = crate::pkcs12::Pkcs12::load_from_data(&certbytes, pass.as_bytes(), 0);
+    let pkcs12 = cert_common::pkcs12::Pkcs12::load_from_data(&certbytes, pass.as_bytes(), 0);
 
     let cert_der = pkcs12.cert;
 

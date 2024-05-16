@@ -8,7 +8,8 @@ use cert_common::CertificateSigningMethod;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
-use crate::{pkcs12::BagAttribute, MainConfiguration};
+use crate::MainConfiguration;
+use cert_common::pkcs12::BagAttribute;
 
 /// Get the list of sqlite files from the base filename for a sqlite database
 pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
@@ -674,9 +675,9 @@ impl CaCertificateToBeSigned {
     }
 }
 
-impl TryFrom<crate::pkcs12::Pkcs12> for CaCertificate {
+impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
     type Error = ();
-    fn try_from(value: crate::pkcs12::Pkcs12) -> Result<Self, Self::Error> {
+    fn try_from(value: cert_common::pkcs12::Pkcs12) -> Result<Self, Self::Error> {
         let cert_der = &value.cert;
         let x509_cert = {
             use der::Decode;
@@ -715,7 +716,7 @@ impl CaCertificateStorage {
         let x509 = x509_cert::Certificate::from_der(&cert.cert).unwrap();
         let snb = x509.tbs_certificate.serial_number.as_bytes().to_vec();
         if cert.pkey.is_some() {
-            let p12: crate::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
+            let p12: cert_common::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
             let p12_der = p12.get_pkcs12(password);
 
             match self {
@@ -745,7 +746,7 @@ impl CaCertificateStorage {
     pub async fn load_from_medium(
         &self,
         name: &str,
-    ) -> Result<crate::pkcs12::ProtectedPkcs12, CertificateLoadingError> {
+    ) -> Result<cert_common::pkcs12::ProtectedPkcs12, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::Sqlite(p) => {
@@ -760,7 +761,7 @@ impl CaCertificateStorage {
                     })
                     .await
                     .expect("Failed to retrieve cert");
-                let p12 = crate::pkcs12::ProtectedPkcs12 { contents: cert, id };
+                let p12 = cert_common::pkcs12::ProtectedPkcs12 { contents: cert, id };
                 Ok(p12)
             }
         }
@@ -781,9 +782,26 @@ pub struct CaCertificate {
     /// The certificate name to use for storage
     pub name: String,
     /// The extra attributes for the certificate
-    pub attributes: Vec<crate::pkcs12::BagAttribute>,
+    pub attributes: Vec<cert_common::pkcs12::BagAttribute>,
     /// The id of the certificate
     pub id: u64,
+}
+
+impl TryInto<cert_common::pkcs12::Pkcs12> for CaCertificate {
+    type Error = ();
+    fn try_into(self) -> Result<cert_common::pkcs12::Pkcs12, Self::Error> {
+        let cert = self.certificate_der();
+        let pkey = self.pkey_der();
+        if pkey.is_none() {
+            return Err(());
+        }
+        Ok(cert_common::pkcs12::Pkcs12 {
+            cert,
+            pkey: pkey.unwrap(),
+            attributes: self.get_attributes(),
+            id: self.id,
+        })
+    }
 }
 
 impl CaCertificate {
@@ -817,7 +835,7 @@ impl CaCertificate {
     }
 
     /// Get the list of attributes
-    pub fn get_attributes(&self) -> Vec<crate::pkcs12::BagAttribute> {
+    pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
         self.attributes.clone()
     }
 
@@ -1399,12 +1417,13 @@ impl Ca {
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
             let rc = self.medium.load_from_medium("root").await.unwrap();
-            self.root_cert =
-                Ok(
-                    crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
-                        .try_into()
-                        .unwrap(),
-                );
+            self.root_cert = Ok(cert_common::pkcs12::Pkcs12::load_from_data(
+                &rc.contents,
+                password.as_bytes(),
+                rc.id,
+            )
+            .try_into()
+            .unwrap());
         }
         self.root_cert.as_ref()
     }
@@ -1427,10 +1446,13 @@ impl Ca {
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
             let rc = self.medium.load_from_medium("admin").await.unwrap();
-            let mut cert: CaCertificate =
-                crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
-                    .try_into()
-                    .unwrap();
+            let mut cert: CaCertificate = cert_common::pkcs12::Pkcs12::load_from_data(
+                &rc.contents,
+                password.as_bytes(),
+                rc.id,
+            )
+            .try_into()
+            .unwrap();
             cert.pkey = None;
             self.admin = Ok(cert);
         }
@@ -1444,12 +1466,13 @@ impl Ca {
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
             let rc = self.medium.load_from_medium("ocsp").await.unwrap();
-            self.ocsp_signer =
-                Ok(
-                    crate::pkcs12::Pkcs12::load_from_data(&rc.contents, password.as_bytes(), rc.id)
-                        .try_into()
-                        .unwrap(),
-                );
+            self.ocsp_signer = Ok(cert_common::pkcs12::Pkcs12::load_from_data(
+                &rc.contents,
+                password.as_bytes(),
+                rc.id,
+            )
+            .try_into()
+            .unwrap());
         }
         self.ocsp_signer.as_ref()
     }

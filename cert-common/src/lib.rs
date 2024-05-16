@@ -1,5 +1,6 @@
 //! Commmon code for both wasm and non-wasm code
 
+pub mod pkcs12;
 pub mod oid;
 use oid::*;
 use zeroize::Zeroizing;

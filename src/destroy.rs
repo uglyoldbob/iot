@@ -8,7 +8,6 @@
 /// The ca module, with code used to destroy a ca
 mod ca;
 mod main_config;
-pub mod pkcs12;
 mod tpm2;
 
 pub use main_config::MainConfiguration;

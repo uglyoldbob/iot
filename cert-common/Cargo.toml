@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+cms = "0.2.3"
 const-oid = "0.9.6"
 der = "0.7.8"
+hmac = "0.12.1"
 lazy_static = "1.4.0"
+pkcs5 = "0.7.1"
 rand = "0.8.5"
 rsa = "0.9.6"
+sha2 = "0.10.8"
 x509-cert = "0.2.5"
 yasna = "0.5.2"
 zeroize = "1.7.0"
@@ -19,6 +23,10 @@ git = "https://github.com/uglyoldbob/ocsp-rs"
 [dependencies.pkcs8]
 version = "0.10.2"
 features = ["encryption", "pem", "std"]
+
+[dependencies.pkcs12]
+version = "0.1.0"
+features = ["kdf"]
 
 [dependencies.rcgen]
 version = "0.13.0"

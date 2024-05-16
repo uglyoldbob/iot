@@ -852,11 +852,15 @@ dependencies = [
 name = "cert-common"
 version = "0.1.0"
 dependencies = [
+ "cms",
  "const-oid",
  "der",
  "egui",
+ "hmac",
  "lazy_static",
  "ocsp",
+ "pkcs12",
+ "pkcs5",
  "pkcs8",
  "prompt",
  "rand",
@@ -865,6 +869,7 @@ dependencies = [
  "rsa",
  "serde",
  "service",
+ "sha2",
  "x509-cert",
  "yasna",
  "zeroize",
@@ -3715,7 +3720,6 @@ dependencies = [
  "ocsp",
  "pem",
  "pin-project-lite",
- "pkcs12",
  "pkcs5",
  "pkcs8",
  "prompt",

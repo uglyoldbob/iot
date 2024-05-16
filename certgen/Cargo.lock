@@ -425,11 +425,15 @@ checksum = "099a5357d84c4c61eb35fc8eafa9a79a902c2f76911e5747ced4e032edd8d9b4"
 name = "cert-common"
 version = "0.1.0"
 dependencies = [
+ "cms",
  "const-oid",
  "der",
  "egui",
+ "hmac",
  "lazy_static",
  "ocsp",
+ "pkcs12",
+ "pkcs5",
  "pkcs8",
  "prompt",
  "rand",
@@ -438,6 +442,7 @@ dependencies = [
  "rsa",
  "serde",
  "service",
+ "sha2",
  "x509-cert",
  "yasna",
  "zeroize",
@@ -500,6 +505,18 @@ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common",
  "inout",
+]
+
+[[package]]
+name = "cms"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b77c319abfd5219629c45c34c89ba945ed3c5e49fcde9d16b6c3885f118a730"
+dependencies = [
+ "const-oid",
+ "der",
+ "spki",
+ "x509-cert",
 ]
 
 [[package]]
@@ -1412,6 +1429,21 @@ dependencies = [
  "der",
  "pkcs8",
  "spki",
+]
+
+[[package]]
+name = "pkcs12"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "695b3df3d3cc1015f12d70235e35b6b79befc5fa7a9b95b951eab1dd07c9efc2"
+dependencies = [
+ "cms",
+ "const-oid",
+ "der",
+ "digest",
+ "spki",
+ "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

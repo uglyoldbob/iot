@@ -1,6 +1,6 @@
 //! Defines how to import and export pkcs12 certificate data
 
-use cert_common::oid::*;
+use crate::oid::*;
 
 use cms::content_info::{CmsVersion, ContentInfo};
 use const_oid::db::rfc5911::{ID_DATA, ID_ENCRYPTED_DATA};
@@ -80,23 +80,6 @@ pub struct Pkcs12 {
     pub attributes: Vec<BagAttribute>,
     /// The id for the certificate
     pub id: u64,
-}
-
-impl TryFrom<crate::ca::CaCertificate> for Pkcs12 {
-    type Error = ();
-    fn try_from(value: crate::ca::CaCertificate) -> Result<Self, Self::Error> {
-        let cert = value.certificate_der();
-        let pkey = value.pkey_der();
-        if pkey.is_none() {
-            return Err(());
-        }
-        Ok(Self {
-            cert,
-            pkey: pkey.unwrap(),
-            attributes: value.get_attributes(),
-            id: value.id,
-        })
-    }
 }
 
 use hmac::{Hmac, Mac};
