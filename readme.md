@@ -35,8 +35,9 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Update print statements to use a custom logging crate
 - [x] Allow selecting the certificate type when building a root ca.
 - [x] Implement keygen on client side with rust wasm instead of javscript.
+- [x] Implement code in wasm to construct p12 certificate for user.
+- [x] Add code for windows service on the windows platform.
 - [ ] Implement code where todo statements exist.
-- [ ] Implement code in wasm to construct p12 certificate for user.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
 - [ ] Make site look better
@@ -46,6 +47,5 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Feature gate the sqlite backend
 - [ ] Add more database backends, feature gated
 - [ ] Add certificate viewer for users.
-- [ ] Add code for windows service on the windows platform.
 - [ ] Add a method for adding more ca entities after construction has occurred.
 - [ ] Switch over from javascript to wasm for key generation fully.
