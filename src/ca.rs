@@ -102,15 +102,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     html.head(|h| {
         generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("{}js/forge.min.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
                 sb.src(format!("{}js/certgen.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
-                sb.src(format!("{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -140,12 +132,12 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.line_break(|lb| lb);
             div.division(|div| {
                 div.class("advanced");
-                div.button(|b| b.text("Simple").onclick("show_regular()")).line_break(|a|a);
+                div.button(|b| b.text("Simple").onclick("wasm_bindgen.show_regular()")).line_break(|a|a);
                 div
             });
             div.division(|div| {
                 div.class("regular");
-                div.button(|b| b.text("Advanced").onclick("show_advanced()")).line_break(|a|a);
+                div.button(|b| b.text("Advanced").onclick("wasm_bindgen.show_advanced()")).line_break(|a|a);
                 div
             });
             div.division(|div| {
@@ -875,15 +867,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
         generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("{}js/forge.min.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
                 sb.src(format!("{}js/certgen.js", s.proxy));
-                sb
-            })
-            .script(|sb| {
-                sb.src(format!("{}js/certgen.min.js", s.proxy));
                 sb
             })
     })
@@ -959,21 +943,10 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                             }
                         }
                     }
-                    b.button(|b| b.text("Build certificate").onclick("build_cert()"));
-                    match ca.config.sign_method {
-                        CertificateSigningMethod::RsaSha256 => {
-                            b.button(|b| {
-                                b.text("Test build")
-                                    .onclick("wasm_bindgen.build_rsa_sha256()")
-                            });
-                        }
-                        CertificateSigningMethod::EcdsaSha256 => {
-                            b.button(|b| {
-                                b.text("Test build")
-                                    .onclick("wasm_bindgen.build_ecdsa_sha256()")
-                            });
-                        }
-                    }
+                    b.button(|b| {
+                        b.text("Build certificate")
+                            .onclick("wasm_bindgen.build_cert()")
+                    });
                     b.form(|form| {
                         form.input(|i| i.type_("file").id("file-selector"))
                             .line_break(|a| a);
@@ -1167,30 +1140,19 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
         http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
     } else {
         let mut html = html::root::Html::builder();
-        html.head(|h| {
-            generic_head(h, s, ca)
-                .title(|t| t.text(ca.config.common_name.to_owned()))
-                .script(|sb| {
-                    sb.src(format!("{}js/forge.min.js", s.proxy));
-                    sb
-                })
-                .script(|sb| {
-                    sb.src(format!("{}js/certgen.min.js", s.proxy));
-                    sb
-                })
-        })
-        .body(|b| {
-            b.form(|f| {
-                f.method("POST");
-                f.text("Access key for admin certificate")
-                    .line_break(|a| a)
-                    .input(|i| i.type_("password").name("token").id("token"))
-                    .line_break(|a| a);
-                f.input(|i| i.type_("submit")).line_break(|a| a);
-                f
+        html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+            .body(|b| {
+                b.form(|f| {
+                    f.method("POST");
+                    f.text("Access key for admin certificate")
+                        .line_break(|a| a)
+                        .input(|i| i.type_("password").name("token").id("token"))
+                        .line_break(|a| a);
+                    f.input(|i| i.type_("submit")).line_break(|a| a);
+                    f
+                });
+                b
             });
-            b
-        });
         http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()))
     };
     webserver::WebResponse {

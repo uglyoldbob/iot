@@ -9,6 +9,26 @@ extern "C" {
     fn alert(s: &str);
 }
 
+#[wasm_bindgen]
+pub fn show_advanced() {
+    let w = web_sys::window().unwrap();
+    let d = w.document().unwrap();
+    let advanced = d.get_elements_by_class_name("advanced");
+    let regular = d.get_elements_by_class_name("regular");
+    show(&advanced);
+    hide(&regular);
+}
+
+#[wasm_bindgen]
+pub fn show_regular() {
+    let w = web_sys::window().unwrap();
+    let d = w.document().unwrap();
+    let advanced = d.get_elements_by_class_name("advanced");
+    let regular = d.get_elements_by_class_name("regular");
+    hide(&advanced);
+    show(&regular);
+}
+
 /// Present this file to the user
 fn download_file(d: &web_sys::Document, file: &web_sys::Blob, filename: &str) -> Result<(), ()> {
     let anchor = d.create_element("a").map_err(|_| ())?;
@@ -385,26 +405,6 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
     }
 }
 
-#[wasm_bindgen]
-pub fn testing() -> timeout::TimeoutHandle1 {
-    crate::utils::set_panic_hook();
-    wasm_logger::init(wasm_logger::Config::default());
-
-    let w = web_sys::window().unwrap();
-
-    let cb: wasm_bindgen::closure::Closure<dyn FnMut(String)> =
-        wasm_bindgen::closure::Closure::new(|a| {
-            log::debug!("Stuff {}", a);
-            alert("Stuff");
-        });
-
-    let args = js_sys::Array::new();
-    args.push(&("asdf".to_string().into()));
-
-    w.set_timeout_with_callback_and_timeout_and_arguments(cb.as_ref().unchecked_ref(), 1, &args);
-    timeout::TimeoutHandle1::new(cb)
-}
-
 fn generate_csr(
     signing: cert_common::CertificateSigningMethod,
 ) -> Option<timeout::TimeoutHandleCsrWork> {
@@ -480,9 +480,10 @@ async fn get_file_contents(file: web_sys::File) -> Option<Vec<u8>> {
     }
 }
 
-fn build_cert(
-    signing: cert_common::CertificateSigningMethod,
-) -> Option<timeout::TimeoutHandleCsrWork> {
+#[wasm_bindgen]
+pub fn build_cert() {
+    crate::utils::set_panic_hook();
+    wasm_logger::init(wasm_logger::Config::default());
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
 
@@ -561,19 +562,4 @@ fn build_cert(
             "change", func, &options,
         );
     }
-    None
-}
-
-#[wasm_bindgen]
-pub fn build_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
-    crate::utils::set_panic_hook();
-    wasm_logger::init(wasm_logger::Config::default());
-    build_cert(cert_common::CertificateSigningMethod::RsaSha256)
-}
-
-#[wasm_bindgen]
-pub fn build_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
-    crate::utils::set_panic_hook();
-    wasm_logger::init(wasm_logger::Config::default());
-    build_cert(cert_common::CertificateSigningMethod::EcdsaSha256)
 }
