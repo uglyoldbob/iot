@@ -25,7 +25,12 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
 
 /// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
 #[derive(
-    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct StandaloneCaConfiguration {
     /// The signing method for the certificate authority
@@ -41,13 +46,13 @@ pub struct StandaloneCaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: prompt::Password2,
+    pub admin_access_password: userprompt::Password2,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: prompt::Password2,
+    pub admin_password: userprompt::Password2,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: prompt::Password2,
+    pub ocsp_password: userprompt::Password2,
     /// The password to protect the root p12 certificate document.
-    pub root_password: prompt::Password2,
+    pub root_password: userprompt::Password2,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The name of the ca instance
@@ -70,10 +75,10 @@ impl StandaloneCaConfiguration {
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
-            admin_access_password: prompt::Password2::new("".to_string()),
-            admin_password: prompt::Password2::new("".to_string()),
-            ocsp_password: prompt::Password2::new("".to_string()),
-            root_password: prompt::Password2::new("".to_string()),
+            admin_access_password: userprompt::Password2::new("".to_string()),
+            admin_password: userprompt::Password2::new("".to_string()),
+            ocsp_password: userprompt::Password2::new("".to_string()),
+            root_password: userprompt::Password2::new("".to_string()),
             ocsp_signature: false,
             name: String::new(),
         }
@@ -150,7 +155,12 @@ impl StandaloneCaConfiguration {
 
 /// The items used to configure a local certificate authority in a pki configuration
 #[derive(
-    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct LocalCaConfiguration {
     /// The signing method for the certificate authority
@@ -166,13 +176,13 @@ pub struct LocalCaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: prompt::Password2,
+    pub admin_access_password: userprompt::Password2,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: prompt::Password2,
+    pub admin_password: userprompt::Password2,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: prompt::Password2,
+    pub ocsp_password: userprompt::Password2,
     /// The password to protect the root p12 certificate document.
-    pub root_password: prompt::Password2,
+    pub root_password: userprompt::Password2,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
 }
@@ -193,10 +203,10 @@ impl LocalCaConfiguration {
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
-            admin_access_password: prompt::Password2::new("".to_string()),
-            admin_password: prompt::Password2::new("".to_string()),
-            ocsp_password: prompt::Password2::new("".to_string()),
-            root_password: prompt::Password2::new("".to_string()),
+            admin_access_password: userprompt::Password2::new("".to_string()),
+            admin_password: userprompt::Password2::new("".to_string()),
+            ocsp_password: userprompt::Password2::new("".to_string()),
+            root_password: userprompt::Password2::new("".to_string()),
             ocsp_signature: false,
         }
     }
@@ -288,13 +298,13 @@ pub struct CaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: prompt::Password2,
+    pub admin_access_password: userprompt::Password2,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: prompt::Password2,
+    pub admin_password: userprompt::Password2,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: prompt::Password2,
+    pub ocsp_password: userprompt::Password2,
     /// The password to protect the root p12 certificate document.
-    pub root_password: prompt::Password2,
+    pub root_password: userprompt::Password2,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The externally accessible https port, if accessible by https
@@ -362,10 +372,10 @@ impl CaConfiguration {
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
-            admin_access_password: prompt::Password2::new("".to_string()),
-            admin_password: prompt::Password2::new("".to_string()),
-            ocsp_password: prompt::Password2::new("".to_string()),
-            root_password: prompt::Password2::new("".to_string()),
+            admin_access_password: userprompt::Password2::new("".to_string()),
+            admin_password: userprompt::Password2::new("".to_string()),
+            ocsp_password: userprompt::Password2::new("".to_string()),
+            root_password: userprompt::Password2::new("".to_string()),
             ocsp_signature: false,
             http_port: None,
             https_port: None,
@@ -421,8 +431,8 @@ use egui_multiwin::egui;
 #[derive(
     Clone,
     Debug,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,
@@ -431,7 +441,7 @@ pub enum CaCertificateStorageBuilder {
     /// Certificates are stored nowhere
     Nowhere,
     /// Ca uses a sqlite database on a filesystem
-    Sqlite(prompt::FileCreate),
+    Sqlite(userprompt::FileCreate),
 }
 
 impl CaCertificateStorageBuilder {
@@ -954,8 +964,8 @@ impl CaCertificate {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
@@ -998,8 +1008,8 @@ impl std::str::FromStr for ComplexName {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
@@ -1015,22 +1025,22 @@ pub struct ProxyConfig {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
 pub struct PkiConfiguration {
     /// List of local ca
-    pub local_ca: prompt::SelectedHashMap<LocalCaConfiguration>,
+    pub local_ca: userprompt::SelectedHashMap<LocalCaConfiguration>,
 }
 
 ///A generic configuration for a pki or certificate authority.
 #[derive(
     Clone,
     Debug,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
     strum::EnumIter,

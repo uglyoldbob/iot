@@ -9,7 +9,7 @@ use crate::{
 };
 use egui_multiwin::egui_glow::EguiGlow;
 use interprocess::local_socket::ToFsName;
-use prompt::EguiPrompting;
+use userprompt::EguiPrompting;
 
 use crate::AppCommon;
 

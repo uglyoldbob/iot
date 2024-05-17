@@ -18,7 +18,12 @@ pub fn default_config_path() -> std::path::PathBuf {
 
 /// The main configuration for the application
 #[derive(
-    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct GeneralSettings {
     /// The name of the cookie to use.
@@ -48,14 +53,14 @@ impl GeneralSettings {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
 pub struct AdminSettings {
     /// The password for the administrator
-    pub pass: prompt::Password2,
+    pub pass: userprompt::Password2,
     /// The n parameter for expanding passwords
     pub n: u8,
     /// The r parameter for expanding passwords
@@ -68,7 +73,7 @@ impl AdminSettings {
     /// Construct a blank Self
     fn new() -> Self {
         Self {
-            pass: prompt::Password2::new("".into()),
+            pass: userprompt::Password2::new("".into()),
             n: 1,
             r: 1,
             p: 1,
@@ -81,8 +86,8 @@ impl AdminSettings {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
@@ -103,16 +108,16 @@ impl HttpSettings {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
 pub struct HttpsSettings {
     /// The path to the p12 certificate to use for the https server certificate
-    pub certificate: prompt::FileOpen,
+    pub certificate: userprompt::FileOpen,
     /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
-    pub certpass: prompt::Password2,
+    pub certpass: userprompt::Password2,
     /// The port number to listen on
     pub port: u16,
     /// True when a user certificate should be required to access the system
@@ -123,8 +128,8 @@ impl HttpsSettings {
     /// Construct a blank Self
     fn new() -> Self {
         Self {
-            certificate: prompt::FileOpen::default(),
-            certpass: prompt::Password2::new("".into()),
+            certificate: userprompt::FileOpen::default(),
+            certpass: userprompt::Password2::new("".into()),
             port: 4,
             require_certificate: false,
         }
@@ -133,13 +138,18 @@ impl HttpsSettings {
 
 /// The database configuration for the application
 #[derive(
-    Clone, Debug, prompt::Prompting, prompt::EguiPrompting, serde::Deserialize, serde::Serialize,
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
 )]
 pub struct DatabaseSettings {
     /// The username
     pub username: String,
     /// The password
-    pub password: prompt::Password2,
+    pub password: userprompt::Password2,
     /// The name of the database
     pub name: String,
     /// The url for the database
@@ -157,7 +167,7 @@ impl DatabaseSettings {
     fn new() -> Self {
         Self {
             username: "dummy".into(),
-            password: prompt::Password2::new("dummy".into()),
+            password: userprompt::Password2::new("dummy".into()),
             name: "dummy".into(),
             url: "dummy".into(),
         }
@@ -169,8 +179,8 @@ impl DatabaseSettings {
     Clone,
     Debug,
     Default,
-    prompt::Prompting,
-    prompt::EguiPrompting,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
@@ -178,7 +188,7 @@ pub struct MainConfigurationAnswers {
     /// The username to run the service as
     pub username: String,
     /// The password for the user
-    pub password: Option<prompt::Password2>,
+    pub password: Option<userprompt::Password2>,
     /// General settings
     pub general: GeneralSettings,
     /// Admin user settings

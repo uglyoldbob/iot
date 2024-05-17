@@ -21,8 +21,8 @@ mod webserver;
 
 mod main_config;
 pub use main_config::MainConfiguration;
-use prompt::Prompting;
 use tokio::io::AsyncReadExt;
+use userprompt::Prompting;
 
 use crate::webserver::tls::*;
 use crate::webserver::*;
@@ -339,11 +339,11 @@ async fn smain() {
             password = Some(pw);
         }
         if password.is_none() {
-            let mut password2: prompt::Password;
+            let mut password2: userprompt::Password;
             loop {
                 print!("Please enter a password:");
                 std::io::stdout().flush().unwrap();
-                password2 = prompt::Password::prompt(None).unwrap();
+                password2 = userprompt::Password::prompt(None).unwrap();
                 if !password2.is_empty() {
                     password = Some(password2.to_string());
                     break;

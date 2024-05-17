@@ -861,7 +861,6 @@ dependencies = [
  "pkcs12",
  "pkcs5",
  "pkcs8",
- "prompt",
  "rand",
  "rcgen",
  "rfd",
@@ -869,6 +868,7 @@ dependencies = [
  "serde",
  "service",
  "sha2",
+ "userprompt",
  "x509-cert",
  "yasna",
  "zeroize",
@@ -3347,28 +3347,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prompt"
-version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#71585d86462bfd28ac472b6283bbcd9aa0fb63d2"
-dependencies = [
- "egui",
- "prompt_derive",
- "rfd",
- "rpassword",
- "serde",
-]
-
-[[package]]
-name = "prompt_derive"
-version = "0.0.1"
-source = "git+https://github.com/uglyoldbob/prompt.git#71585d86462bfd28ac472b6283bbcd9aa0fb63d2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.64",
-]
-
-[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3721,7 +3699,6 @@ dependencies = [
  "pin-project-lite",
  "pkcs5",
  "pkcs8",
- "prompt",
  "rand",
  "rcgen",
  "ring",
@@ -3745,6 +3722,7 @@ dependencies = [
  "untrusted",
  "url-escape",
  "url_encoded_data",
+ "userprompt",
  "whoami",
  "winapi",
  "windows-acl",
@@ -4033,16 +4011,16 @@ dependencies = [
 [[package]]
 name = "service"
 version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/service.git#9e4e031124cd73735bcddcadc309a6481ac539c6"
+source = "git+https://github.com/uglyoldbob/service.git#d51e348486893636ba06cdd3d9b5b281d23451de"
 dependencies = [
  "cfg-if",
  "eventlog",
  "lazy_static",
  "log",
- "prompt",
  "serde",
  "simple_logger 4.3.3",
  "tokio",
+ "userprompt",
  "widestring 1.1.0",
  "winapi",
 ]
@@ -4827,6 +4805,30 @@ name = "urlencoding"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
+
+[[package]]
+name = "userprompt"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc886527f3e4d437ce5e55a78cfad1a49c8cb4c467b3883afd3310baf02b3c9a"
+dependencies = [
+ "egui",
+ "rfd",
+ "rpassword",
+ "serde",
+ "userprompt_derive",
+]
+
+[[package]]
+name = "userprompt_derive"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "759d6b3d457e33661f8d569fc91808193939bfd273c909d2ad3ce74a37b3d36f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.64",
+]
 
 [[package]]
 name = "utf8parse"

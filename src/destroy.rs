@@ -13,9 +13,9 @@ mod tpm2;
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
-use prompt::Prompting;
 use std::io::Write;
 use tokio::io::AsyncReadExt;
+use userprompt::Prompting;
 
 /// Arguments for creating an iot instance
 #[derive(Parser, Debug)]
@@ -48,7 +48,7 @@ async fn main() {
 
     if !args.delete {
         println!("Enter yes two times to delete the configuration");
-        let p: prompt::Password2 = prompt::Password2::prompt(Some("Delete?")).unwrap();
+        let p: userprompt::Password2 = userprompt::Password2::prompt(Some("Delete?")).unwrap();
         if p.as_str() != "yes" {
             return;
         }
@@ -121,11 +121,11 @@ async fn main() {
             password = Some(pw);
         }
         if password.is_none() {
-            let mut password2: prompt::Password;
+            let mut password2: userprompt::Password;
             loop {
                 print!("Please enter a password:");
                 std::io::stdout().flush().unwrap();
-                password2 = prompt::Password::prompt(None).unwrap();
+                password2 = userprompt::Password::prompt(None).unwrap();
                 if !password2.is_empty() {
                     password = Some(password2.to_string());
                     break;

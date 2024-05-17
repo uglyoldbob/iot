@@ -174,11 +174,11 @@ impl CsrAttribute {
     Debug,
     Copy,
     Clone,
-    prompt::Prompting,
+    userprompt::Prompting,
     serde::Deserialize,
     serde::Serialize,
 )]
-#[cfg_attr(not(target_arch = "wasm32"), derive(prompt::EguiPrompting))]
+#[cfg_attr(not(target_arch = "wasm32"), derive(userprompt::EguiPrompting))]
 pub enum CertificateSigningMethod {
     /// An rsa certificate rsa with sha256
     RsaSha256,

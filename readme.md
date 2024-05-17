@@ -38,7 +38,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Implement code in wasm to construct p12 certificate for user.
 - [x] Add code for windows service on the windows platform.
 - [x] Add ability to set debug level of system.
-- [ ] Remove rsa-sha1 from the list of supported signature types.
+- [x] Remove rsa-sha1 from the list of supported certificate/signature types.
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.

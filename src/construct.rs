@@ -13,9 +13,9 @@ mod tpm2;
 pub use main_config::MainConfiguration;
 
 use clap::Parser;
-use prompt::Prompting;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
+use userprompt::Prompting;
 
 use crate::main_config::MainConfigurationAnswers;
 
@@ -216,7 +216,7 @@ async fn main() {
     let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
     let do_without_tpm2 = || async {
-        let mut password: prompt::Password2 = prompt::Password2::new(String::new());
+        let mut password: userprompt::Password2 = userprompt::Password2::new(String::new());
 
         if args.generate_password {
             let s: String =
@@ -224,12 +224,12 @@ async fn main() {
                     .take(32)
                     .map(char::from)
                     .collect();
-            password = prompt::Password2::new(s);
+            password = userprompt::Password2::new(s);
         }
 
         if password.is_empty() {
             loop {
-                password = prompt::Password2::prompt(None).unwrap();
+                password = userprompt::Password2::prompt(None).unwrap();
                 if !password.is_empty() {
                     break;
                 }

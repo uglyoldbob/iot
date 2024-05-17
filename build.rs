@@ -74,11 +74,6 @@ fn main() {
 
         let nfp = p.join("node_modules");
         let filenames = vec![
-            ("node-forge/dist/forge.all.min.js", "forge.all.min.js"),
-            ("node-forge/dist/forge.min.js", "forge.min.js"),
-            ("node-forge/dist/forge.min.js.map", "forge.min.js.map"),
-            ("node-forge/dist/prime.worker.min.js", "prime.worker.min.js"),
-            ("certgen/index.min.js", "certgen.min.js"),
             ("certgen-wasm/certgen_bg.wasm", "certgen_bg.wasm"),
             ("certgen-wasm/certgen_bg.wasm.d.ts", "certgen_bg.wasm.d.ts"),
             ("certgen-wasm/certgen.d.ts", "certgen_wasm.d.ts"),

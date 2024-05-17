@@ -87,8 +87,8 @@ git = "https://github.com/uglyoldbob/ocsp-rs"
 version = "0.10.2"
 features = ["encryption", "pem", "std"]
 
-[dependencies.prompt]
-git = "https://github.com/uglyoldbob/prompt.git"
+[dependencies.userprompt]
+version = "0.0.1"
 features = ["serde", "egui"]
 
 [dependencies.rcgen]
