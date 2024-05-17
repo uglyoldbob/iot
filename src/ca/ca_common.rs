@@ -933,9 +933,6 @@ impl CaCertificate {
                     todo!("Sign with external method")
                 }
             }
-            CertificateSigningMethod::RsaSha1 => {
-                todo!("Sign with rsa");
-            }
             CertificateSigningMethod::RsaSha256 => {
                 if let Some(pkey) = &self.pkey {
                     let rng = &ring::rand::SystemRandom::new();

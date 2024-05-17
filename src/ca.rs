@@ -130,9 +130,6 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                 ab
             }).line_break(|a|a);
             match ca.config.sign_method {
-                CertificateSigningMethod::RsaSha1 => {
-                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha1()"));
-                }
                 CertificateSigningMethod::RsaSha256 => {
                     div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
                 }
@@ -964,12 +961,6 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     }
                     b.button(|b| b.text("Build certificate").onclick("build_cert()"));
                     match ca.config.sign_method {
-                        CertificateSigningMethod::RsaSha1 => {
-                            b.button(|b| {
-                                b.text("Test build")
-                                    .onclick("wasm_bindgen.build_rsa_sha1()")
-                            });
-                        }
                         CertificateSigningMethod::RsaSha256 => {
                             b.button(|b| {
                                 b.text("Test build")

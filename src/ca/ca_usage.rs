@@ -251,12 +251,6 @@ impl<'a> InternalPublicKey<'a> {
     #[allow(dead_code)]
     pub fn create_with(algorithm: CertificateSigningMethod, key: &'a [u8]) -> Self {
         match algorithm {
-            CertificateSigningMethod::RsaSha1 => Self {
-                key: ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY,
-                    key,
-                ),
-            },
             CertificateSigningMethod::EcdsaSha256 => Self {
                 key: ring::signature::UnparsedPublicKey::new(
                     &ring::signature::ECDSA_P256_SHA256_ASN1,

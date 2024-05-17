@@ -180,8 +180,6 @@ impl CsrAttribute {
 )]
 #[cfg_attr(not(target_arch = "wasm32"), derive(prompt::EguiPrompting))]
 pub enum CertificateSigningMethod {
-    /// An rsa certificate with sha1
-    RsaSha1,
     /// An rsa certificate rsa with sha256
     RsaSha256,
     /// Ecdsa
@@ -194,8 +192,6 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
         let oid = value.oid;
         if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_const() {
             Ok(Self::RsaSha256)
-        } else if oid == OID_PKCS1_SHA1_RSA_ENCRYPTION.to_const() {
-            Ok(Self::RsaSha1)
         } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_const() {
             Ok(Self::EcdsaSha256)
         } else {
@@ -210,7 +206,6 @@ impl CertificateSigningMethod {
     /// Convert Self into an Oid
     pub fn oid(&self) -> crate::oid::Oid {
         match self {
-            Self::RsaSha1 => OID_PKCS1_SHA1_RSA_ENCRYPTION.to_owned(),
             Self::RsaSha256 => OID_PKCS1_SHA256_RSA_ENCRYPTION.to_owned(),
             Self::EcdsaSha256 => OID_ECDSA_P256_SHA256_SIGNING.to_owned(),
         }
@@ -219,7 +214,7 @@ impl CertificateSigningMethod {
     /// Generate a keypair
     pub fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
         match self {
-            Self::RsaSha1 | Self::RsaSha256 => {
+            Self::RsaSha256 => {
                 use pkcs8::EncodePrivateKey;
                 let mut rng = rand::thread_rng();
                 let bits = 4096;
