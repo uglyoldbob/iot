@@ -37,6 +37,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Implement keygen on client side with rust wasm instead of javscript.
 - [x] Implement code in wasm to construct p12 certificate for user.
 - [x] Add code for windows service on the windows platform.
+- [ ] Remove rsa-sha1 from the list of supported signature types.
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.

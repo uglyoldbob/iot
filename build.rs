@@ -79,7 +79,6 @@ fn main() {
             ("node-forge/dist/forge.min.js.map", "forge.min.js.map"),
             ("node-forge/dist/prime.worker.min.js", "prime.worker.min.js"),
             ("certgen/index.min.js", "certgen.min.js"),
-            ("certgen-wasm/certgen_bg.js", "certgen_bg.js"),
             ("certgen-wasm/certgen_bg.wasm", "certgen_bg.wasm"),
             ("certgen-wasm/certgen_bg.wasm.d.ts", "certgen_bg.wasm.d.ts"),
             ("certgen-wasm/certgen.d.ts", "certgen_wasm.d.ts"),

@@ -124,6 +124,11 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
         b.division(|div| {
             div.class("cert-gen-stuff");
             div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
+            div.anchor(|ab| {
+                ab.text("Back to main page");
+                ab.href(format!("{}{}ca", s.proxy, pki));
+                ab
+            }).line_break(|a|a);
             match ca.config.sign_method {
                 CertificateSigningMethod::RsaSha1 => {
                     div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha1()"));
@@ -722,6 +727,11 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
                         b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
                     }
                 }
+                b.anchor(|ab| {
+                    ab.text("Back to main page");
+                    ab.href(format!("{}{}ca", s.proxy, pki));
+                    ab
+                });
             }
             b
         });
