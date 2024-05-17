@@ -397,6 +397,14 @@ async fn smain() {
         settings = do_without_tpm2(settings_con).await;
     }
 
+    service::log::set_max_level(
+        settings
+            .debug_level
+            .as_ref()
+            .unwrap_or(&service::LogLevel::Debug)
+            .level_filter(),
+    );
+
     let mut proxy_map = std::collections::HashMap::new();
 
     for name in &settings.public_names {
@@ -510,7 +518,7 @@ async fn smain() {
 service::ServiceAsyncMacro!(service_starter, smain, u64);
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), u32> {
     let args = Args::parse();
     let config_path = if let Some(p) = args.config {
         std::path::PathBuf::from(p)
@@ -523,10 +531,9 @@ async fn main() {
 
     let service = service::Service::new(format!("rust-iot-{}", name));
     service.new_log(service::LogLevel::Debug);
-
-    service::log::debug!("Service dispatching now {:?}", std::env::args());
     if let Err(e) = service::DispatchAsync!(service, service_starter) {
-        service::log::error!("Failed to dispatch service: {:?}", e);
+        Err(e)
+    } else {
+        Ok(())
     }
-    service::log::debug!("Service stopping");
 }

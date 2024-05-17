@@ -107,7 +107,7 @@ features = ["derive"]
 
 [dependencies.service]
 git = "https://github.com/uglyoldbob/service.git"
-features = ["async"]
+features = ["async", "serde", "prompt", "egui-prompt"]
 
 [dependencies.strum]
 version = "0.26.2"

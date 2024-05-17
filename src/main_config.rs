@@ -195,6 +195,8 @@ pub struct MainConfigurationAnswers {
     pub proxy_config: Option<ProxyConfig>,
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
+    /// The desired minimum debug level
+    pub debug_level: service::LogLevel,
 }
 
 /// The main configuration of the application
@@ -218,6 +220,8 @@ pub struct MainConfiguration {
     pub client_certs: Option<Vec<String>>,
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
 }
 
 impl Default for MainConfiguration {
@@ -239,6 +243,7 @@ impl MainConfiguration {
             public_names: Vec::new(),
             client_certs: None,
             pki: crate::ca::PkiConfigurationEnum::new(),
+            debug_level: Some(service::LogLevel::default()),
         }
     }
 
@@ -252,6 +257,7 @@ impl MainConfiguration {
         self.public_names = answers.public_names.clone();
         self.proxy_config = answers.proxy_config.clone();
         self.pki = answers.pki.clone();
+        self.debug_level = Some(answers.debug_level.clone());
     }
 
     /// Remove relative paths
