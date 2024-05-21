@@ -744,6 +744,7 @@ pub async fn https_webserver(
                 }
                 Ok(s) => s,
             };
+            
             let stream = acc.accept(stream).await;
             let mut stream = match stream {
                 Err(e) => {
@@ -756,6 +757,8 @@ pub async fn https_webserver(
             let mut svc = webservice.clone();
             svc.addr = addr;
             let cert = b.peer_certificates();
+            let sn = b.server_name();
+            service::log::info!("Server name is {:?}", sn);
             let certs = cert.map(|cder| {
                 let certs: Vec<x509_cert::certificate::Certificate> = cder
                     .iter()
