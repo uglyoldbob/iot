@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{io::Read, sync::{Arc, Mutex}};
 
 use crate::{
     egui_multiwin_dynamic::{
@@ -150,6 +150,9 @@ impl TrackedWindow for RootWindow {
                                 )
                                 .expect("Failed to send answers to build service");
                                 println!("Done sending answers");
+                                let mut asdf = [0,0,0,0];
+                                let a = stream.read_exact(&mut asdf);
+                                println!("Received {:?} {:02X?}", a, asdf);
                             });
                         }
                     }

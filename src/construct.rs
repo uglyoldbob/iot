@@ -103,19 +103,20 @@ async fn main() {
 
     let mut config = main_config::MainConfiguration::new();
     let answers: MainConfigurationAnswers;
-    if let Some(ipc) = args.ipc {
+    let mut stream = None;
+    if let Some(ipc) = &args.ipc {
         println!("IPC NAME IS {}", ipc);
         use interprocess::local_socket::ToFsName;
         let ipc_name = ipc
             .clone()
             .to_fs_name::<interprocess::local_socket::GenericFilePath>()
             .unwrap();
-        let stream = <interprocess::local_socket::prelude::LocalSocketStream as interprocess::local_socket::traits::Stream>::connect(ipc_name.clone()).unwrap();
+        let stream_local = <interprocess::local_socket::prelude::LocalSocketStream as interprocess::local_socket::traits::Stream>::connect(ipc_name.clone()).unwrap();
         println!("Waiting for answers");
-        answers = bincode::deserialize_from(stream).unwrap();
+        answers = bincode::deserialize_from(&stream_local).unwrap();
+        use interprocess::local_socket::traits::Stream;
+        stream = Some(stream_local.split().1);
         println!("Providing answers");
-        let p = std::path::Path::new(&ipc);
-        let _ = std::fs::remove_file(p);
         config.provide_answers(&answers);
     } else if let Some(answers_path) = &args.answers {
         println!(
@@ -131,6 +132,11 @@ async fn main() {
         answers = MainConfigurationAnswers::prompt(None).unwrap();
         config.provide_answers(&answers);
     };
+
+    if let Some(s) = &mut stream {
+        use std::io::Write;
+        s.write_all(&[1,2,3,4]).unwrap();
+    }
 
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&answers.username)
@@ -305,4 +311,11 @@ async fn main() {
 
     service.create_async(service_config).await;
     let _ = service.start();
+
+    if let Some(stream) = stream.take() {
+        drop(stream);
+        let ipc = args.ipc.as_ref().unwrap();
+        let p = std::path::Path::new(ipc);
+        let _ = std::fs::remove_file(p);
+    }
 }
