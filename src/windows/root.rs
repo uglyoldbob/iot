@@ -1,4 +1,7 @@
-use std::{io::Read, sync::{Arc, Mutex}};
+use std::{
+    io::Read,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     egui_multiwin_dynamic::{
@@ -33,6 +36,10 @@ pub struct RootWindow {
     service_name: String,
     /// The mode for showing when the instance is being generated
     generating: Arc<Mutex<GeneratingMode>>,
+    /// The structure for receiving results from the construct program
+    receive: Option<std::sync::mpsc::Receiver<String>>,
+    /// The messages received from the program
+    messages: Vec<String>,
 }
 
 impl RootWindow {
@@ -45,6 +52,8 @@ impl RootWindow {
                 answers,
                 service_name: "default".into(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
+                receive: None,
+                messages: Vec::new(),
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -79,6 +88,12 @@ impl TrackedWindow for RootWindow {
         let quit = false;
 
         let windows_to_create = vec![];
+
+        if let Some(receive) = &mut self.receive {
+            while let Ok(m) = receive.try_recv() {
+                self.messages.push(m);
+            }
+        }
 
         egui_multiwin::egui::CentralPanel::default().show(&egui.egui_ctx, |ui| {
             let mut m = self.generating.lock().unwrap();
@@ -139,6 +154,9 @@ impl TrackedWindow for RootWindow {
                                 }
                             });
                             let answers = self.answers.clone();
+                            let (t, r) = std::sync::mpsc::channel();
+                            self.receive = Some(r);
+                            self.messages.clear();
                             std::thread::spawn(move || {
                                 use interprocess::local_socket::traits::Listener;
                                 println!("Waiting for connection from process");
@@ -150,18 +168,26 @@ impl TrackedWindow for RootWindow {
                                 )
                                 .expect("Failed to send answers to build service");
                                 println!("Done sending answers");
-                                let mut asdf = [0,0,0,0];
+                                let mut asdf = [0, 0, 0, 0];
                                 let a = stream.read_exact(&mut asdf);
                                 println!("Received {:?} {:02X?}", a, asdf);
+                                t.send("Test message".to_string()).unwrap();
                             });
                         }
                     }
                     GeneratingMode::Generating => {
                         ui.label("Generating service configuration");
+                        for t in &self.messages {
+                            ui.label(t);
+                        }
                     }
                     GeneratingMode::Error(code) => {
                         ui.label(format!("There was an error generating the config {}", code));
+                        for t in &self.messages {
+                            ui.label(t);
+                        }
                         if ui.button("Try again").clicked() {
+                            self.receive = None;
                             *m = GeneratingMode::Idle;
                         }
                     }
@@ -169,6 +195,7 @@ impl TrackedWindow for RootWindow {
                         ui.label("Finished generating service configuration");
                         if ui.button("Generate another").clicked() {
                             self.answers = MainConfigurationAnswers::default();
+                            self.receive = None;
                             *m = GeneratingMode::Idle;
                         }
                     }

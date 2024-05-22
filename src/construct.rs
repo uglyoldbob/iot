@@ -135,7 +135,7 @@ async fn main() {
 
     if let Some(s) = &mut stream {
         use std::io::Write;
-        s.write_all(&[1,2,3,4]).unwrap();
+        s.write_all(&[1, 2, 3, 4]).unwrap();
     }
 
     #[cfg(target_family = "unix")]
