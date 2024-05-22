@@ -103,6 +103,43 @@ impl HttpSettings {
     }
 }
 
+/// The location of a https certificate. If it does not exist, it will be created by a ca.
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub enum HttpsCertificateLocation {
+    #[default]
+    Existing(userprompt::FileOpen),
+    New(userprompt::FileCreate),
+}
+
+/// The https configuration for the application
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct HttpsSettingsAnswers {
+    /// The path to the p12 certificate to use for the https server certificate
+    pub certificate: HttpsCertificateLocation,
+    /// The password for the certificate, probably not necessary to prompt twice, but it does ensure the password is correct.
+    pub certpass: userprompt::Password2,
+    /// The port number to listen on
+    pub port: u16,
+    /// True when a user certificate should be required to access the system
+    pub require_certificate: bool,
+}
+
 /// The https configuration for the application
 #[derive(
     Clone,

@@ -51,3 +51,5 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add certificate viewer for users.
 - [ ] Add a method for adding more ca entities after construction has occurred.
 - [ ] Switch over from javascript to wasm for key generation fully.
+- [ ] Add capability of generating the https certificate with one of the certificate authorities during ca generation.
+- [ ] Add capability of reading construct response to construct-gui.
