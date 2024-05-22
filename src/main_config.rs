@@ -107,16 +107,20 @@ impl HttpSettings {
 #[derive(
     Clone,
     Debug,
-    Default,
     userprompt::Prompting,
     userprompt::EguiPrompting,
     serde::Deserialize,
     serde::Serialize,
 )]
 pub enum HttpsCertificateLocation {
-    #[default]
     Existing(userprompt::FileOpen),
     New(userprompt::FileCreate),
+}
+
+impl Default for HttpsCertificateLocation {
+    fn default() -> Self {
+        Self::Existing(userprompt::FileOpen::default())
+    }
 }
 
 /// The https configuration for the application
