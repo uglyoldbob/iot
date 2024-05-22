@@ -103,7 +103,7 @@ impl HttpSettings {
     }
 }
 
-/// The location of a https certificate. If it does not exist, it will be created by a ca.
+/// The location of a https certificate. If it is specified as `New`, it will be created by a specified ca.
 #[derive(
     Clone,
     Debug,
@@ -113,13 +113,59 @@ impl HttpSettings {
     serde::Serialize,
 )]
 pub enum HttpsCertificateLocation {
+    /// The path for an existing certificate that should be loaded
     Existing(userprompt::FileOpen),
-    New(userprompt::FileCreate),
+    New {
+        /// The path where the new certificate should be put
+        path: userprompt::FileCreate,
+        /// The name of the ca entity that should create the certificate
+        ca_name: String,
+    },
 }
 
 impl Default for HttpsCertificateLocation {
     fn default() -> Self {
         Self::Existing(userprompt::FileOpen::default())
+    }
+}
+
+impl HttpsCertificateLocation {
+    /// Forces the type to FileOpen, not checking to see if the file actually exists
+    fn force_available(self) -> userprompt::FileOpen {
+        match self {
+            HttpsCertificateLocation::Existing(e) => e,
+            HttpsCertificateLocation::New { path, ca_name: _ } => {
+                let a: &std::path::PathBuf = &path;
+                let mut b = userprompt::FileOpen::default();
+                *b = a.clone();
+                b
+            }
+        }
+    }
+
+    /// Returns true if the file exists
+    pub fn exists(&self) -> bool {
+        match self {
+            HttpsCertificateLocation::Existing(e) => e.exists(),
+            HttpsCertificateLocation::New { path, ca_name: _ } => path.exists(),
+        }
+    }
+
+    /// Returns Some if the certificate should be create by a ca
+    pub fn create_by_ca(&self) -> Option<String> {
+        if let HttpsCertificateLocation::New { path: _, ca_name } = self {
+            Some(ca_name.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Get the location
+    pub fn pathbuf(&self) -> std::path::PathBuf {
+        match self {
+            HttpsCertificateLocation::Existing(e) => e.to_path_buf(),
+            HttpsCertificateLocation::New { path, ca_name: _ } => path.to_path_buf(),
+        }
     }
 }
 
@@ -163,6 +209,17 @@ pub struct HttpsSettings {
     pub port: u16,
     /// True when a user certificate should be required to access the system
     pub require_certificate: bool,
+}
+
+impl From<HttpsSettingsAnswers> for HttpsSettings {
+    fn from(value: HttpsSettingsAnswers) -> Self {
+        Self {
+            certificate: value.certificate.force_available(),
+            certpass: value.certpass,
+            port: value.port,
+            require_certificate: value.require_certificate,
+        }
+    }
 }
 
 impl HttpsSettings {
@@ -237,7 +294,7 @@ pub struct MainConfigurationAnswers {
     /// Settings for the http server
     pub http: Option<HttpSettings>,
     /// Settings for the https server
-    pub https: Option<HttpsSettings>,
+    pub https: Option<HttpsSettingsAnswers>,
     /// Settings for the database
     pub database: DatabaseSettings,
     /// The public name of the service, contains example.com/asdf for the example
@@ -303,7 +360,7 @@ impl MainConfiguration {
         self.general = answers.general.clone();
         self.admin = answers.admin.clone();
         self.http = answers.http.clone();
-        self.https = answers.https.clone();
+        self.https = answers.https.as_ref().map(|a| a.clone().into());
         self.database = answers.database.clone();
         self.public_names = answers.public_names.clone();
         self.proxy_config = answers.proxy_config.clone();
@@ -323,7 +380,7 @@ impl MainConfiguration {
 
     /// Fill out this configuration file with answers from the specified answer configuration
     pub fn provide_answers(&mut self, answers: &MainConfigurationAnswers) {
-        self.process_answers(answers);
+        self.process_answers(answers)
     }
 
     /// Return the port number for the http server

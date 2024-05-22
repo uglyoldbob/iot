@@ -114,9 +114,9 @@ async fn main() {
         println!("Waiting for answers");
         answers = bincode::deserialize_from(stream).unwrap();
         println!("Providing answers");
-        config.provide_answers(&answers);
         let p = std::path::Path::new(&ipc);
         let _ = std::fs::remove_file(p);
+        config.provide_answers(&answers);
     } else if let Some(answers_path) = &args.answers {
         println!(
             "Expect to read answers from {}",
@@ -126,11 +126,11 @@ async fn main() {
             .await
             .expect("Expected some answers were specified");
         answers = toml::from_str(&answers_file).expect("Failed to parse configuration");
-        config.provide_answers(&answers)
+        config.provide_answers(&answers);
     } else {
         answers = MainConfigurationAnswers::prompt(None).unwrap();
         config.provide_answers(&answers);
-    }
+    };
 
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&answers.username)
@@ -146,7 +146,7 @@ async fn main() {
 
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
-        let answers = toml::to_string(&config).unwrap();
+        let answers = toml::to_string(&answers).unwrap();
         if pb.exists() {
             panic!("Answers file already exists")
         }
@@ -165,7 +165,15 @@ async fn main() {
         panic!("Service already exists");
     }
 
-    let _ca_instance = ca::PkiInstance::init(&config.pki, &config, &options).await;
+    let _ca_instance = ca::PkiInstance::init(&config.pki, &answers, &config, &options).await;
+
+    if let Some(https) = &config.https {
+        if !https.certificate.exists() {
+            service::log::error!("Failed to open https certificate");
+            panic!("No https certificate to run with");
+        }
+    }
+
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!(

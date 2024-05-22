@@ -40,13 +40,37 @@ impl Pki {
     #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfiguration,
+        answers: &crate::main_config::MainConfigurationAnswers,
         main_config: &crate::main_config::MainConfiguration,
         options: &OwnerOptions,
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
+        let ca_name = answers
+            .https
+            .as_ref()
+            .map(|h| h.certificate.create_by_ca())
+            .flatten();
         for (name, config) in settings.local_ca.map() {
             let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::init(config, options).await;
+            let mut ca = crate::ca::Ca::init(config, options).await;
+            if let Some(ca_name) = &ca_name {
+                if ca_name == name {
+                    if let Some(https) = &answers.https {
+                        if https.certificate.create_by_ca().is_some() {
+                            ca.create_https_certificate(
+                                https.certificate.pathbuf(),
+                                main_config
+                                    .public_names
+                                    .iter()
+                                    .map(|a| a.to_string())
+                                    .collect(),
+                                https.certpass.to_string().as_str(),
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
             hm.insert(name.to_owned(), ca);
         }
         Self { roots: hm }
@@ -58,17 +82,32 @@ impl PkiInstance {
     #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfigurationEnum,
+        answers: &crate::main_config::MainConfigurationAnswers,
         main_config: &crate::main_config::MainConfiguration,
         options: &OwnerOptions,
     ) -> Self {
         match settings {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::init(pki_config, main_config, options).await;
+                let pki = crate::ca::Pki::init(pki_config, answers, main_config, options).await;
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
-                let ca = crate::ca::Ca::init(&ca, &options).await;
+                let mut ca = crate::ca::Ca::init(&ca, &options).await;
+                if let Some(https) = &answers.https {
+                    if https.certificate.create_by_ca().is_some() {
+                        ca.create_https_certificate(
+                            https.certificate.pathbuf(),
+                            main_config
+                                .public_names
+                                .iter()
+                                .map(|a| a.to_string())
+                                .collect(),
+                            https.certpass.to_string().as_str(),
+                        )
+                        .await;
+                    }
+                }
                 Self::Ca(ca)
             }
         }
@@ -76,6 +115,45 @@ impl PkiInstance {
 }
 
 impl Ca {
+    /// Create the required https certificate
+    pub async fn create_https_certificate(
+        &mut self,
+        destination: std::path::PathBuf,
+        https_names: Vec<String>,
+        password: &str,
+    ) {
+        println!("Generating an https certificate for web operations");
+        let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
+        let extensions = vec![
+            cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                .to_custom_extension()
+                .unwrap(),
+        ];
+
+        let id = self.get_new_request_id().await.unwrap();
+        let algorithm = {
+            let root_cert = self.root_cert.as_ref().unwrap();
+            root_cert.algorithm
+        };
+
+        let csr = self.generate_signing_request(
+            algorithm,
+            "https".to_string(),
+            "HTTPS Server".to_string(),
+            https_names,
+            extensions,
+            id,
+        );
+        let root_cert = self.root_cert.as_ref().unwrap();
+        let mut cert = root_cert.sign_csr(csr, &self).unwrap();
+        cert.medium = self.medium.clone();
+        let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
+        self.save_user_cert(id, &cert.cert, &snb).await;
+        let p12: cert_common::pkcs12::Pkcs12 = cert.try_into().unwrap();
+        let p12 = p12.get_pkcs12(password);
+        std::fs::write(destination, p12).unwrap();
+    }
+
     /// Create a Self from the application configuration
     pub async fn init_from_config(
         settings: &crate::ca::CaConfiguration,

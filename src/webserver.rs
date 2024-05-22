@@ -744,7 +744,7 @@ pub async fn https_webserver(
                 }
                 Ok(s) => s,
             };
-            
+
             let stream = acc.accept(stream).await;
             let mut stream = match stream {
                 Err(e) => {
