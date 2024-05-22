@@ -19,6 +19,24 @@ use userprompt::Prompting;
 
 use crate::main_config::MainConfigurationAnswers;
 
+/// Sends a string over the ipc pipe, length and then string. Will not send empty strings.
+fn send_string(s: &mut interprocess::local_socket::SendHalf, msg: String) {
+    use std::io::Write;
+    let c = msg.as_bytes();
+    let length = c.len() as u32;
+    let len = length.to_le_bytes();
+    if length != 0 {
+        s.write_all(&len).unwrap();
+        s.write_all(c).unwrap();
+    }
+}
+
+/// end communications on the pipe by sending empty data
+fn end_ipc(mut s: interprocess::local_socket::SendHalf) {
+    use std::io::Write;
+    s.write_all(&[0, 0, 0, 0]).unwrap();
+}
+
 /// Arguments for creating an iot instance
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -134,8 +152,8 @@ async fn main() {
     };
 
     if let Some(s) = &mut stream {
-        use std::io::Write;
-        s.write_all(&[1, 2, 3, 4]).unwrap();
+        send_string(s, "Test message 1".into());
+        send_string(s, "Test message 2".into());
     }
 
     #[cfg(target_family = "unix")]
@@ -313,7 +331,7 @@ async fn main() {
     let _ = service.start();
 
     if let Some(stream) = stream.take() {
-        drop(stream);
+        end_ipc(stream);
         let ipc = args.ipc.as_ref().unwrap();
         let p = std::path::Path::new(ipc);
         let _ = std::fs::remove_file(p);

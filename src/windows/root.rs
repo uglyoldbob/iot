@@ -71,6 +71,22 @@ impl RootWindow {
     }
 }
 
+/// Receive a string from a local socket stream, sent length first, 4 bytes, le, then bytes of utf8
+fn receive_string(
+    stream: &mut interprocess::local_socket::prelude::LocalSocketStream,
+) -> Option<String> {
+    let mut asdf = [0, 0, 0, 0];
+    stream.read_exact(&mut asdf).unwrap();
+    let total_len = u32::from_le_bytes(asdf);
+    if total_len != 0 {
+        let mut m: Vec<u8> = vec![0; total_len as usize];
+        stream.read_exact(&mut m).unwrap();
+        Some(String::from_utf8(m).unwrap())
+    } else {
+        None
+    }
+}
+
 impl TrackedWindow for RootWindow {
     fn is_root(&self) -> bool {
         true
@@ -140,7 +156,7 @@ impl TrackedWindow for RootWindow {
                                     .arg(format!("--name={}", sname))
                                     .status()
                                     .unwrap();
-                                println!("{:?}", asdf.code());
+                                println!("Program status is {:?}", asdf.code());
                                 if asdf.success() {
                                     {
                                         let mut m = mode.lock().unwrap();
@@ -152,6 +168,7 @@ impl TrackedWindow for RootWindow {
                                         *m = GeneratingMode::Error(asdf.code().unwrap());
                                     }
                                 }
+                                println!("Done processing");
                             });
                             let answers = self.answers.clone();
                             let (t, r) = std::sync::mpsc::channel();
@@ -168,10 +185,10 @@ impl TrackedWindow for RootWindow {
                                 )
                                 .expect("Failed to send answers to build service");
                                 println!("Done sending answers");
-                                let mut asdf = [0, 0, 0, 0];
-                                let a = stream.read_exact(&mut asdf);
-                                println!("Received {:?} {:02X?}", a, asdf);
-                                t.send("Test message".to_string()).unwrap();
+                                while let Some(msg) = receive_string(&mut stream) {
+                                    t.send(msg).unwrap();
+                                }
+                                println!("Done receiving responses");
                             });
                         }
                     }
