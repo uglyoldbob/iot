@@ -494,6 +494,7 @@ impl OwnerOptions {
     pub fn new(username: &str) -> Self {
         println!("Trying to lookup {}", username);
         let sid = windows_acl::helper::name_to_sid(username, None).unwrap();
+        println!("Lookup returned {:02X?}", sid);
         Self { raw_sid: sid }
     }
 
