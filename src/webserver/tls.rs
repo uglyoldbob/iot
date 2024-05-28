@@ -14,8 +14,8 @@ type Error = Box<dyn std::error::Error + 'static>;
 
 /// Represents a pkcs12 certificate container on the filesystem
 pub struct TlsConfig {
-    /// The location of the file
-    pub cert_file: PathBuf,
+    /// The contents of the pkcs12 file
+    pub cert_file: Vec<u8>,
     /// The password of the file
     pub key_password: String,
 }
@@ -25,9 +25,9 @@ impl TlsConfig {
     /// # Arguments
     /// * cert_file - The location of the pkcs12 document
     /// * pass - The password for the pkcs12 document
-    pub fn new<P: Into<PathBuf>, S: Into<String>>(cert_file: P, pass: S) -> Self {
+    pub fn new<S: Into<String>>(cert_file: Vec<u8>, pass: S) -> Self {
         TlsConfig {
-            cert_file: cert_file.into(),
+            cert_file,
             key_password: pass.into(),
         }
     }
@@ -67,21 +67,14 @@ pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCe
 /// * pass - The password for the container
 /// * rcs - The root cert store of client certificate root authorities. If this is set, it will replace the normal root authority. Useful for larger setups with multiple servers.
 /// * require_cert - Set to true when the https should require a valid certificate instead of making it optional.
-pub fn load_certificate<P>(
-    certfile: P,
-    pass: &str,
+pub fn load_certificate(
+    tls_config: &TlsConfig,
     rcs: Option<RootCertStore>,
     pki: &Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
     require_cert: bool,
 ) -> Result<Arc<ServerConfig>, Error>
-where
-    P: AsRef<Path>,
 {
-    let mut certbytes = vec![];
-    let mut certf = File::open(&certfile)?;
-    certf.read_to_end(&mut certbytes)?;
-
-    let pkcs12 = cert_common::pkcs12::Pkcs12::load_from_data(&certbytes, pass.as_bytes(), 0);
+    let pkcs12 = cert_common::pkcs12::Pkcs12::load_from_data(&tls_config.cert_file, tls_config.key_password.as_bytes(), 0);
 
     let cert_der = pkcs12.cert;
 

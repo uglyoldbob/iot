@@ -485,8 +485,31 @@ async fn smain() {
 
         let tls_pass = https.certpass.to_owned();
         let tls_cert = https.certificate.to_owned();
-        let cert: &std::path::PathBuf = &tls_cert;
-        let tls = TlsConfig::new(cert, tls_pass);
+        let cert_contents = match tls_cert {
+            main_config::HttpsCertificateLocation::Existing(path) => {
+                use std::io::Read;
+                let mut certbytes = vec![];
+                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                service::log::info!(
+                    "Loading https certificate from {}",
+                    path.display()
+                );
+                certf.read_to_end(&mut certbytes).unwrap();
+                certbytes
+            }
+            main_config::HttpsCertificateLocation::New { path, ca_name: _ } => {
+                use std::io::Read;
+                let mut certbytes = vec![];
+                service::log::info!(
+                    "Loading generated https certificate from {}",
+                    path.display()
+                );
+                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                certf.read_to_end(&mut certbytes).unwrap();
+                certbytes
+            }
+        };
+        let tls = TlsConfig::new(cert_contents, tls_pass);
 
         let hc_https = hc.clone();
 

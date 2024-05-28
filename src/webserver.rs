@@ -707,13 +707,8 @@ pub async fn https_webserver(
 ) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    service::log::info!(
-        "Loading https certificate from {}",
-        tls_config.cert_file.display()
-    );
     let cert = tls::load_certificate(
-        &tls_config.cert_file,
-        &tls_config.key_password,
+        &tls_config,
         client_certs,
         &hc.pki,
         require_cert,
