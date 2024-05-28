@@ -1,5 +1,7 @@
 //! Windows specific helper code
 
+use std::sync::Mutex;
+
 pub struct Luid {
     luid: winapi::shared::ntdef::LUID,
 }
@@ -57,8 +59,12 @@ impl TokenPrivileges {
     }
 }
 
+pub struct TokenContainer(winapi::shared::ntdef::HANDLE);
+
+unsafe impl Send for TokenContainer {}
+
 pub struct Token {
-    token: winapi::shared::ntdef::HANDLE,
+    token: std::sync::Mutex<TokenContainer>,
 }
 
 impl Token {
@@ -77,7 +83,7 @@ impl Token {
             return Err(err);
         }
         Ok(Self {
-            token: handle,
+            token: Mutex::new(TokenContainer(handle)),
         })
     }
 
@@ -95,7 +101,7 @@ impl Token {
             return Err(err);
         }
         Ok(Self {
-            token: handle,
+            token: Mutex::new(TokenContainer(handle)),
         })
     }
 }
@@ -109,10 +115,13 @@ impl TokenPrivilegesEnabled {
     pub fn new(token: Token,
         tp: TokenPrivileges,
     ) -> Result<Self, winapi::shared::minwindef::DWORD> {
+        use std::ops::DerefMut;
         let mut len_required : winapi::shared::minwindef::DWORD = 0;
         let mut tp = tp.tp.clone();
+        let mut t3 = token.token.lock().unwrap();
+        let token2 = t3.deref_mut().0;
         let r = unsafe { winapi::um::securitybaseapi::AdjustTokenPrivileges(
-            token.token,
+            token2,
             0,
             &mut tp as *mut winapi::um::winnt::TOKEN_PRIVILEGES,
             0,
@@ -123,6 +132,7 @@ impl TokenPrivilegesEnabled {
             println!("Error is {}", unsafe { winapi::um::errhandlingapi::GetLastError() });
         }
         let prev = vec![0; len_required as usize];
+        drop(t3);
         Ok(Self {
             token,
             prev,

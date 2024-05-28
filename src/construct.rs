@@ -178,7 +178,7 @@ async fn main() {
         f.write_all(answers.as_bytes())
             .await
             .expect("Failed to write answers file");
-        options.set_owner(pb, 0o600).await;
+        options.set_owner(pb, 0o600);
     }
 
     let mut exe = std::env::current_exe().unwrap();
@@ -210,7 +210,7 @@ async fn main() {
         f2.write_all(proxy.as_bytes())
             .await
             .expect("Failed to write reverse proxy file");
-        options.set_owner(&proxy_name, 0o644).await;
+        options.set_owner(&proxy_name, 0o644);
     }
 
     let service_args = vec![
@@ -277,7 +277,7 @@ async fn main() {
         fpw.write_all(password.to_string().as_bytes())
             .await
             .expect("Failed to write credentials");
-        options.set_owner(&p, 0o400).await;
+        options.set_owner(&p, 0o400);
         tpm2::encrypt(config_data.as_bytes(), password_combined)
     };
 
@@ -308,7 +308,7 @@ async fn main() {
             f2.write_all(&tpmblob.data())
                 .await
                 .expect("Failed to write protected password");
-            options.set_owner(&p, 0o400).await;
+            options.set_owner(&p, 0o400);
             econfig
         } else {
             println!("TPM2 NOT DETECTED!!!");

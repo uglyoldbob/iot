@@ -481,6 +481,8 @@ pub struct OwnerOptions {
     uid: u32,
     #[cfg(target_family = "windows")]
     raw_sid: Vec<winapi::shared::minwindef::BYTE>,
+    #[cfg(target_family = "windows")]
+    tpo: windows_privilege::TokenPrivilegesEnabled,
 }
 
 #[cfg(target_family = "windows")]
@@ -498,12 +500,26 @@ impl OwnerOptions {
         println!("Trying to lookup {}", username);
         let sid = windows_acl::helper::name_to_sid(username, None).unwrap();
         println!("Lookup returned {:02X?}", sid);
-        Self { raw_sid: sid }
+
+        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
+        let tp = windows_privilege::TokenPrivileges::enable(luid);
+
+        let token = windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
+        let token = if let Ok(t) = token {
+            t
+        } else {
+            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
+        };
+        println!("Token is obtained");
+        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
+        println!("token privileges obtained");
+
+        Self { raw_sid: sid, tpo, }
     }
 
     /// Set the owner of a single file
     #[cfg(target_family = "unix")]
-    pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
+    pub fn set_owner(&self, p: &PathBuf, permissions: u32) {
         if p.exists() {
             service::log::info!("Setting ownership of {}", p.display());
             std::os::unix::fs::chown(p, Some(self.uid), None).unwrap();
@@ -523,7 +539,7 @@ impl OwnerOptions {
     }
 
     #[cfg(target_family = "windows")]
-    pub async fn set_owner(&self, p: &PathBuf, permissions: u32) {
+    pub fn set_owner(&self, p: &PathBuf, permissions: u32) {
         println!("Set owner of {}", p.display());
         let (ox, ow, or) = (
             ((permissions & 1) != 0),
@@ -543,19 +559,6 @@ impl OwnerOptions {
 
         let mut sid = self.raw_sid.clone();
         let owner = sid.as_mut_ptr() as winapi::um::winnt::PSID;
-
-        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
-        let tp = windows_privilege::TokenPrivileges::enable(luid);
-
-        let mut token = windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
-        let token = if let Ok(t) = token {
-            t
-        } else {
-            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
-        };
-        println!("Token is obtained");
-        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
-        println!("token privileges obtained");
 
         let asdf = unsafe {
             winapi::um::aclapi::SetNamedSecurityInfoW(
@@ -615,7 +618,7 @@ impl CaCertificateStorageBuilder {
                     let paths = get_sqlite_paths(p);
                     for p in paths {
                         if p.exists() {
-                            o.set_owner(&p, 0o600).await;
+                            o.set_owner(&p, 0o600);
                         }
                     }
                 }

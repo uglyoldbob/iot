@@ -156,6 +156,7 @@ async fn main() {
         let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
             .await
             .unwrap();
+
         f.read_to_end(&mut tpm_data).await.unwrap();
 
         let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
@@ -208,6 +209,9 @@ async fn main() {
         let tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
         if tpm2.is_some() {
             let p = config_path.join(format!("{}-password.bin", name));
+            let mut perms = std::fs::metadata(&p).unwrap().permissions();
+            perms.set_readonly(false);
+            std::fs::set_permissions(&p, perms).unwrap();
             let e = std::fs::remove_file(&p);
             println!("Delete {} = {:?}", p.display(), e);
         } else {
