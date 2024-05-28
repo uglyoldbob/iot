@@ -72,9 +72,12 @@ pub fn load_certificate(
     rcs: Option<RootCertStore>,
     pki: &Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
     require_cert: bool,
-) -> Result<Arc<ServerConfig>, Error>
-{
-    let pkcs12 = cert_common::pkcs12::Pkcs12::load_from_data(&tls_config.cert_file, tls_config.key_password.as_bytes(), 0);
+) -> Result<Arc<ServerConfig>, Error> {
+    let pkcs12 = cert_common::pkcs12::Pkcs12::load_from_data(
+        &tls_config.cert_file,
+        tls_config.key_password.as_bytes(),
+        0,
+    );
 
     let cert_der = pkcs12.cert;
 

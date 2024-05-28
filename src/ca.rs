@@ -493,11 +493,9 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                     let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
                     match a {
                         Ok(mut csr) => {
-                            csr.params.not_before = time::OffsetDateTime::now_utc();
-                            csr.params.not_after =
-                                csr.params.not_before + time::Duration::days(365);
-                            let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
-                            csr.params.serial_number = Some(sn);
+                            service::log::info!("Ready to sign the csr");
+                            let ca_cert = ca.root_ca_cert().unwrap();
+                            let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                             let cert_to_sign = CaCertificateToBeSigned {
                                 algorithm: ca.config.sign_method,
                                 medium: ca.medium.clone(),
@@ -506,10 +504,9 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                                 name: "".into(),
                                 id,
                             };
-
-                            service::log::info!("Ready to sign the csr");
-                            let ca_cert = ca.root_ca_cert().unwrap();
-                            let cert = ca_cert.sign_csr(cert_to_sign, ca).unwrap();
+                            let cert = ca_cert
+                                .sign_csr(cert_to_sign, ca, id, time::Duration::days(365))
+                                .unwrap();
                             let der = cert.cert;
                             ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der, &snb).await;

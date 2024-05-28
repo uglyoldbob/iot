@@ -490,10 +490,7 @@ async fn smain() {
                 use std::io::Read;
                 let mut certbytes = vec![];
                 let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
-                service::log::info!(
-                    "Loading https certificate from {}",
-                    path.display()
-                );
+                service::log::info!("Loading https certificate from {}", path.display());
                 certf.read_to_end(&mut certbytes).unwrap();
                 certbytes
             }

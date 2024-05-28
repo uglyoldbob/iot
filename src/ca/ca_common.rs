@@ -504,17 +504,19 @@ impl OwnerOptions {
         let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
         let tp = windows_privilege::TokenPrivileges::enable(luid);
 
-        let token = windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
+        let token =
+            windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
         let token = if let Ok(t) = token {
             t
         } else {
-            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
+            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES)
+                .unwrap()
         };
         service::log::debug!("Token is obtained");
         let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
         service::log::debug!("token privileges obtained");
 
-        Self { raw_sid: sid, tpo, }
+        Self { raw_sid: sid, tpo }
     }
 
     /// Set the owner of a single file
@@ -911,7 +913,13 @@ impl CaCertificate {
     }
 
     /// Sign a csr with the certificate, if possible
-    pub fn sign_csr(&self, mut csr: CaCertificateToBeSigned, ca: &Ca) -> Option<CaCertificate> {
+    pub fn sign_csr(
+        &self,
+        mut csr: CaCertificateToBeSigned,
+        ca: &Ca,
+        id: u64,
+        duration: time::Duration,
+    ) -> Option<CaCertificate> {
         let the_csr = &mut csr.csr;
         let pkix = PkixAuthorityInfoAccess::new(ca.ocsp_urls.to_owned());
         let ocsp_data = pkix.der;
@@ -921,10 +929,25 @@ impl CaCertificate {
         );
         the_csr.params.custom_extensions.push(ocsp);
 
+        the_csr.params.not_before = time::OffsetDateTime::now_utc();
+        the_csr.params.not_after = the_csr.params.not_before + duration;
+        let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
+        the_csr.params.serial_number = Some(sn);
+
+        println!(
+            "Date for csr is {:?} - {:?}",
+            the_csr.params.not_before, the_csr.params.not_after
+        );
+
         let cert = csr
             .csr
             .signed_by(&self.as_certificate(), &self.keypair())
             .ok()?;
+        println!(
+            "Date on cert is {:?} - {:?}",
+            cert.params().not_before,
+            cert.params().not_after
+        );
         let cert = cert.der().to_vec();
         Some(CaCertificate {
             algorithm: csr.algorithm,

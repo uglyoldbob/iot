@@ -126,7 +126,7 @@ pub enum HttpsCertificateLocation {
 
 impl HttpsCertificateLocation {
     pub fn destroy(&self) {
-        if let HttpsCertificateLocation::New{path, ca_name: _} = self {
+        if let HttpsCertificateLocation::New { path, ca_name: _ } = self {
             let a = path.to_owned();
             let b = (*a).to_owned();
             std::fs::remove_file(b).unwrap();

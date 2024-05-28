@@ -85,8 +85,7 @@ fn receive_string(
         } else {
             None
         }
-    }
-    else {
+    } else {
         None
     }
 }

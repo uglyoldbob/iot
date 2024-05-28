@@ -707,16 +707,11 @@ pub async fn https_webserver(
 ) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = tls::load_certificate(
-        &tls_config,
-        client_certs,
-        &hc.pki,
-        require_cert,
-    )
-    .map_err(|e| {
-        service::log::error!("Error loading https certificate {}", e);
-        ServiceError::Other(e.to_string())
-    })?;
+    let cert =
+        tls::load_certificate(&tls_config, client_certs, &hc.pki, require_cert).map_err(|e| {
+            service::log::error!("Error loading https certificate {}", e);
+            ServiceError::Other(e.to_string())
+        })?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr)

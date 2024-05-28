@@ -145,7 +145,9 @@ impl Ca {
             id,
         );
         let root_cert = self.root_cert.as_ref().unwrap();
-        let mut cert = root_cert.sign_csr(csr, &self).unwrap();
+        let mut cert = root_cert
+            .sign_csr(csr, &self, id, time::Duration::days(365))
+            .unwrap();
         cert.medium = self.medium.clone();
         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
         self.save_user_cert(id, &cert.cert, &snb).await;
@@ -238,7 +240,7 @@ impl Ca {
                 .root_cert
                 .as_ref()
                 .unwrap()
-                .sign_csr(ocsp_csr, &ca)
+                .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
                 .unwrap();
             ocsp_cert.medium = ca.medium.clone();
             ocsp_cert
@@ -268,7 +270,7 @@ impl Ca {
                 .root_cert
                 .as_ref()
                 .unwrap()
-                .sign_csr(admin_csr, &ca)
+                .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
                 .unwrap();
             admin_cert.medium = ca.medium.clone();
             admin_cert
