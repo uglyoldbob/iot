@@ -1455,7 +1455,7 @@ pub fn ca_register_files(
 ) {
     match pki {
         PkiInstance::Pki(pki) => {
-            println!("Registering pki static files");
+            service::log::info!("Registering pki static files");
             for name in pki.roots.keys() {
                 static_map.insert(
                     format!("/pki/{}/css/ca.css", name),
@@ -1476,7 +1476,7 @@ pub fn ca_register_files(
             }
         }
         PkiInstance::Ca(_ca) => {
-            println!("Registering ca static files");
+            service::log::info!("Registering ca static files");
         }
     }
 }

@@ -122,7 +122,7 @@ impl Ca {
         https_names: Vec<String>,
         password: &str,
     ) {
-        println!("Generating an https certificate for web operations");
+        service::log::info!("Generating an https certificate for web operations");
         let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
         let extensions = vec![
             cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
@@ -180,7 +180,7 @@ impl Ca {
         let mut ca = Self::init_from_config(settings, options).await;
 
         if settings.root {
-            println!("Generating a root certificate for ca operations");
+            service::log::info!("Generating a root certificate for ca operations");
 
             let (key_pair, _unused) = settings.sign_method.generate_keypair().unwrap();
 
@@ -216,7 +216,7 @@ impl Ca {
                 .save_to_medium(&mut ca, &settings.root_password)
                 .await;
             ca.root_cert = Ok(cacert);
-            println!("Generating OCSP responder certificate");
+            service::log::info!("Generating OCSP responder certificate");
             let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned()];
             let extensions =
                 vec![
@@ -254,7 +254,7 @@ impl Ca {
                         .unwrap(),
                 ];
 
-            println!("Generating administrator certificate");
+            service::log::info!("Generating administrator certificate");
             let id = ca.get_new_request_id().await.unwrap();
             let admin_csr = ca.generate_signing_request(
                 settings.sign_method,

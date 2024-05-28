@@ -70,30 +70,40 @@ struct Args {
     allow_no_tpm2: bool,
 }
 
+struct LocalLogging {
+    s: std::sync::Mutex<interprocess::local_socket::SendHalf>,
+}
+
+impl LocalLogging {
+    pub fn new(s: interprocess::local_socket::SendHalf) -> Self {
+        Self {
+            s: std::sync::Mutex::new(s),
+        }
+    }
+}
+
+impl service::log::Log for LocalLogging {
+    fn enabled(&self, _metadata: &service::log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &service::log::Record) {
+        let m = format!("{} - {}", record.level(), record.args());
+        println!("Trying to log {}", m);
+        let mut s = self.s.lock().unwrap();
+        send_string(&mut s, m);
+    }
+
+    fn flush(&self) {
+        let mut s = self.s.lock().unwrap();
+        use std::io::Write;
+        s.flush();
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-
-    #[cfg(target_os = "windows")]
-    let log = std::fs::OpenOptions::new()
-        .truncate(true)
-        .read(true)
-        .create(true)
-        .write(true)
-        .open("C:/git/log.txt")
-        .unwrap();
-    #[cfg(target_os = "windows")]
-    let log2 = std::fs::OpenOptions::new()
-        .truncate(true)
-        .read(true)
-        .create(true)
-        .write(true)
-        .open("C:/git/log2.txt")
-        .unwrap();
-    #[cfg(target_os = "windows")]
-    let print_redirect = args.ipc.as_ref().and(gag::Redirect::stdout(log).ok());
-    #[cfg(target_os = "windows")]
-    let print_redirect2 = args.ipc.as_ref().and(gag::Redirect::stderr(log2).ok());
 
     if args.ipc.is_none() {
         simple_logger::SimpleLogger::new().init().unwrap();
@@ -106,8 +116,6 @@ async fn main() {
     };
     let config_path = std::fs::canonicalize(&config_path).unwrap();
 
-    println!("Config path is {}", config_path.display());
-
     let name = args.name.unwrap_or("default".to_string());
 
     if let Some(pb) = &args.save_answers {
@@ -116,25 +124,23 @@ async fn main() {
         }
     }
 
-    println!("The path for the iot instance config is {:?}", config_path);
     tokio::fs::create_dir_all(&config_path).await.unwrap();
 
     let mut config = main_config::MainConfiguration::new();
     let answers: MainConfigurationAnswers;
-    let mut stream = None;
     if let Some(ipc) = &args.ipc {
-        println!("IPC NAME IS {}", ipc);
         use interprocess::local_socket::ToFsName;
         let ipc_name = ipc
             .clone()
             .to_fs_name::<interprocess::local_socket::GenericFilePath>()
             .unwrap();
         let stream_local = <interprocess::local_socket::prelude::LocalSocketStream as interprocess::local_socket::traits::Stream>::connect(ipc_name.clone()).unwrap();
-        println!("Waiting for answers");
         answers = bincode::deserialize_from(&stream_local).unwrap();
         use interprocess::local_socket::traits::Stream;
-        stream = Some(stream_local.split().1);
-        println!("Providing answers");
+        let s = stream_local.split().1;
+        let ipc_log = LocalLogging::new(s);
+        service::log::set_max_level(service::log::LevelFilter::Debug);
+        service::log::set_boxed_logger(Box::new(ipc_log)).unwrap();
         config.provide_answers(&answers);
     } else if let Some(answers_path) = &args.answers {
         println!(
@@ -150,11 +156,6 @@ async fn main() {
         answers = MainConfigurationAnswers::prompt(None).unwrap();
         config.provide_answers(&answers);
     };
-
-    if let Some(s) = &mut stream {
-        send_string(s, "Test message 1".into());
-        send_string(s, "Test message 2".into());
-    }
 
     #[cfg(target_family = "unix")]
     let user_obj = nix::unistd::User::from_name(&answers.username)
@@ -235,7 +236,7 @@ async fn main() {
         service_config.user_password = answers.password.clone().map(|a| a.to_string());
     }
 
-    println!("Saving the configuration file");
+    service::log::info!("Saving the configuration file");
     config.remove_relative_paths();
     let config_data = toml::to_string(&config).unwrap();
     let config_file = config_path.join(format!("{}-config.toml", name));
@@ -311,7 +312,7 @@ async fn main() {
             options.set_owner(&p, 0o400);
             econfig
         } else {
-            println!("TPM2 NOT DETECTED!!!");
+            service::log::error!("TPM2 NOT DETECTED!!!");
             if !args.allow_no_tpm2 {
                 panic!("Cannot continue without tpm2 support, try --allow-no-tpm2");
             }
@@ -329,11 +330,4 @@ async fn main() {
 
     service.create_async(service_config).await;
     let _ = service.start();
-
-    if let Some(stream) = stream.take() {
-        end_ipc(stream);
-        let ipc = args.ipc.as_ref().unwrap();
-        let p = std::path::Path::new(ipc);
-        let _ = std::fs::remove_file(p);
-    }
 }

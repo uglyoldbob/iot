@@ -497,9 +497,9 @@ impl OwnerOptions {
 
     #[cfg(target_family = "windows")]
     pub fn new(username: &str) -> Self {
-        println!("Trying to lookup {}", username);
+        service::log::debug!("Trying to lookup {}", username);
         let sid = windows_acl::helper::name_to_sid(username, None).unwrap();
-        println!("Lookup returned {:02X?}", sid);
+        service::log::debug!("Lookup returned {:02X?}", sid);
 
         let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
         let tp = windows_privilege::TokenPrivileges::enable(luid);
@@ -510,9 +510,9 @@ impl OwnerOptions {
         } else {
             windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
         };
-        println!("Token is obtained");
+        service::log::debug!("Token is obtained");
         let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
-        println!("token privileges obtained");
+        service::log::debug!("token privileges obtained");
 
         Self { raw_sid: sid, tpo, }
     }
@@ -540,7 +540,7 @@ impl OwnerOptions {
 
     #[cfg(target_family = "windows")]
     pub fn set_owner(&self, p: &PathBuf, permissions: u32) {
-        println!("Set owner of {}", p.display());
+        service::log::debug!("Set owner of {}", p.display());
         let (ox, ow, or) = (
             ((permissions & 1) != 0),
             ((permissions & 2) != 0),
@@ -571,10 +571,10 @@ impl OwnerOptions {
                 std::ptr::null_mut(),
             )
         };
-        println!("Set named security info returned {}", asdf);
+        service::log::debug!("Set named security info returned {}", asdf);
 
         let mut perms = std::fs::metadata(p).unwrap().permissions();
-        println!("Read only {}", !uw);
+        service::log::debug!("Read only {}", !uw);
         perms.set_readonly(!uw);
         std::fs::set_permissions(p, perms).unwrap();
     }
@@ -1860,7 +1860,7 @@ impl RawCsrRequest {
                 return Err(());
             };
             csr_key.verify(&info, &sig).map_err(|_| {
-                println!("Error verifying the signature2 on the csr 1");
+                service::log::error!("Error verifying the signature2 on the csr 1");
             })
         } else {
             Err(())

@@ -17,10 +17,10 @@ impl Luid {
         let rv = unsafe { winapi::um::winbase::LookupPrivilegeValueW(arg1, arg2.as_ptr(), &mut luid as *mut winapi::shared::ntdef::LUID) };
         if rv == 0 {
             let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-            println!("Error is {} {}", rv, err);
+            service::log::error!("Error is {} {}", rv, err);
             return Err(err);
         }
-        println!("LUID Lookup is {:?} {:?}", luid.LowPart, luid.HighPart);
+        service::log::debug!("LUID Lookup is {:?} {:?}", luid.LowPart, luid.HighPart);
         Ok ( Self {
             luid,
         })
@@ -79,7 +79,7 @@ impl Token {
         )};
         if rv == 0 {
             let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-            println!("Error getting thread token is {} {}", rv, err);
+            service::log::warn!("Error getting thread token is {} {}", rv, err);
             return Err(err);
         }
         Ok(Self {
@@ -97,7 +97,7 @@ impl Token {
         ) };
         if rv == 0 {
             let err = unsafe { winapi::um::errhandlingapi::GetLastError() };
-            println!("Error getting process token is {} {}", rv, err);
+            service::log::error!("Error getting process token is {} {}", rv, err);
             return Err(err);
         }
         Ok(Self {
@@ -129,7 +129,7 @@ impl TokenPrivilegesEnabled {
             &mut len_required as *mut winapi::shared::minwindef::DWORD,
         ) };
         if r != 0 {
-            println!("Error is {}", unsafe { winapi::um::errhandlingapi::GetLastError() });
+            service::log::error!("Error enabling token privileges is {}", unsafe { winapi::um::errhandlingapi::GetLastError() });
         }
         let prev = vec![0; len_required as usize];
         drop(t3);

@@ -76,13 +76,17 @@ fn receive_string(
     stream: &mut interprocess::local_socket::prelude::LocalSocketStream,
 ) -> Option<String> {
     let mut asdf = [0, 0, 0, 0];
-    stream.read_exact(&mut asdf).unwrap();
-    let total_len = u32::from_le_bytes(asdf);
-    if total_len != 0 {
-        let mut m: Vec<u8> = vec![0; total_len as usize];
-        stream.read_exact(&mut m).unwrap();
-        Some(String::from_utf8(m).unwrap())
-    } else {
+    if stream.read_exact(&mut asdf).is_ok() {
+        let total_len = u32::from_le_bytes(asdf);
+        if total_len != 0 {
+            let mut m: Vec<u8> = vec![0; total_len as usize];
+            stream.read_exact(&mut m).unwrap();
+            Some(String::from_utf8(m).unwrap())
+        } else {
+            None
+        }
+    }
+    else {
         None
     }
 }
@@ -210,6 +214,9 @@ impl TrackedWindow for RootWindow {
                     }
                     GeneratingMode::Done => {
                         ui.label("Finished generating service configuration");
+                        for t in &self.messages {
+                            ui.label(t);
+                        }
                         if ui.button("Generate another").clicked() {
                             self.answers = MainConfigurationAnswers::default();
                             self.receive = None;
