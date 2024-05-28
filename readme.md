@@ -40,6 +40,8 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Add ability to set debug level of system.
 - [x] Remove rsa-sha1 from the list of supported certificate/signature types.
 - [x] Switch over from javascript to wasm for key generation fully.
+- [x] Add capability of generating the https certificate with one of the certificate authorities during ca generation.
+- [x] Add capability of reading construct response to construct-gui.
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
@@ -51,5 +53,3 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add more database backends, feature gated
 - [ ] Add certificate viewer for users.
 - [ ] Add a method for adding more ca entities after construction has occurred.
-- [ ] Add capability of generating the https certificate with one of the certificate authorities during ca generation.
-- [ ] Add capability of reading construct response to construct-gui.
