@@ -483,6 +483,9 @@ pub struct OwnerOptions {
     raw_sid: Vec<winapi::shared::minwindef::BYTE>,
 }
 
+#[cfg(target_family = "windows")]
+mod windows_privilege;
+
 impl OwnerOptions {
     /// Construct a new Self
     #[cfg(target_family = "unix")]
@@ -537,22 +540,26 @@ impl OwnerOptions {
             ((permissions & 0x80) != 0),
             ((permissions & 0x100) != 0),
         );
-        let handle = unsafe {
-            winapi::um::fileapi::CreateFileW(
-                Self::get_utf16(p.as_os_str().to_str().unwrap()).as_ptr(),
-                winapi::um::winnt::WRITE_OWNER,
-                0,
-                std::ptr::null_mut(),
-                winapi::um::fileapi::OPEN_EXISTING,
-                winapi::um::winnt::FILE_ATTRIBUTE_NORMAL,
-                std::ptr::null_mut(),
-            )
-        };
+
         let mut sid = self.raw_sid.clone();
         let owner = sid.as_mut_ptr() as winapi::um::winnt::PSID;
+
+        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
+        let tp = windows_privilege::TokenPrivileges::enable(luid);
+
+        let mut token = windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
+        let token = if let Ok(t) = token {
+            t
+        } else {
+            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
+        };
+        println!("Token is obtained");
+        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
+        println!("token privileges obtained");
+
         let asdf = unsafe {
-            winapi::um::aclapi::SetSecurityInfo(
-                handle,
+            winapi::um::aclapi::SetNamedSecurityInfoW(
+                Self::get_utf16(p.as_os_str().to_str().unwrap()).as_mut_ptr(),
                 winapi::um::accctrl::SE_FILE_OBJECT,
                 winapi::um::winnt::OWNER_SECURITY_INFORMATION,
                 owner,
@@ -561,7 +568,7 @@ impl OwnerOptions {
                 std::ptr::null_mut(),
             )
         };
-        println!("Set security info returned {}", asdf);
+        println!("Set named security info returned {}", asdf);
 
         let mut perms = std::fs::metadata(p).unwrap().permissions();
         println!("Read only {}", !uw);
