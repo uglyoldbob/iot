@@ -366,15 +366,15 @@ async fn smain() {
 
     #[cfg(feature = "tpm2")]
     {
-        let mut tpm_data = Vec::new();
-        let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
-            .await
-            .unwrap();
-        f.read_to_end(&mut tpm_data).await.unwrap();
-
         let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
         if let Some(tpm2) = &mut tpm2 {
+            let mut tpm_data = Vec::new();
+            let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
+                .await
+                .unwrap();
+            f.read_to_end(&mut tpm_data).await.unwrap();
+
             let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
 
             let epdata = tpm2.decrypt(tpm_data).unwrap();
