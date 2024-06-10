@@ -55,3 +55,6 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add a method for adding more ca entities after construction has occurred.
 - [ ] Implement HSM for certificate operations
 - [ ] Add ssh certificate operations
+- [ ] Implement paging operations for certificate lists
+- [ ] Allow no tpm2 with the answers data
+- [ ] Check for presence of tpm2 asap in construction.
