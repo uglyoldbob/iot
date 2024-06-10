@@ -53,3 +53,5 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add more database backends, feature gated
 - [ ] Add certificate viewer for users.
 - [ ] Add a method for adding more ca entities after construction has occurred.
+- [ ] Implement HSM for certificate operations
+- [ ] Add ssh certificate operations
