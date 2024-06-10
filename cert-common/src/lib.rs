@@ -202,6 +202,23 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl TryFrom<yasna::models::ObjectIdentifier> for CertificateSigningMethod {
+    type Error = ();
+    fn try_from(value: yasna::models::ObjectIdentifier) -> Result<Self, Self::Error> {
+        let oid = value;
+        if oid == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
+            Ok(Self::RsaSha256)
+        } else if oid == OID_ECDSA_P256_SHA256_SIGNING.to_yasna() {
+            Ok(Self::EcdsaSha256)
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            service::log::error!("The oid to convert is {:?}", oid);
+            Err(())
+        }
+    }
+}
+
 impl CertificateSigningMethod {
     /// Convert Self into an Oid
     pub fn oid(&self) -> crate::oid::Oid {

@@ -1868,21 +1868,13 @@ impl RawCsrRequest {
             })
             .unwrap();
 
-            let csr_key = if alg == OID_PKCS1_SHA256_RSA_ENCRYPTION.to_yasna() {
-                ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::RSA_PKCS1_2048_8192_SHA256,
-                    &pkey,
-                )
-            } else if alg == OID_ECDSA_P256_SHA256_SIGNING.to_yasna() {
-                ring::signature::UnparsedPublicKey::new(
-                    &ring::signature::ECDSA_P256_SHA256_ASN1,
-                    &pkey,
-                )
-            } else {
-                service::log::error!("Algorithm {:?} unhandled", alg);
-                return Err(());
+            let signature = if let Ok(alg) = alg.try_into() {
+                InternalSignature::make_ring(alg, pkey, info, sig)
+            }
+            else {
+                todo!();
             };
-            csr_key.verify(&info, &sig).map_err(|_| {
+            signature.verify().map_err(|_| {
                 service::log::error!("Error verifying the signature2 on the csr 1");
             })
         } else {
@@ -1947,5 +1939,64 @@ impl From<std::io::Error> for CertificateLoadingError {
             std::io::ErrorKind::PermissionDenied => CertificateLoadingError::CantOpen,
             _ => CertificateLoadingError::OtherIo(value),
         }
+    }
+}
+
+
+/// A representation of a signature that can be verified
+#[derive(Debug)]
+pub enum InternalSignature {
+    /// A ring based signature
+    Ring {
+        key: ring::signature::UnparsedPublicKey<Vec<u8>>,
+        message: Vec<u8>,
+        sig: Vec<u8>,
+    },
+    /// an ssh based signature
+    Ssh {
+        key: ssh_key::public::PublicKey,
+        namespace: String,
+        message: Vec<u8>,
+        sig: ssh_key::SshSig,
+    },
+}
+
+impl InternalSignature {
+    /// Verify the signature as valid
+    pub fn verify(&self) -> Result<(), ()> {
+        match self {
+            Self::Ring { key, message, sig } => key.verify(message, sig).map_err(|_|()),
+            Self::Ssh {
+                key,
+                namespace,
+                message,
+                sig,
+            } => key.verify(namespace, message, sig).map_err(|_|()),
+        }
+    }
+
+    /// Build a ring signature
+    pub fn make_ring(
+        algorithm: CertificateSigningMethod,
+        key: Vec<u8>,
+        message: Vec<u8>,
+        sig: Vec<u8>,
+    ) -> Self {
+        let key = match algorithm {
+            CertificateSigningMethod::EcdsaSha256 => ring::signature::UnparsedPublicKey::new(
+                &ring::signature::ECDSA_P256_SHA256_ASN1,
+                key,
+            ),
+            CertificateSigningMethod::RsaSha256 => ring::signature::UnparsedPublicKey::new(
+                &ring::signature::RSA_PKCS1_2048_8192_SHA256,
+                key,
+            ),
+        };
+        Self::Ring { key, message, sig }
+    }
+
+    /// Build an ssh signature
+    pub fn make_ssh() -> Self {
+        todo!();
     }
 }

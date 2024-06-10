@@ -109,6 +109,10 @@ features = ["derive"]
 git = "https://github.com/uglyoldbob/service.git"
 features = ["async", "serde", "prompt", "egui-prompt"]
 
+[dependencies.ssh-key]
+version = "0.6.6"
+features = [ "rsa", "ed25519" ]
+
 [dependencies.strum]
 version = "0.26.2"
 features = ["derive"]
