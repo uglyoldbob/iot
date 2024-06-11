@@ -133,7 +133,7 @@ impl Ca {
         let id = self.get_new_request_id().await.unwrap();
         let algorithm = {
             let root_cert = self.root_cert.as_ref().unwrap();
-            root_cert.algorithm
+            root_cert.algorithm()
         };
 
         let csr = self.generate_signing_request(
@@ -150,9 +150,8 @@ impl Ca {
             .unwrap();
         cert.medium = self.medium.clone();
         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
-        self.save_user_cert(id, &cert.cert, &snb).await;
-        let p12: cert_common::pkcs12::Pkcs12 = cert.try_into().unwrap();
-        let p12 = p12.get_pkcs12(password);
+        self.save_user_cert(id, &cert.contents(), &snb).await;
+        let p12 = cert.try_p12(password).unwrap();
         std::fs::write(destination, p12).unwrap();
     }
 
@@ -206,7 +205,7 @@ impl Ca {
             let cert_der = cert.der();
             let key_der = key_pair.serialize_der();
 
-            let cacert = CaCertificate::from_existing(
+            let cacert = CaCertificate::from_existing_https(
                 settings.sign_method,
                 ca.medium.clone(),
                 cert_der,

@@ -292,7 +292,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
                     .line_break(|a| a);
                 }
                 if let Ok(cert) = ca.root_ca_cert() {
-                    b.text(format!("CERT TYPE {:?}", cert.algorithm))
+                    b.text(format!("CERT TYPE {:?}", cert.algorithm()))
                         .line_break(|a| a);
                 }
 
@@ -507,7 +507,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                             let cert = ca_cert
                                 .sign_csr(cert_to_sign, ca, id, time::Duration::days(365))
                                 .unwrap();
-                            let der = cert.cert;
+                            let der = cert.contents();
                             ca.mark_csr_done(id).await;
                             ca.save_user_cert(id, &der, &snb).await;
                             csr_check = Ok(der);
@@ -1198,7 +1198,7 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRe
                     "Content-Disposition",
                     HeaderValue::from_static("attachment; filename=ca.cer"),
                 );
-                cert = Some(cert_der.cert.to_owned());
+                cert = Some(cert_der.contents());
             }
             "pem" => {
                 response.headers.append(
@@ -1209,7 +1209,7 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRe
                     "Content-Disposition",
                     HeaderValue::from_static("attachment; filename=ca.pem"),
                 );
-                if let Ok(pem) = cert_der.public_pem() {
+                if let Some(pem) = cert_der.public_pem() {
                     cert = Some(pem.as_bytes().to_vec());
                 }
             }
@@ -1271,14 +1271,8 @@ async fn build_ocsp_response(
     let ocsp_cert = ca.ocsp_ca_cert().unwrap();
     let root_cert = ca.root_ca_cert().unwrap();
 
-    let root_x509_cert = {
-        use der::Decode;
-        x509_cert::Certificate::from_der(&root_cert.cert).unwrap()
-    };
-    let ocsp_x509_cert = {
-        use der::Decode;
-        x509_cert::Certificate::from_der(&ocsp_cert.cert).unwrap()
-    };
+    let root_x509_cert = root_cert.x509_cert().unwrap();
+    let ocsp_x509_cert = ocsp_cert.x509_cert().unwrap();
 
     for r in req.tbs_request.request_list {
         service::log::info!("Looking up a certificate");
@@ -1347,11 +1341,16 @@ async fn build_ocsp_response(
 
     let data_der = data.to_der().unwrap();
 
-    let (oid, sign) = ocsp_cert.sign(&data_der).await.unwrap();
-    let certs = vec![ocsp_cert.cert.to_owned(), root_cert.cert.to_owned()];
+    let signature = ocsp_cert.sign(&data_der).await.unwrap();
+    let certs = vec![ocsp_cert.contents(), root_cert.contents()];
     let certs = Some(certs);
 
-    let bresp = ocsp::response::BasicResponse::new(data, oid.to_ocsp(), sign, certs);
+    let bresp = ocsp::response::BasicResponse::new(
+        data,
+        signature.oid().unwrap().to_ocsp(),
+        signature.signature(),
+        certs,
+    );
     let bytes =
         ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_ocsp(), bresp).unwrap();
     ocsp::response::OcspResponse::new_success(bytes)

@@ -715,12 +715,14 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
         }
         let algorithm = x509_cert.signature_algorithm;
         Ok(Self {
-            algorithm: algorithm.try_into().unwrap(),
             medium: CaCertificateStorage::Nowhere,
-            cert: cert_der.to_owned(),
-            pkey: Some(value.pkey),
+            data: CertificateData::Https(HttpsCertificate {
+                algorithm: algorithm.try_into().unwrap(),
+                cert: cert_der.to_owned(),
+                pkey: Some(value.pkey),
+                attributes: value.attributes.clone(),
+            }),
             name,
-            attributes: value.attributes.clone(),
             id: value.id,
         })
     }
@@ -735,13 +737,7 @@ impl CaCertificateStorage {
         cert: CaCertificate,
         password: &str,
     ) {
-        use der::Decode;
-        let x509 = x509_cert::Certificate::from_der(&cert.cert).unwrap();
-        let snb = x509.tbs_certificate.serial_number.as_bytes().to_vec();
-        if cert.pkey.is_some() {
-            let p12: cert_common::pkcs12::Pkcs12 = cert.clone().try_into().unwrap();
-            let p12_der = p12.get_pkcs12(password);
-
+        if let Some(p12_der) = cert.try_p12(password) {
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
@@ -762,7 +758,8 @@ impl CaCertificateStorage {
                 }
             }
         }
-        ca.save_user_cert(cert.id, &cert.cert, &snb).await;
+        ca.save_user_cert(cert.id, &cert.contents(), &cert.get_snb())
+            .await;
     }
 
     /// Load a certificate from the storage medium
@@ -791,90 +788,40 @@ impl CaCertificateStorage {
     }
 }
 
-/// Represents a certificate that might be able to sign things
+/// An https certificate
 #[derive(Clone, Debug)]
-pub struct CaCertificate {
-    /// The algorithm used for the ceertificate
-    pub algorithm: CertificateSigningMethod,
-    /// Where the certificate is stored
-    pub medium: CaCertificateStorage,
+pub struct HttpsCertificate {
+    /// The algorithm used for the certificate
+    algorithm: CertificateSigningMethod,
     /// The public certificate in der format
-    pub cert: Vec<u8>,
+    cert: Vec<u8>,
     /// The optional private key in der format
-    pub pkey: Option<Zeroizing<Vec<u8>>>,
-    /// The certificate name to use for storage
-    pub name: String,
+    pkey: Option<Zeroizing<Vec<u8>>>,
     /// The extra attributes for the certificate
-    pub attributes: Vec<cert_common::pkcs12::BagAttribute>,
-    /// The id of the certificate
-    pub id: u64,
+    attributes: Vec<cert_common::pkcs12::BagAttribute>,
 }
 
-impl TryInto<cert_common::pkcs12::Pkcs12> for CaCertificate {
-    type Error = ();
-    fn try_into(self) -> Result<cert_common::pkcs12::Pkcs12, Self::Error> {
-        let cert = self.certificate_der();
-        let pkey = self.pkey_der();
-        if pkey.is_none() {
-            return Err(());
-        }
-        Ok(cert_common::pkcs12::Pkcs12 {
-            cert,
-            pkey: pkey.unwrap(),
-            attributes: self.get_attributes(),
-            id: self.id,
-        })
-    }
-}
-
-impl CaCertificate {
-    /// Retrieve the certificate in x509_cert::Certificate format
-    pub fn x509_cert(&self) -> x509_cert::Certificate {
+impl HttpsCertificate {
+    /// Decode self into an x509_cert Certificate
+    pub fn get_cert(&self) -> Option<x509_cert::Certificate> {
         use der::Decode;
-        x509_cert::Certificate::from_der(&self.cert).unwrap()
+        x509_cert::Certificate::from_der(&self.cert).ok()
     }
 
-    /// Load a caCertificate instance from der data of the certificate
-    pub fn from_existing(
-        algorithm: CertificateSigningMethod,
-        medium: CaCertificateStorage,
-        der: &[u8],
-        pkey: Option<Zeroizing<Vec<u8>>>,
-        name: String,
-        id: u64,
-    ) -> Self {
-        Self {
-            algorithm,
-            medium,
-            cert: der.to_vec(),
-            pkey,
-            name: name.clone(),
-            attributes: vec![
-                BagAttribute::LocalKeyId(vec![42; 16]), //TODO
-                BagAttribute::FriendlyName(name),
-            ],
-            id,
+    /// Attempt to build a p12 document
+    pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+        if let Some(pkey) = &self.pkey {
+            let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
+                cert: self.cert.clone(),
+                pkey: pkey.to_owned(),
+                attributes: self.attributes.clone(),
+                id,
+            };
+            let p12_der = p12.get_pkcs12(password);
+            Some(p12_der)
+        } else {
+            None
         }
-    }
-
-    /// Get the list of attributes
-    pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
-        self.attributes.clone()
-    }
-
-    /// Get the name of the certificate
-    pub fn get_name(&self) -> String {
-        self.name.to_owned()
-    }
-
-    /// Retrieve the private key in der format, if possible
-    pub fn pkey_der(&self) -> Option<Zeroizing<Vec<u8>>> {
-        self.pkey.clone()
-    }
-
-    /// Retrieve the certificate in the native der format
-    pub fn certificate_der(&self) -> Vec<u8> {
-        self.cert.clone()
     }
 
     /// Returns the keypair for this certificate
@@ -898,18 +845,276 @@ impl CaCertificate {
         p.self_signed(&keypair).unwrap()
     }
 
-    /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
-        self.medium
-            .save_to_medium(&self.name, ca, self.to_owned(), password)
-            .await;
-    }
-
     /// Create a pem version of the public certificate
     pub fn public_pem(&self) -> Result<String, der::Error> {
         use der::Decode;
         let doc: der::Document = der::Document::from_der(&self.cert)?;
         doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF)
+    }
+}
+
+/// An ssh certificate
+#[derive(Clone, Debug)]
+pub struct SshCertificate {
+    /// The algorithm used for the certificate
+    algorithm: CertificateSigningMethod,
+    /// The certificate
+    cert: ssh_key::certificate::Certificate,
+}
+
+impl SshCertificate {
+    /// Attempt to build a p12 document
+    pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+        todo!();
+    }
+}
+
+/// Represents a signature of a certificate
+pub enum Signature {
+    OidSignature(Oid, Vec<u8>),
+}
+
+impl Signature {
+    /// Get the oid, if applicable
+    pub fn oid(&self) -> Option<Oid> {
+        if let Signature::OidSignature(a, b) = self {
+            Some(a.to_owned())
+        } else {
+            None
+        }
+    }
+
+    /// Get the signature value
+    pub fn signature(&self) -> Vec<u8> {
+        match self {
+            Self::OidSignature(_a, sig) => sig.clone(),
+        }
+    }
+}
+
+/// The kinds of certificates that can exist
+#[derive(Clone, Debug)]
+pub enum CertificateData {
+    /// Data required for an https certificate
+    Https(HttpsCertificate),
+    /// Data required for an ssh certificate
+    Ssh(SshCertificate),
+}
+
+impl CertificateData {
+    /// Retrieve the certificate in pem format
+    pub fn public_pem(&self) -> Option<String> {
+        match self {
+            Self::Https(c) => c.public_pem().ok(),
+            Self::Ssh(_c) => todo!(),
+        }
+    }
+
+    ///attempt to get an x509_cert object
+    pub fn x509_cert(&self) -> Option<x509_cert::Certificate> {
+        match self {
+            Self::Https(c) => c.get_cert(),
+            Self::Ssh(_c) => None,
+        }
+    }
+
+    ///sign a certificate
+    pub fn sign_csr(&self, csr: CaCertificateToBeSigned) -> CaCertificate {
+        match self {
+            Self::Https(c) => {
+                let issuer = &c.as_certificate();
+                let issuer_key = &c.keypair();
+                let rc_cert = csr.csr.signed_by(issuer, issuer_key).unwrap();
+                CaCertificate {
+                    medium: CaCertificateStorage::Nowhere,
+                    data: Self::Https(HttpsCertificate {
+                        algorithm: csr.algorithm,
+                        cert: rc_cert.der().to_vec(),
+                        pkey: None,
+                        attributes: vec![
+                            BagAttribute::LocalKeyId(vec![42; 16]), //TODO
+                            BagAttribute::FriendlyName(csr.name.clone()),
+                        ],
+                    }),
+                    name: csr.name.clone(),
+                    id: csr.id,
+                }
+            }
+            Self::Ssh(c) => todo!(),
+        }
+    }
+
+    pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
+        match self {
+            Self::Https(c) => c.attributes.clone(),
+            Self::Ssh(c) => todo!(),
+        }
+    }
+
+    /// Attempt to build a p12 document
+    pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+        match self {
+            Self::Https(c) => c.try_p12(id, password),
+            Self::Ssh(c) => c.try_p12(id, password),
+        }
+    }
+
+    /// Get the algorithm
+    pub fn algorithm(&self) -> CertificateSigningMethod {
+        match self {
+            Self::Https(c) => c.algorithm,
+            Self::Ssh(c) => c.algorithm,
+        }
+    }
+
+    /// Retrieve the serial number as a vector
+    pub fn get_snb(&self) -> Vec<u8> {
+        match self {
+            Self::Https(c) => {
+                let x509 = c.get_cert().unwrap();
+                x509.tbs_certificate.serial_number.as_bytes().to_vec()
+            }
+            Self::Ssh(c) => u64::to_le_bytes(c.cert.serial()).to_vec(),
+        }
+    }
+
+    /// Retrieve the contents of the certificate data in a storable format
+    pub fn contents(&self) -> Vec<u8> {
+        match self {
+            Self::Https(c) => c.cert.to_owned(),
+            Self::Ssh(c) => c.cert.to_bytes().unwrap().to_vec(),
+        }
+    }
+
+    /// Attempt to sign the specified data
+    pub fn sign(&self, data: &[u8]) -> Option<Signature> {
+        match self {
+            Self::Https(c) => match c.algorithm {
+                CertificateSigningMethod::EcdsaSha256 => {
+                    if let Some(pkey) = &c.pkey {
+                        let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
+                        let rng = &ring::rand::SystemRandom::new();
+                        let key =
+                            ring::signature::EcdsaKeyPair::from_pkcs8(alg, pkey, rng).unwrap();
+                        let signature = key.sign(rng, data).unwrap();
+                        let sig =
+                            Signature::OidSignature(c.algorithm.oid(), signature.as_ref().to_vec());
+                        Some(sig)
+                    } else {
+                        todo!("Sign with external method")
+                    }
+                }
+                CertificateSigningMethod::RsaSha256 => {
+                    if let Some(pkey) = &c.pkey {
+                        let rng = &ring::rand::SystemRandom::new();
+                        let key = ring::signature::RsaKeyPair::from_pkcs8(pkey).unwrap();
+                        let mut signature = vec![0; key.public().modulus_len()];
+                        let pad = &ring::signature::RSA_PKCS1_SHA256;
+                        key.sign(pad, rng, data, &mut signature).unwrap();
+                        let sig = Signature::OidSignature(c.algorithm.oid(), signature);
+                        Some(sig)
+                    } else {
+                        todo!("Sign with external method")
+                    }
+                }
+            },
+            Self::Ssh(c) => {
+                todo!();
+            }
+        }
+    }
+}
+
+/// Represents a certificate that might be able to sign things
+#[derive(Clone, Debug)]
+pub struct CaCertificate {
+    /// Where the certificate is stored
+    pub medium: CaCertificateStorage,
+    /// The certificate data
+    data: CertificateData,
+    /// The certificate name to use for storage
+    pub name: String,
+    /// The id of the certificate
+    pub id: u64,
+}
+
+impl CaCertificate {
+    /// Try to get an x509 certificate
+    pub fn x509_cert(&self) -> Option<x509_cert::Certificate> {
+        self.data.x509_cert()
+    }
+
+    /// Get the algorithm
+    pub fn algorithm(&self) -> CertificateSigningMethod {
+        self.data.algorithm()
+    }
+
+    /// Retrieve the certificate serial number
+    pub fn get_snb(&self) -> Vec<u8> {
+        self.data.get_snb()
+    }
+
+    /// Retrieve the contents of the certificate data in a storable format
+    pub fn contents(&self) -> Vec<u8> {
+        self.data.contents()
+    }
+
+    /// Attempt to build a p12 document
+    pub fn try_p12(&self, password: &str) -> Option<Vec<u8>> {
+        self.data.try_p12(self.id, password)
+    }
+
+    /// Load a caCertificate instance from der data of the certificate
+    pub fn from_existing_https(
+        algorithm: CertificateSigningMethod,
+        medium: CaCertificateStorage,
+        der: &[u8],
+        pkey: Option<Zeroizing<Vec<u8>>>,
+        name: String,
+        id: u64,
+    ) -> Self {
+        Self {
+            medium,
+            data: CertificateData::Https(HttpsCertificate {
+                algorithm,
+                cert: der.to_vec(),
+                pkey,
+                attributes: vec![
+                    BagAttribute::LocalKeyId(vec![42; 16]), //TODO
+                    BagAttribute::FriendlyName(name.clone()),
+                ],
+            }),
+            name: name.clone(),
+            id,
+        }
+    }
+
+    /// Get the list of attributes
+    pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
+        self.data.get_attributes()
+    }
+
+    /// Get the name of the certificate
+    pub fn get_name(&self) -> String {
+        self.name.to_owned()
+    }
+
+    /// Retrieve the certificate in the native der format
+    /// TODO delete this function in favor of contents()
+    pub fn certificate_der(&self) -> Vec<u8> {
+        self.data.contents()
+    }
+
+    /// Retrieve the certificate in pem format
+    pub fn public_pem(&self) -> Option<String> {
+        self.data.public_pem()
+    }
+
+    /// Save this certificate to the storage medium
+    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
+        self.medium
+            .save_to_medium(&self.name, ca, self.to_owned(), password)
+            .await;
     }
 
     /// Sign a csr with the certificate, if possible
@@ -939,57 +1144,13 @@ impl CaCertificate {
             the_csr.params.not_before, the_csr.params.not_after
         );
 
-        let cert = csr
-            .csr
-            .signed_by(&self.as_certificate(), &self.keypair())
-            .ok()?;
-        println!(
-            "Date on cert is {:?} - {:?}",
-            cert.params().not_before,
-            cert.params().not_after
-        );
-        let cert = cert.der().to_vec();
-        Some(CaCertificate {
-            algorithm: csr.algorithm,
-            medium: CaCertificateStorage::Nowhere,
-            cert,
-            pkey: csr.pkey,
-            name: csr.name.clone(),
-            attributes: vec![
-                BagAttribute::LocalKeyId(vec![42; 16]), //TODO
-                BagAttribute::FriendlyName(csr.name),
-            ],
-            id: csr.id,
-        })
+        let cert = self.data.sign_csr(csr);
+        Some(cert)
     }
 
     /// Sign some data with the certificate, if possible
-    pub async fn sign(&self, data: &[u8]) -> Option<(cert_common::oid::Oid, Vec<u8>)> {
-        match &self.algorithm {
-            CertificateSigningMethod::EcdsaSha256 => {
-                if let Some(pkey) = &self.pkey {
-                    let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
-                    let rng = &ring::rand::SystemRandom::new();
-                    let key = ring::signature::EcdsaKeyPair::from_pkcs8(alg, pkey, rng).unwrap();
-                    let signature = key.sign(rng, data).unwrap();
-                    Some((self.algorithm.oid(), signature.as_ref().to_vec()))
-                } else {
-                    todo!("Sign with external method")
-                }
-            }
-            CertificateSigningMethod::RsaSha256 => {
-                if let Some(pkey) = &self.pkey {
-                    let rng = &ring::rand::SystemRandom::new();
-                    let key = ring::signature::RsaKeyPair::from_pkcs8(pkey).unwrap();
-                    let mut signature = vec![0; key.public().modulus_len()];
-                    let pad = &ring::signature::RSA_PKCS1_SHA256;
-                    key.sign(pad, rng, data, &mut signature).unwrap();
-                    Some((self.algorithm.oid(), signature))
-                } else {
-                    todo!("Sign with external method")
-                }
-            }
-        }
+    pub async fn sign(&self, data: &[u8]) -> Option<Signature> {
+        self.data.sign(data)
     }
 }
 
@@ -1313,7 +1474,7 @@ impl Ca {
     pub fn get_validity(&self) -> Option<x509_cert::time::Validity> {
         if let Ok(root) = &self.root_cert {
             let cert = root.x509_cert();
-            Some(cert.tbs_certificate.validity)
+            cert.map(|c| c.tbs_certificate.validity)
         } else {
             None
         }
@@ -1494,7 +1655,7 @@ impl Ca {
             )
             .try_into()
             .unwrap();
-            cert.pkey = None;
+            //cert.pkey = None; TODO
             self.admin = Ok(cert);
         }
         self.admin.as_ref()
@@ -1870,8 +2031,7 @@ impl RawCsrRequest {
 
             let signature = if let Ok(alg) = alg.try_into() {
                 InternalSignature::make_ring(alg, pkey, info, sig)
-            }
-            else {
+            } else {
                 todo!();
             };
             signature.verify().map_err(|_| {
@@ -1942,7 +2102,6 @@ impl From<std::io::Error> for CertificateLoadingError {
     }
 }
 
-
 /// A representation of a signature that can be verified
 #[derive(Debug)]
 pub enum InternalSignature {
@@ -1965,13 +2124,13 @@ impl InternalSignature {
     /// Verify the signature as valid
     pub fn verify(&self) -> Result<(), ()> {
         match self {
-            Self::Ring { key, message, sig } => key.verify(message, sig).map_err(|_|()),
+            Self::Ring { key, message, sig } => key.verify(message, sig).map_err(|_| ()),
             Self::Ssh {
                 key,
                 namespace,
                 message,
                 sig,
-            } => key.verify(namespace, message, sig).map_err(|_|()),
+            } => key.verify(namespace, message, sig).map_err(|_| ()),
         }
     }
 

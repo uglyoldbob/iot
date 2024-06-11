@@ -19,13 +19,14 @@ impl Ca {
     /// Returns true if the provided certificate is an admin certificate
     pub async fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
         let admin = self.retrieve_admin_cert().await.unwrap();
-        let admin_x509_cert = {
-            use der::Decode;
-            x509_cert::Certificate::from_der(&admin.cert).unwrap()
-        };
-        cert.tbs_certificate.serial_number == admin_x509_cert.tbs_certificate.serial_number
-            && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
-            && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
+        let admin_x509_cert = admin.x509_cert();
+        if let Some(admin_x509_cert) = admin_x509_cert {
+            cert.tbs_certificate.serial_number == admin_x509_cert.tbs_certificate.serial_number
+                && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
+                && cert.tbs_certificate.issuer == admin_x509_cert.tbs_certificate.issuer
+        } else {
+            todo!()
+        }
     }
 
     /// Performs an iteration of all certificates, processing them with the given closure.
