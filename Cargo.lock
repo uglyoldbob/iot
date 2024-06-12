@@ -3881,6 +3881,7 @@ dependencies = [
  "sha2",
  "sha256",
  "simple_logger 5.0.0",
+ "ssh-encoding",
  "ssh-key",
  "strum",
  "tempfile",

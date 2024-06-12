@@ -524,12 +524,12 @@ async fn smain() {
         }
     }
 
-    futures::select! {
-        r = tasks.join_next().fuse() => {
+    tokio::select! {
+        r = tasks.join_next() => {
             service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
             tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
         }
-        _ = tokio::signal::ctrl_c().fuse() => {
+        _ = tokio::signal::ctrl_c() => {
         }
     }
     service::log::error!("Closing server now");

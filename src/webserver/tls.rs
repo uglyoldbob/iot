@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
 
+use cert_common::CertificateSigningMethod;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio_rustls::rustls::server::WebPkiClientVerifier;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig};
@@ -105,15 +106,19 @@ pub fn load_certificate(
                 match std::ops::Deref::deref(&pki) {
                     crate::ca::PkiInstance::Pki(pki) => {
                         for ca in pki.get_client_certifiers().await {
+                            if let CertificateSigningMethod::Https(m) = ca.config.sign_method {
+                                let cert = ca.root_ca_cert().unwrap();
+                                let cert_der = cert.contents();
+                                rcs2.add(cert_der.into()).unwrap();
+                            }
+                        }
+                    }
+                    crate::ca::PkiInstance::Ca(ca) => {
+                        if let CertificateSigningMethod::Https(m) = ca.config.sign_method {
                             let cert = ca.root_ca_cert().unwrap();
                             let cert_der = cert.contents();
                             rcs2.add(cert_der.into()).unwrap();
                         }
-                    }
-                    crate::ca::PkiInstance::Ca(ca) => {
-                        let cert = ca.root_ca_cert().unwrap();
-                        let cert_der = cert.contents();
-                        rcs2.add(cert_der.into()).unwrap();
                     }
                 };
             })

@@ -694,8 +694,10 @@ pub async fn http_webserver(
                         }
                     }));
                 }
-                _ = f.next() => {}
-                else => break,
+                Some(_) = f.next() => {
+                    println!("Testing");
+                }
+                _ = tokio::signal::ctrl_c() => break,
             }
         }
         Ok(())
@@ -819,7 +821,10 @@ pub async fn https_webserver(
                         }
                     }));
                 }
-                _ = f.next() => {}
+                Some(_) = f.next() => {
+                    println!("Testing");
+                }
+                _ = tokio::signal::ctrl_c() => break,
                 else => break,
             }
         }

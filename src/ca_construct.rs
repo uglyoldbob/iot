@@ -286,7 +286,23 @@ impl Ca {
                 }
             }
             CertificateSigningMethod::Ssh(m) => {
-                todo!();
+                if settings.root {
+                    let ca_keypair =
+                        ssh_key::private::RsaKeypair::random(&mut rand::thread_rng(), 4096)
+                            .unwrap();
+                    let keypair = ssh_key::private::KeypairData::Rsa(ca_keypair);
+                    let sshc = SshCertificate::new(cert_common::SshSigningMethod::Rsa, keypair);
+                    let root = CaCertificate::from_existing_ssh(
+                        ca.medium.clone(),
+                        sshc,
+                        "root".to_string(),
+                        0,
+                    );
+                    root.save_to_medium(&mut ca, &settings.root_password).await;
+                    ca.root_cert = Ok(root);
+                } else {
+                    todo!("Intermediate ssh authority not implemmented");
+                }
             }
         }
         ca
