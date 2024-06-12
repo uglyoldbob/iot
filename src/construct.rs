@@ -60,14 +60,6 @@ struct Args {
     /// The name of the config being created
     #[arg(short, long)]
     name: Option<String>,
-
-    /// Use a randomly generated password
-    #[arg(long, default_value_t = false)]
-    generate_password: bool,
-
-    /// Allow the system to operate without tpm
-    #[arg(long, default_value_t = false)]
-    allow_no_tpm2: bool,
 }
 
 struct LocalLogging {
@@ -125,6 +117,18 @@ async fn main() {
     }
 
     tokio::fs::create_dir_all(&config_path).await.unwrap();
+
+    #[cfg(feature = "tpm2")]
+    let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+
+    #[cfg(feature = "tpm2")]
+    {
+        if tpm2.is_none() {
+            service::log::error!("TPM2 NOT DETECTED!!!");
+        } else {
+            service::log::info!("TPM2 DETECTED");
+        }
+    }
 
     let mut config = main_config::MainConfiguration::new();
     let answers: MainConfigurationAnswers;
@@ -249,25 +253,14 @@ async fn main() {
     let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
     let do_without_tpm2 = || async {
-        let mut password: userprompt::Password2 = userprompt::Password2::new(String::new());
-
-        if args.generate_password {
+        let password = {
             let s: String =
                 rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
                     .take(32)
                     .map(char::from)
                     .collect();
-            password = userprompt::Password2::new(s);
-        }
-
-        if password.is_empty() {
-            loop {
-                password = userprompt::Password2::prompt(None).unwrap();
-                if !password.is_empty() {
-                    break;
-                }
-            }
-        }
+            s
+        };
 
         let password_combined = password.as_bytes();
         let p = config_path.join(format!("{}-credentials.bin", name));
@@ -284,8 +277,6 @@ async fn main() {
 
     #[cfg(feature = "tpm2")]
     {
-        let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
-
         let econfig = if let Some(tpm2) = &mut tpm2 {
             let password2: [u8; 32] = rand::random();
 
@@ -313,8 +304,8 @@ async fn main() {
             econfig
         } else {
             service::log::error!("TPM2 NOT DETECTED!!!");
-            if !args.allow_no_tpm2 {
-                panic!("Cannot continue without tpm2 support, try --allow-no-tpm2");
+            if config.tpm2_required {
+                panic!("Cannot continue due to missing tpm2 support and I was told to require it");
             }
             do_without_tpm2().await
         };

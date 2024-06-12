@@ -284,6 +284,9 @@ pub struct MainConfigurationAnswers {
     pub pki: crate::ca::PkiConfigurationEnum,
     /// The desired minimum debug level
     pub debug_level: service::LogLevel,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
 }
 
 /// The main configuration of the application
@@ -309,6 +312,9 @@ pub struct MainConfiguration {
     pub pki: crate::ca::PkiConfigurationEnum,
     /// The desired minimum debug level
     pub debug_level: Option<service::LogLevel>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
 }
 
 impl Default for MainConfiguration {
@@ -331,6 +337,7 @@ impl MainConfiguration {
             client_certs: None,
             pki: crate::ca::PkiConfigurationEnum::new(),
             debug_level: Some(service::LogLevel::default()),
+            tpm2_required: true,
         }
     }
 
@@ -345,6 +352,7 @@ impl MainConfiguration {
         self.proxy_config = answers.proxy_config.clone();
         self.pki = answers.pki.clone();
         self.debug_level = Some(answers.debug_level.clone());
+        self.tpm2_required = answers.tpm2_required;
     }
 
     /// Remove relative paths
