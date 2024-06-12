@@ -4,7 +4,7 @@ use hyper::header::HeaderValue;
 
 use crate::{webserver, WebPageContext, WebRouter};
 
-use cert_common::{oid::*, CertificateSigningMethod};
+use cert_common::{oid::*, CertificateSigningMethod, HttpsSigningMethod};
 
 /// The module for using a certificate authority
 pub mod ca_usage;
@@ -122,12 +122,15 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                 ab
             }).line_break(|a|a);
             match ca.config.sign_method {
-                CertificateSigningMethod::RsaSha256 => {
-                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
+                CertificateSigningMethod::Https(m) => match m {
+                    HttpsSigningMethod::RsaSha256 => {
+                        div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_rsa_sha256()"));
+                    }
+                    HttpsSigningMethod::EcdsaSha256 => {
+                        div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_ecdsa_sha256()"));
+                    }
                 }
-                CertificateSigningMethod::EcdsaSha256 => {
-                    div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_ecdsa_sha256()"));
-                }
+                CertificateSigningMethod::Ssh(m) => todo!(),
             }
             div.line_break(|lb| lb);
             div.division(|div| {
@@ -492,25 +495,27 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                     let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
                     let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
                     match a {
-                        Ok(mut csr) => {
+                        Ok(csr) => {
                             service::log::info!("Ready to sign the csr");
                             let ca_cert = ca.root_ca_cert().unwrap();
                             let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
-                            let cert_to_sign = CaCertificateToBeSigned {
-                                algorithm: ca.config.sign_method,
-                                medium: ca.medium.clone(),
-                                csr,
-                                pkey: None,
-                                name: "".into(),
-                                id,
-                            };
-                            let cert = ca_cert
-                                .sign_csr(cert_to_sign, ca, id, time::Duration::days(365))
-                                .unwrap();
-                            let der = cert.contents();
-                            ca.mark_csr_done(id).await;
-                            ca.save_user_cert(id, &der, &snb).await;
-                            csr_check = Ok(der);
+                            if let CertificateSigningMethod::Https(m) = ca.config.sign_method {
+                                let cert_to_sign = CaCertificateToBeSigned {
+                                    algorithm: m,
+                                    medium: ca.medium.clone(),
+                                    csr,
+                                    pkey: None,
+                                    name: "".into(),
+                                    id,
+                                };
+                                let cert = ca_cert
+                                    .sign_csr(cert_to_sign, ca, id, time::Duration::days(365))
+                                    .unwrap();
+                                let der = cert.contents();
+                                ca.mark_csr_done(id).await;
+                                ca.save_user_cert(id, &der, &snb).await;
+                                csr_check = Ok(der);
+                            }
                         }
                         Err(e) => {
                             service::log::error!("Error decoding csr to sign: {:?}", e);

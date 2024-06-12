@@ -152,7 +152,7 @@ fn hide(collection: &web_sys::HtmlCollection) {
 pub struct CsrWork {
     private_key_password: Zeroizing<String>,
     params: rcgen::CertificateParams,
-    signing: cert_common::CertificateSigningMethod,
+    signing: cert_common::HttpsSigningMethod,
 }
 
 fn do_csr_work(work: CsrWork) {
@@ -165,7 +165,7 @@ fn do_csr_work(work: CsrWork) {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
 
-    if let Some((key_pair, private)) = signing.generate_keypair() {
+    if let Some((key_pair, private)) = signing.generate_keypair(4096) {
         if let Ok(cert) = params.serialize_request(&key_pair) {
             if let Ok(pem_serialized) = cert.pem() {
                 if let Some(csr) = get_html_input_by_name(&d, "csr") {
@@ -192,7 +192,7 @@ fn generate_csr_with_form(
     w: &web_sys::Window,
     d: &web_sys::Document,
     form: CsrFormData,
-    signing: cert_common::CertificateSigningMethod,
+    signing: cert_common::HttpsSigningMethod,
 ) -> timeout::TimeoutHandleCsrWork {
     let mut params: rcgen::CertificateParams = Default::default();
 
@@ -406,7 +406,7 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
 }
 
 fn generate_csr(
-    signing: cert_common::CertificateSigningMethod,
+    signing: cert_common::HttpsSigningMethod,
 ) -> Option<timeout::TimeoutHandleCsrWork> {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
@@ -426,14 +426,14 @@ fn generate_csr(
 pub fn generate_csr_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
-    generate_csr(cert_common::CertificateSigningMethod::RsaSha256)
+    generate_csr(cert_common::HttpsSigningMethod::RsaSha256)
 }
 
 #[wasm_bindgen]
 pub fn generate_csr_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
-    generate_csr(cert_common::CertificateSigningMethod::EcdsaSha256)
+    generate_csr(cert_common::HttpsSigningMethod::EcdsaSha256)
 }
 
 /// Retrieve the contents of the specified file in a nice Vec<u8>, if possible.

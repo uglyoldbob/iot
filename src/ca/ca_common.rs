@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use async_sqlite::rusqlite::ToSql;
 use cert_common::oid::*;
 use cert_common::CertificateSigningMethod;
+use cert_common::HttpsSigningMethod;
+use cert_common::SshSigningMethod;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
@@ -69,7 +71,7 @@ impl StandaloneCaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
-            sign_method: CertificateSigningMethod::RsaSha256,
+            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             common_name: "".to_string(),
@@ -197,7 +199,7 @@ impl LocalCaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
-            sign_method: CertificateSigningMethod::RsaSha256,
+            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             common_name: "".to_string(),
@@ -365,7 +367,7 @@ impl CaConfiguration {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
-            sign_method: CertificateSigningMethod::RsaSha256,
+            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
             root: true,
             san: Vec::new(),
@@ -673,7 +675,7 @@ impl std::fmt::Debug for CaCertificateStorage {
 /// Represents a certificate that has not been signed yet.
 pub struct CaCertificateToBeSigned {
     /// The algorithm used for the certificate
-    pub algorithm: CertificateSigningMethod,
+    pub algorithm: HttpsSigningMethod,
     /// Where the certificate is stored
     pub medium: CaCertificateStorage,
     /// The certificate signing request parameters
@@ -792,7 +794,7 @@ impl CaCertificateStorage {
 #[derive(Clone, Debug)]
 pub struct HttpsCertificate {
     /// The algorithm used for the certificate
-    algorithm: CertificateSigningMethod,
+    algorithm: HttpsSigningMethod,
     /// The public certificate in der format
     cert: Vec<u8>,
     /// The optional private key in der format
@@ -857,7 +859,7 @@ impl HttpsCertificate {
 #[derive(Clone, Debug)]
 pub struct SshCertificate {
     /// The algorithm used for the certificate
-    algorithm: CertificateSigningMethod,
+    algorithm: SshSigningMethod,
     /// The certificate
     cert: ssh_key::certificate::Certificate,
 }
@@ -962,8 +964,8 @@ impl CertificateData {
     /// Get the algorithm
     pub fn algorithm(&self) -> CertificateSigningMethod {
         match self {
-            Self::Https(c) => c.algorithm,
-            Self::Ssh(c) => c.algorithm,
+            Self::Https(c) => CertificateSigningMethod::Https(c.algorithm),
+            Self::Ssh(c) => CertificateSigningMethod::Ssh(c.algorithm),
         }
     }
 
@@ -990,7 +992,7 @@ impl CertificateData {
     pub fn sign(&self, data: &[u8]) -> Option<Signature> {
         match self {
             Self::Https(c) => match c.algorithm {
-                CertificateSigningMethod::EcdsaSha256 => {
+                HttpsSigningMethod::EcdsaSha256 => {
                     if let Some(pkey) = &c.pkey {
                         let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
                         let rng = &ring::rand::SystemRandom::new();
@@ -1004,7 +1006,7 @@ impl CertificateData {
                         todo!("Sign with external method")
                     }
                 }
-                CertificateSigningMethod::RsaSha256 => {
+                HttpsSigningMethod::RsaSha256 => {
                     if let Some(pkey) = &c.pkey {
                         let rng = &ring::rand::SystemRandom::new();
                         let key = ring::signature::RsaKeyPair::from_pkcs8(pkey).unwrap();
@@ -1066,7 +1068,7 @@ impl CaCertificate {
 
     /// Load a caCertificate instance from der data of the certificate
     pub fn from_existing_https(
-        algorithm: CertificateSigningMethod,
+        algorithm: HttpsSigningMethod,
         medium: CaCertificateStorage,
         der: &[u8],
         pkey: Option<Zeroizing<Vec<u8>>>,
@@ -2130,17 +2132,17 @@ impl InternalSignature {
 
     /// Build a ring signature
     pub fn make_ring(
-        algorithm: CertificateSigningMethod,
+        algorithm: HttpsSigningMethod,
         key: Vec<u8>,
         message: Vec<u8>,
         sig: Vec<u8>,
     ) -> Self {
         let key = match algorithm {
-            CertificateSigningMethod::EcdsaSha256 => ring::signature::UnparsedPublicKey::new(
+            HttpsSigningMethod::EcdsaSha256 => ring::signature::UnparsedPublicKey::new(
                 &ring::signature::ECDSA_P256_SHA256_ASN1,
                 key,
             ),
-            CertificateSigningMethod::RsaSha256 => ring::signature::UnparsedPublicKey::new(
+            HttpsSigningMethod::RsaSha256 => ring::signature::UnparsedPublicKey::new(
                 &ring::signature::RSA_PKCS1_2048_8192_SHA256,
                 key,
             ),

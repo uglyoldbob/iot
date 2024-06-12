@@ -874,6 +874,7 @@ dependencies = [
  "serde",
  "service",
  "sha2",
+ "ssh-key",
  "userprompt",
  "x509-cert",
  "yasna",

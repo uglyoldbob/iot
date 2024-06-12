@@ -172,6 +172,44 @@ impl CsrAttribute {
 /// The method that a certificate uses to sign stuff
 #[derive(
     Debug,
+    Default,
+    Copy,
+    Clone,
+    userprompt::Prompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(userprompt::EguiPrompting))]
+pub enum HttpsSigningMethod {
+    /// An rsa certificate rsa with sha256
+    RsaSha256,
+    /// Ecdsa
+    #[default]
+    EcdsaSha256,
+}
+
+/// The method that a certificate uses to sign stuff
+#[derive(
+    Debug,
+    Default,
+    Copy,
+    Clone,
+    userprompt::Prompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(userprompt::EguiPrompting))]
+pub enum SshSigningMethod {
+    /// rsa
+    Rsa,
+    /// ed25519
+    #[default]
+    Ed25519,
+}
+
+/// The method that a certificate uses to sign stuff
+#[derive(
+    Debug,
     Copy,
     Clone,
     userprompt::Prompting,
@@ -180,13 +218,13 @@ impl CsrAttribute {
 )]
 #[cfg_attr(not(target_arch = "wasm32"), derive(userprompt::EguiPrompting))]
 pub enum CertificateSigningMethod {
-    /// An rsa certificate rsa with sha256
-    RsaSha256,
-    /// Ecdsa
-    EcdsaSha256,
+    /// An Https certificate
+    Https(HttpsSigningMethod),
+    /// an ssh certificate
+    Ssh(SshSigningMethod),
 }
 
-impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningMethod {
+impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for HttpsSigningMethod {
     type Error = ();
     fn try_from(value: x509_cert::spki::AlgorithmIdentifier<T>) -> Result<Self, Self::Error> {
         let oid = value.oid;
@@ -203,7 +241,7 @@ impl<T> TryFrom<x509_cert::spki::AlgorithmIdentifier<T>> for CertificateSigningM
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl TryFrom<yasna::models::ObjectIdentifier> for CertificateSigningMethod {
+impl TryFrom<yasna::models::ObjectIdentifier> for HttpsSigningMethod {
     type Error = ();
     fn try_from(value: yasna::models::ObjectIdentifier) -> Result<Self, Self::Error> {
         let oid = value;
@@ -219,7 +257,7 @@ impl TryFrom<yasna::models::ObjectIdentifier> for CertificateSigningMethod {
     }
 }
 
-impl CertificateSigningMethod {
+impl HttpsSigningMethod {
     /// Convert Self into an Oid
     pub fn oid(&self) -> crate::oid::Oid {
         match self {
@@ -229,13 +267,12 @@ impl CertificateSigningMethod {
     }
 
     /// Generate a keypair
-    pub fn generate_keypair(&self) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
+    pub fn generate_keypair(&self, size: usize) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
         match self {
             Self::RsaSha256 => {
                 use pkcs8::EncodePrivateKey;
                 let mut rng = rand::thread_rng();
-                let bits = 4096;
-                let private_key = rsa::RsaPrivateKey::new(&mut rng, bits).unwrap();
+                let private_key = rsa::RsaPrivateKey::new(&mut rng, size).unwrap();
                 let private_key_der = private_key.to_pkcs8_der().unwrap();
                 let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
                 let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
@@ -246,6 +283,22 @@ impl CertificateSigningMethod {
                 let pkcs8 = keypair.serialize_der();
                 let pkey = Zeroizing::new(pkcs8);
                 Some((keypair, Some(pkey)))
+            }
+        }
+    }
+}
+
+impl SshSigningMethod {
+    pub fn generate_keypair(&self, size: usize) -> Option<ssh_key::private::KeypairData> {
+        let rng = &mut rand::thread_rng();
+        match self {
+            Self::Rsa => {
+                let kp = ssh_key::private::RsaKeypair::random(rng, size).unwrap();
+                Some(ssh_key::private::KeypairData::Rsa(kp))
+            }
+            Self::Ed25519 => {
+                let kp = ssh_key::private::Ed25519Keypair::random(rng);
+                Some(ssh_key::private::KeypairData::Ed25519(kp))
             }
         }
     }

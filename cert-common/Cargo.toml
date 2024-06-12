@@ -38,6 +38,10 @@ features = ["ring", "pem", "x509-parser"]
 version = "1.0.197"
 features = ["derive"]
 
+[dependencies.ssh-key]
+version = "0.6.6"
+features = [ "rsa", "ed25519" ]
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui = "0.27.2"
 rfd = "0.14.1"
