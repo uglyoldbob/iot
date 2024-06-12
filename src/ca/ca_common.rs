@@ -1099,12 +1099,6 @@ impl CaCertificate {
         self.name.to_owned()
     }
 
-    /// Retrieve the certificate in the native der format
-    /// TODO delete this function in favor of contents()
-    pub fn certificate_der(&self) -> Vec<u8> {
-        self.data.contents()
-    }
-
     /// Retrieve the certificate in pem format
     pub fn public_pem(&self) -> Option<String> {
         self.data.public_pem()

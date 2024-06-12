@@ -1,5 +1,6 @@
 //! This module is used to run a webserver.
 
+use futures::stream::FuturesUnordered;
 use futures::Future;
 use hyper::{Request, Response, StatusCode};
 use std::collections::HashMap;
@@ -652,22 +653,52 @@ pub async fn http_webserver(
 
     tasks.spawn(async move {
         service::log::info!("Rust-iot server is running");
-        loop {
-            let (stream, _addr) = listener
-                .accept()
-                .await
-                .map_err(|e| ServiceError::Other(e.to_string()))?;
-            let io = TokioIo::new(stream);
-            let svc = webservice.clone();
-            tokio::task::spawn(async move {
-                if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, svc)
+
+        let mut f: FuturesUnordered<Pin<Box<dyn futures::Future<Output = ()> + Send>>> =
+            FuturesUnordered::new();
+
+        let (t, mut r) = tokio::sync::mpsc::channel(50);
+
+        let acceptor = async {
+            loop {
+                let la = listener
+                    .accept()
                     .await
-                {
-                    service::log::error!("Error serving connection: {:?}", err);
+                    .map_err(|e| ServiceError::Other(e.to_string()));
+                let (stream, _addr) = match la {
+                    Err(e) => {
+                        service::log::error!("Error accepting connection {:?}", e);
+                        continue;
+                    }
+                    Ok(s) => s,
+                };
+                let io = TokioIo::new(stream);
+                let svc = webservice.clone();
+                let _ = t.send((svc, io)).await;
+            }
+        };
+
+        tokio::pin!(acceptor);
+
+        loop {
+            use futures::StreamExt;
+            tokio::select! {
+                _ = &mut acceptor => { break; }
+                Some((svc, io)) = r.recv() => {
+                    f.push(Box::pin(async move {
+                        if let Err(err) = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(io, svc)
+                            .await
+                        {
+                            service::log::error!("Error serving connection: {:?}", err);
+                        }
+                    }));
                 }
-            });
+                _ = f.next() => {}
+                else => break,
+            }
         }
+        Ok(())
     });
     Ok(())
 }
@@ -722,54 +753,77 @@ pub async fn https_webserver(
 
     tasks.spawn(async move {
         service::log::info!("Rust-iot https server is running");
-        loop {
-            let la = listener
-                .accept()
-                .await
-                .map_err(|e| ServiceError::Other(e.to_string()));
-            let (stream, addr) = match la {
-                Err(e) => {
-                    service::log::error!("Error accepting connection {:?}", e);
-                    continue;
-                }
-                Ok(s) => s,
-            };
 
-            let stream = acc.accept(stream).await;
-            let mut stream = match stream {
-                Err(e) => {
-                    service::log::error!("Error accepting tls stream: {:?}", e);
-                    continue;
-                }
-                Ok(s) => s,
-            };
-            let (_a, b) = stream.get_mut();
-            let mut svc = webservice.clone();
-            svc.addr = addr;
-            let cert = b.peer_certificates();
-            let sn = b.server_name();
-            service::log::info!("Server name is {:?}", sn);
-            let certs = cert.map(|cder| {
-                let certs: Vec<x509_cert::certificate::Certificate> = cder
-                    .iter()
-                    .map(|c| {
-                        use der::Decode;
-                        x509_cert::Certificate::from_der(c).unwrap()
-                    })
-                    .collect();
-                certs
-            });
-            svc.user_certs = Arc::new(certs);
-            let io = TokioIo::new(stream);
-            tokio::task::spawn(async move {
-                if let Err(err) = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, svc)
+        let mut f: FuturesUnordered<Pin<Box<dyn futures::Future<Output = ()> + Send>>> =
+            FuturesUnordered::new();
+
+        let (t, mut r) = tokio::sync::mpsc::channel(50);
+
+        let acceptor = async {
+            loop {
+                let la = listener
+                    .accept()
                     .await
-                {
-                    service::log::error!("Error serving connection: {:?}", err);
+                    .map_err(|e| ServiceError::Other(e.to_string()));
+                let (stream, addr) = match la {
+                    Err(e) => {
+                        service::log::error!("Error accepting connection {:?}", e);
+                        continue;
+                    }
+                    Ok(s) => s,
+                };
+
+                let stream = acc.accept(stream).await;
+                let mut stream = match stream {
+                    Err(e) => {
+                        service::log::error!("Error accepting tls stream: {:?}", e);
+                        continue;
+                    }
+                    Ok(s) => s,
+                };
+                let (_a, b) = stream.get_mut();
+                let mut svc = webservice.clone();
+                svc.addr = addr;
+                let cert = b.peer_certificates();
+                let sn = b.server_name();
+                service::log::info!("Server name is {:?}", sn);
+                let certs = cert.map(|cder| {
+                    let certs: Vec<x509_cert::certificate::Certificate> = cder
+                        .iter()
+                        .map(|c| {
+                            use der::Decode;
+                            x509_cert::Certificate::from_der(c).unwrap()
+                        })
+                        .collect();
+                    certs
+                });
+                svc.user_certs = Arc::new(certs);
+                let io = TokioIo::new(stream);
+                let _ = t.send((svc, io)).await;
+            }
+        };
+
+        tokio::pin!(acceptor);
+
+        loop {
+            use futures::StreamExt;
+            tokio::select! {
+                _ = &mut acceptor => { break; }
+                Some((svc, io)) = r.recv() => {
+                    f.push(Box::pin(async move {
+                        if let Err(err) = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(io, svc)
+                            .await
+                        {
+                            service::log::error!("Error serving connection: {:?}", err);
+                        }
+                    }));
                 }
-            });
+                _ = f.next() => {}
+                else => break,
+            }
         }
+        Ok(())
     });
 
     Ok(())

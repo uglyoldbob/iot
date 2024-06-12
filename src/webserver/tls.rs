@@ -2,7 +2,6 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -107,13 +106,13 @@ pub fn load_certificate(
                     crate::ca::PkiInstance::Pki(pki) => {
                         for ca in pki.get_client_certifiers().await {
                             let cert = ca.root_ca_cert().unwrap();
-                            let cert_der = cert.certificate_der();
+                            let cert_der = cert.contents();
                             rcs2.add(cert_der.into()).unwrap();
                         }
                     }
                     crate::ca::PkiInstance::Ca(ca) => {
                         let cert = ca.root_ca_cert().unwrap();
-                        let cert_der = cert.certificate_der();
+                        let cert_der = cert.contents();
                         rcs2.add(cert_der.into()).unwrap();
                     }
                 };
