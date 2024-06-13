@@ -695,7 +695,7 @@ pub async fn http_webserver(
                         }
                     }));
                 }
-                Ok(Some(a)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
+                Ok(Some(_)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
                 _ = tokio::signal::ctrl_c() => break,
             }
         }
@@ -820,7 +820,7 @@ pub async fn https_webserver(
                         }
                     }));
                 }
-                Ok(Some(a)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
+                Ok(Some(_)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
                 _ = tokio::signal::ctrl_c() => break,
                 else => break,
             }

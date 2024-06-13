@@ -7,6 +7,7 @@ use cert_common::oid::*;
 use cert_common::CertificateSigningMethod;
 use cert_common::HttpsSigningMethod;
 use cert_common::SshSigningMethod;
+use der::asn1::UtcTime;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
@@ -1541,8 +1542,20 @@ impl Ca {
     /// Get the dates the ca is valid
     pub fn get_validity(&self) -> Option<x509_cert::time::Validity> {
         if let Ok(root) = &self.root_cert {
-            let cert = root.x509_cert();
-            cert.map(|c| c.tbs_certificate.validity)
+            match &root.data {
+                CertificateData::Https(m) => {
+                    m.get_cert().map(|c| c.tbs_certificate.validity)
+                }
+                CertificateData::Ssh(m) => {
+                    let after = m.cert.valid_after_time();
+                    let before = m.cert.valid_before_time();
+
+                    Some(x509_cert::time::Validity { 
+                        not_before: x509_cert::time::Time::UtcTime(UtcTime::from_system_time(after).unwrap()),
+                        not_after: x509_cert::time::Time::UtcTime(UtcTime::from_system_time(before).unwrap()),
+                    })
+                }
+            }
         } else {
             None
         }

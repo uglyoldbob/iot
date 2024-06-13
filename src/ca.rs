@@ -386,6 +386,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
         .body(|b| {
             b.text("This is the pki page").line_break(|a| a);
             for (name, ca) in &pki.roots {
+                b.thematic_break(|a| a);
                 let validity = ca.get_validity();
                 if let Some(valid) = validity {
                     b.text(format!(
