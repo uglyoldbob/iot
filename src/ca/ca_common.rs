@@ -730,20 +730,17 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
             });
         }
         use ssh_encoding::Decode;
-        let mut p: &[u8] = &cert_der;
-        let rsa_pub = ssh_key::public::RsaPublicKey::decode(&mut p);
-        if let Ok(pubkey) = rsa_pub {
+        let cert = ssh_key::Certificate::from_bytes(&cert_der);
+        if let Ok(cert) = cert {
             let private = value.pkey;
             let mut pk = private.as_ref();
-            let keypair = ssh_key::private::RsaKeypair {
-                public: pubkey,
-                private: ssh_key::private::RsaPrivateKey::decode(&mut pk).unwrap(),
-            };
+            let keypair = ssh_key::private::KeypairData::decode(&mut pk).unwrap();
             return Ok(Self {
                 medium: CaCertificateStorage::Nowhere,
                 data: CertificateData::Ssh(SshCertificate {
                     algorithm: SshSigningMethod::Rsa,
-                    keypair: ssh_key::private::KeypairData::Rsa(keypair),
+                    keypair: Some(keypair),
+                    cert,
                 }),
                 name: "whatever".to_string(),
                 id: value.id,
@@ -885,46 +882,44 @@ impl HttpsCertificate {
 pub struct SshCertificate {
     /// The algorithm used for the certificate
     algorithm: SshSigningMethod,
-    /// The certificate
-    keypair: ssh_key::private::KeypairData,
+    /// The keypair for the certificate
+    keypair: Option<ssh_key::private::KeypairData>,
+    /// The actual certificate
+    cert: ssh_key::certificate::Certificate,
 }
 
 impl SshCertificate {
     /// Construct a certificate
-    pub fn new(algorithm: SshSigningMethod, keypair: ssh_key::private::KeypairData) -> Self {
-        Self { algorithm, keypair }
+    pub fn new(
+        algorithm: SshSigningMethod,
+        keypair: Option<ssh_key::private::KeypairData>,
+        cert: ssh_key::certificate::Certificate,
+    ) -> Self {
+        Self {
+            algorithm,
+            keypair,
+            cert,
+        }
     }
 
     /// Attempt to build a p12 document
     pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
         use ssh_encoding::Encode;
-        let mut public_contents = Vec::new();
-        match &self.keypair {
-            ssh_key::private::KeypairData::Ed25519(kp) => {
-                kp.public.encode(&mut public_contents);
-            }
-            ssh_key::private::KeypairData::Rsa(kp) => {
-                kp.public.encode(&mut public_contents);
-            }
-            _ => todo!(),
+        let public_contents = self.cert.to_bytes().unwrap();
+        if let Some(keypair) = &self.keypair {
+            let mut con = Vec::new();
+            keypair.encode(&mut con);
+            let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
+                cert: public_contents,
+                pkey: Zeroizing::new(con),
+                attributes: Vec::new(),
+                id,
+            };
+            let p12_der = p12.get_pkcs12(password);
+            Some(p12_der)
+        } else {
+            None
         }
-        let private_contents = match &self.keypair {
-            ssh_key::private::KeypairData::Ed25519(kp) => kp.private.to_bytes().to_vec(),
-            ssh_key::private::KeypairData::Rsa(kp) => {
-                let mut p = Vec::new();
-                kp.private.encode(&mut p);
-                p
-            }
-            _ => todo!(),
-        };
-        let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
-            cert: public_contents,
-            pkey: Zeroizing::new(private_contents),
-            attributes: Vec::new(),
-            id,
-        };
-        let p12_der = p12.get_pkcs12(password);
-        Some(p12_der)
     }
 }
 
@@ -965,20 +960,7 @@ impl CertificateData {
     pub fn public_pem(&self) -> Option<String> {
         match self {
             Self::Https(c) => c.public_pem().ok(),
-            Self::Ssh(c) => {
-                let p = match &c.keypair {
-                    ssh_key::private::KeypairData::Ed25519(kp) => {
-                        let p: ssh_key::public::PublicKey = kp.public.into();
-                        p
-                    }
-                    ssh_key::private::KeypairData::Rsa(kp) => {
-                        let p: ssh_key::public::PublicKey = kp.public.clone().into();
-                        p
-                    }
-                    _ => todo!(),
-                };
-                p.to_openssh().ok()
-            }
+            Self::Ssh(c) => c.cert.to_openssh().ok(),
         }
     }
 
@@ -1054,20 +1036,7 @@ impl CertificateData {
     pub fn contents(&self) -> Vec<u8> {
         match self {
             Self::Https(c) => c.cert.to_owned(),
-            Self::Ssh(c) => {
-                use ssh_encoding::Encode;
-                let mut contents = Vec::new();
-                match &c.keypair {
-                    ssh_key::private::KeypairData::Ed25519(kp) => {
-                        kp.public.encode(&mut contents);
-                    }
-                    ssh_key::private::KeypairData::Rsa(kp) => {
-                        kp.public.encode(&mut contents);
-                    }
-                    _ => todo!(),
-                }
-                contents
-            }
+            Self::Ssh(c) => c.cert.to_openssh().unwrap().as_bytes().to_vec(),
         }
     }
 

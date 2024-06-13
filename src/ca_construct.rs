@@ -291,7 +291,39 @@ impl Ca {
                         ssh_key::private::RsaKeypair::random(&mut rand::thread_rng(), 4096)
                             .unwrap();
                     let keypair = ssh_key::private::KeypairData::Rsa(ca_keypair);
-                    let sshc = SshCertificate::new(cert_common::SshSigningMethod::Rsa, keypair);
+
+                    let valid_after = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let valid_before = valid_after + (365 * 86400); // e.g. 1 year
+
+                    let pri_key: ssh_key::PrivateKey = match &keypair {
+                        ssh_key::private::KeypairData::Ed25519(kp) => kp.to_owned().into(),
+                        ssh_key::private::KeypairData::Rsa(kp) => kp.to_owned().into(),
+                        _ => todo!(),
+                    };
+
+                    let mut cert_builder = ssh_key::certificate::Builder::new_with_random_nonce(
+                        &mut rand::thread_rng(),
+                        pri_key.public_key(),
+                        valid_after,
+                        valid_before,
+                    )
+                    .unwrap();
+                    cert_builder.serial(0).unwrap();
+                    cert_builder.key_id("root").unwrap();
+                    cert_builder
+                        .cert_type(ssh_key::certificate::CertType::User)
+                        .unwrap();
+                    cert_builder.valid_principal("invalid").unwrap();
+                    cert_builder.comment(ca.config.common_name.clone()).unwrap();
+                    let cert = cert_builder.sign(&pri_key).unwrap();
+                    let sshc = SshCertificate::new(
+                        cert_common::SshSigningMethod::Rsa,
+                        Some(keypair),
+                        cert,
+                    );
                     let root = CaCertificate::from_existing_ssh(
                         ca.medium.clone(),
                         sshc,
