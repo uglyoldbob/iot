@@ -469,6 +469,7 @@ dependencies = [
  "rand",
  "rcgen",
  "ring",
+ "ssh-key",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

@@ -63,6 +63,10 @@ git = "https://github.com/uglyoldbob/rcgen.git"
 branch = "attributes"
 features = ["ring", "pem", "x509-parser"]
 
+[dependencies.ssh-key]
+version = "0.6.6"
+features = [ "rsa", "ed25519" ]
+
 [dependencies.cert-common]
 path = "../cert-common"
 

@@ -1,5 +1,13 @@
+//! This contains the web assembly code that runs on a users web browser.
+
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
+
+mod ssh;
 mod timeout;
 mod utils;
+pub use ssh::*;
 
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
@@ -10,6 +18,7 @@ extern "C" {
 }
 
 #[wasm_bindgen]
+/// Show all elements in the "advanced" class, hide elements in the "regular" class.
 pub fn show_advanced() {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
@@ -20,6 +29,7 @@ pub fn show_advanced() {
 }
 
 #[wasm_bindgen]
+/// Hide all elements in the "advanced" class, show elements in the "regular" class.
 pub fn show_regular() {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
@@ -39,122 +49,97 @@ fn download_file(d: &web_sys::Document, file: &web_sys::Blob, filename: &str) ->
     anchor.set_download(filename);
     let body = d.body().ok_or(())?;
     let body_node: web_sys::Node = body.into();
-    body_node.append_child(&anchor.clone().into());
+    body_node
+        .append_child(&anchor.clone().into())
+        .map_err(|_| ())?;
     anchor.click();
-    body_node.remove_child(&anchor.into());
-    web_sys::Url::revoke_object_url(&url);
+    body_node.remove_child(&anchor.into()).map_err(|_| ())?;
+    web_sys::Url::revoke_object_url(&url).map_err(|_| ())?;
     Ok(())
 }
 
 /// Build a file with the specified data
 fn build_file(data: &[u8]) -> web_sys::File {
     let u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
-    u8array.copy_from(&data);
+    u8array.copy_from(data);
     let array = js_sys::Array::new();
     array.push(&u8array.buffer());
     let mut foptions = web_sys::FilePropertyBag::new();
     foptions.type_("application/octet-stream");
-    let file = web_sys::File::new_with_blob_sequence_and_options(&array, "whatever.bin", &foptions)
-        .unwrap();
-    file
-}
-
-/// Build a file with the specified data
-fn build_blob(data: &[u8]) -> web_sys::Blob {
-    let u8array = js_sys::Uint8Array::new_with_length(data.len() as u32);
-    u8array.copy_from(&data);
-    let array = js_sys::Array::new();
-    array.push(&u8array.buffer());
-    let mut foptions = web_sys::BlobPropertyBag::new();
-    foptions.type_("application/octet-stream");
-    let file = web_sys::Blob::new_with_blob_sequence_and_options(&array, &foptions).unwrap();
-    file
+    web_sys::File::new_with_blob_sequence_and_options(&array, "whatever.bin", &foptions).unwrap()
 }
 
 /// Retrieve an htmlElement by name
 fn get_html_element_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::HtmlElement> {
-    if let Some(t1) = d.get_element_by_id(name) {
-        let jsval: wasm_bindgen::JsValue = t1.value_of().into();
-        web_sys::HtmlElement::try_from(jsval).ok()
-    } else {
-        None
-    }
+    d.get_element_by_id(name).map(|t| {
+        let jsval: wasm_bindgen::JsValue = t.value_of().into();
+        web_sys::HtmlElement::from(jsval)
+    })
 }
 
 /// Retrieve the htmlInputElement specified by name from the given document
 fn get_html_input_by_name(d: &web_sys::Document, name: &str) -> Option<web_sys::HtmlInputElement> {
-    if let Some(t1) = d.get_element_by_id(name) {
-        let jsval: wasm_bindgen::JsValue = t1.value_of().into();
-        web_sys::HtmlInputElement::try_from(jsval).ok()
-    } else {
-        None
-    }
+    d.get_element_by_id(name).map(|t| {
+        let jsval: wasm_bindgen::JsValue = t.value_of().into();
+        web_sys::HtmlInputElement::from(jsval)
+    })
 }
 
 /// Retrieve the htmlElement specified by name from the given document, getting the value of what is in the input element
 fn get_value_from_element_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
-    if let Some(t1) = get_html_element_by_name(d, name) {
-        Some(t1.inner_text())
-    } else {
-        None
-    }
+    get_html_element_by_name(d, name).map(|t| t.inner_text())
 }
 
 /// Retrieve the htmlInputElement specified by name from the given document, getting the value of what is in the input element
 fn get_value_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<String> {
-    if let Some(t1) = get_html_input_by_name(d, name) {
-        Some(t1.value())
-    } else {
-        None
-    }
+    get_html_input_by_name(d, name).map(|t| t.value())
 }
 
 /// Retrieve the htmlInputElement specified by name from the given document, getting the checked value of the input element
 fn get_checked_from_input_by_name(d: &web_sys::Document, name: &str) -> Option<bool> {
-    if let Some(t1) = get_html_input_by_name(d, name) {
-        Some(t1.checked())
-    } else {
-        None
-    }
+    get_html_input_by_name(d, name).map(|t| t.checked())
 }
 
+/// Show all elements specifed
 fn show(collection: &web_sys::HtmlCollection) {
     let quantity = collection.length();
     for i in 0..quantity {
         let e = collection.get_with_index(i);
         if let Some(e) = e {
             let jsval: wasm_bindgen::JsValue = e.value_of().into();
-            let el = web_sys::HtmlElement::try_from(jsval).ok();
-            if let Some(el) = el {
-                let style = el.style();
-                style.set_property("display", "block");
-            }
+            let el = web_sys::HtmlElement::from(jsval);
+            let style = el.style();
+            let _ = style.set_property("display", "block");
         }
     }
 }
 
+/// Hide all elements specified
 fn hide(collection: &web_sys::HtmlCollection) {
     let quantity = collection.length();
     for i in 0..quantity {
         let e = collection.get_with_index(i);
         if let Some(e) = e {
             let jsval: wasm_bindgen::JsValue = e.value_of().into();
-            let el = web_sys::HtmlElement::try_from(jsval).ok();
-            if let Some(el) = el {
-                let style = el.style();
-                style.set_property("display", "none");
-            }
+            let el = web_sys::HtmlElement::from(jsval);
+            let style = el.style();
+            let _ = style.set_property("display", "none");
         }
     }
 }
 
 #[wasm_bindgen]
+/// The elements necessary to construct an https certificate
 pub struct CsrWork {
+    /// The password to protect the private key
     private_key_password: Zeroizing<String>,
+    /// The rcgen parameters for the certificate
     params: rcgen::CertificateParams,
+    /// The signature method
     signing: cert_common::HttpsSigningMethod,
 }
 
+/// Do the work required to build a certificate request
 fn do_csr_work(work: CsrWork) {
     let CsrWork {
         private_key_password,
@@ -178,7 +163,7 @@ fn do_csr_work(work: CsrWork) {
                     let rng = rand::thread_rng();
                     let protected = private_key.encrypt(rng, &private_key_password).unwrap();
                     let file = build_file(protected.as_bytes());
-                    download_file(&d, &file, "testing.bin");
+                    let _ = download_file(&d, &file, "testing.bin");
                 }
             }
             if let Some(button) = get_html_element_by_name(&d, "submit") {
@@ -188,6 +173,7 @@ fn do_csr_work(work: CsrWork) {
     }
 }
 
+/// Parse data gathered from the web page form, building a CsrWork struct to be processed.
 fn generate_csr_with_form(
     w: &web_sys::Window,
     d: &web_sys::Document,
@@ -305,29 +291,47 @@ fn generate_csr_with_form(
     let args = js_sys::Array::new();
     args.push(&(work.into()));
 
-    w.set_timeout_with_callback_and_timeout_and_arguments(cb.as_ref().unchecked_ref(), 1, &args);
+    let _ = w.set_timeout_with_callback_and_timeout_and_arguments(
+        cb.as_ref().unchecked_ref(),
+        1,
+        &args,
+    );
     timeout::TimeoutHandleCsrWork::new(cb)
 }
 
+/// The data entered by the user for submitting a certificate signing request
 struct CsrFormData {
+    /// The password to protect the private key
     private_key_password: Zeroizing<String>,
+    /// The certificate will be used to identify a client
     client_id: bool,
+    /// The certificate will be used to sign code
     code_usage: bool,
+    /// The certificate will be used to identify a server
     server_id: bool,
+    /// cname of the certificate
     cname: String,
+    /// Country field for the certificate
     country: String,
+    /// State field for the certificate
     state: String,
+    /// Locality field for the certificate
     locality: String,
+    /// organization field for the certificate
     organization: String,
+    /// organization unit fiedl for the certificate
     ou: String,
+    /// the challenge password for the certificate request
     cpassword: Zeroizing<String>,
+    /// the challenge name for the certificate request
     challenge_name: String,
 }
 
+/// Validate the contents of the web page form
 fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
-    let name = get_value_from_input_by_name(&d, "name").ok_or("Missing form value")?;
-    let email = get_value_from_input_by_name(&d, "email").ok_or("Missing form value")?;
-    let phone = get_value_from_input_by_name(&d, "phone").ok_or("Missing form value")?;
+    let name = get_value_from_input_by_name(d, "name").ok_or("Missing form value")?;
+    let email = get_value_from_input_by_name(d, "email").ok_or("Missing form value")?;
+    let phone = get_value_from_input_by_name(d, "phone").ok_or("Missing form value")?;
 
     if name.is_empty() {
         return Err("Name is empty".to_string());
@@ -340,26 +344,25 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
     }
 
     let private_key_password =
-        get_value_from_input_by_name(&d, "password").ok_or("Missing form value")?;
+        get_value_from_input_by_name(d, "password").ok_or("Missing form value")?;
 
     let client_id =
-        get_checked_from_input_by_name(&d, "usage-client").ok_or("Missing form value")?;
-    let code_usage =
-        get_checked_from_input_by_name(&d, "usage-code").ok_or("Missing form value")?;
+        get_checked_from_input_by_name(d, "usage-client").ok_or("Missing form value")?;
+    let code_usage = get_checked_from_input_by_name(d, "usage-code").ok_or("Missing form value")?;
     let server_id =
-        get_checked_from_input_by_name(&d, "usage-server").ok_or("Missing form value")?;
+        get_checked_from_input_by_name(d, "usage-server").ok_or("Missing form value")?;
 
-    let cname = get_value_from_input_by_name(&d, "cname").ok_or("Missing form value")?;
-    let country = get_value_from_input_by_name(&d, "country").ok_or("Missing form value")?;
-    let state = get_value_from_input_by_name(&d, "state").ok_or("Missing form value")?;
-    let locality = get_value_from_input_by_name(&d, "locality").ok_or("Missing form value")?;
+    let cname = get_value_from_input_by_name(d, "cname").ok_or("Missing form value")?;
+    let country = get_value_from_input_by_name(d, "country").ok_or("Missing form value")?;
+    let state = get_value_from_input_by_name(d, "state").ok_or("Missing form value")?;
+    let locality = get_value_from_input_by_name(d, "locality").ok_or("Missing form value")?;
     let organization =
-        get_value_from_input_by_name(&d, "organization").ok_or("Missing form value")?;
-    let ou = get_value_from_input_by_name(&d, "organization-unit").ok_or("Missing form value")?;
+        get_value_from_input_by_name(d, "organization").ok_or("Missing form value")?;
+    let ou = get_value_from_input_by_name(d, "organization-unit").ok_or("Missing form value")?;
     let cpassword =
-        get_value_from_input_by_name(&d, "challenge-pass").ok_or("Missing form value")?;
+        get_value_from_input_by_name(d, "challenge-pass").ok_or("Missing form value")?;
     let challenge_name =
-        get_value_from_input_by_name(&d, "challenge-name").ok_or("Missing form value")?;
+        get_value_from_input_by_name(d, "challenge-name").ok_or("Missing form value")?;
 
     let mut good_name = false;
 
@@ -405,9 +408,8 @@ fn validate_form(d: &web_sys::Document) -> Result<CsrFormData, String> {
     }
 }
 
-fn generate_csr(
-    signing: cert_common::HttpsSigningMethod,
-) -> Option<timeout::TimeoutHandleCsrWork> {
+/// Eventually generate a certificate signing request submitted back to the server
+fn generate_csr(signing: cert_common::HttpsSigningMethod) -> Option<timeout::TimeoutHandleCsrWork> {
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
 
@@ -423,6 +425,7 @@ fn generate_csr(
 }
 
 #[wasm_bindgen]
+/// Generate a request for a rsa sha256 certificate
 pub fn generate_csr_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
@@ -430,6 +433,7 @@ pub fn generate_csr_rsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
 }
 
 #[wasm_bindgen]
+/// Generate a request for a ecdsa sha256 certificate
 pub fn generate_csr_ecdsa_sha256() -> Option<timeout::TimeoutHandleCsrWork> {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
@@ -448,25 +452,23 @@ async fn get_file_contents(file: web_sys::File) -> Option<Vec<u8>> {
             let chunk = wasm_bindgen_futures::JsFuture::from(r.read()).await;
             if let Ok(c) = chunk {
                 let obj = js_sys::Object::try_from(&c).unwrap();
-                let entries = js_sys::Object::entries(&obj);
+                let entries = js_sys::Object::entries(obj);
                 let a1 = entries.get(0);
                 let a2 = entries.get(1);
-                let a1 = js_sys::Array::try_from(a1).unwrap();
-                let a2 = js_sys::Array::try_from(a2).unwrap();
+                let a1 = js_sys::Array::from(&a1);
+                let a2 = js_sys::Array::from(&a2);
                 let a1a = a1.get(0);
                 let a1b = a1.get(1);
                 if let Some(s) = a1a.as_string() {
-                    if s.as_str() == "done" {
-                        if a1b.as_bool().unwrap() {
-                            break;
-                        }
+                    if s.as_str() == "done" && a1b.as_bool().unwrap() {
+                        break;
                     }
                 }
                 let a2a = a2.get(0);
                 let a2b = a2.get(1);
                 if let Some(s) = a2a.as_string() {
                     if s.as_str() == "value" {
-                        let chunk = js_sys::Uint8Array::try_from(a2b).unwrap();
+                        let chunk = js_sys::Uint8Array::from(a2b);
                         let data_len = data.len();
                         data.resize(data_len + chunk.length() as usize, 0);
                         chunk.copy_to(&mut data[data_len..]);
@@ -481,6 +483,9 @@ async fn get_file_contents(file: web_sys::File) -> Option<Vec<u8>> {
 }
 
 #[wasm_bindgen]
+/// Construct the full p12 certificate for the user.
+/// It is assumed that the csr was previously submitted, and that the user didn't lose their private key
+/// or the password to their private key.
 pub fn build_cert() {
     crate::utils::set_panic_hook();
     wasm_logger::init(wasm_logger::Config::default());
@@ -512,7 +517,7 @@ pub fn build_cert() {
                         let cert_fetch = w.fetch_with_str_and_init(&url, &ri);
                         let cert_a = wasm_bindgen_futures::JsFuture::from(cert_fetch);
                         let cert = cert_a.await.unwrap();
-                        let rsp = web_sys::Response::try_from(cert).unwrap();
+                        let rsp = web_sys::Response::from(cert);
                         let tp = rsp.text().unwrap();
                         let tp_a = wasm_bindgen_futures::JsFuture::from(tp);
                         let t = tp_a.await.unwrap();
@@ -543,7 +548,7 @@ pub fn build_cert() {
                                         };
                                         let p12 = pkcs12.get_pkcs12(&certificate_password.unwrap());
                                         let file = build_file(&p12);
-                                        download_file(&d, &file, "certificate.p12");
+                                        let _ = download_file(&d, &file, "certificate.p12");
                                     }
                                 }
                             }
@@ -558,7 +563,7 @@ pub fn build_cert() {
 
         let mut options = web_sys::AddEventListenerOptions::new();
         options.once(true);
-        button.add_event_listener_with_callback_and_add_event_listener_options(
+        let _ = button.add_event_listener_with_callback_and_add_event_listener_options(
             "change", func, &options,
         );
     }
