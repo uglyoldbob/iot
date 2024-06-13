@@ -18,25 +18,56 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
     let f = s.post.form();
     if let Some(form) = f {
-        if let Some(pem) = form.get_first("csr") {
-            mycsr_pem = Some(pem.to_owned());
-            let raw_csr = RawCsrRequest {
-                pem: pem.to_string(),
-            };
-            valid_csr = raw_csr.verify_request().is_ok();
-            if valid_csr {
-                use der::DecodePem;
-                let _cert = x509_cert::request::CertReq::from_pem(pem).unwrap();
+        match &ca.config.sign_method {
+            CertificateSigningMethod::Https(_) => {
+                if let Some(pem) = form.get_first("csr") {
+                    mycsr_pem = Some(pem.to_owned());
+                    let raw_csr = RawCsrRequest {
+                        pem: pem.to_string(),
+                    };
+                    valid_csr = raw_csr.verify_request().is_ok();
+                    if valid_csr {
+                        use der::DecodePem;
+                        let _cert = x509_cert::request::CertReq::from_pem(pem).unwrap();
+                        let newid = ca.get_new_request_id().await;
+                        if let Some(newid) = newid {
+                            let csrr = CsrRequest {
+                                cert: pem.to_string(),
+                                name: form.get_first("name").unwrap().to_string(),
+                                email: form.get_first("email").unwrap().to_string(),
+                                phone: form.get_first("phone").unwrap().to_string(),
+                                id: newid,
+                            };
+                            let _ = ca.save_csr(&csrr).await;
+                        }
+                        id = newid;
+                    }
+                }
+            }
+            CertificateSigningMethod::Ssh(m) => {
+                service::log::debug!("The request form is {:?}", form);
+                let pub_string = form.get_first("pubkey").unwrap();
+                let u: u32 = form.get_first("usage_type").unwrap().parse().unwrap();
+                let u: ssh_key::certificate::CertType = u.try_into().unwrap();
+                let principals = form
+                    .get_first("principals")
+                    .unwrap()
+                    .lines()
+                    .map(|a| a.to_string())
+                    .collect();
                 let newid = ca.get_new_request_id().await;
                 if let Some(newid) = newid {
-                    let csrr = CsrRequest {
-                        cert: pem.to_string(),
+                    let sshr = SshRequest {
+                        pubkey: pub_string.to_string(),
+                        principals,
+                        usage: u.into(),
+                        comment: form.get_first("comment").unwrap().to_string(),
                         name: form.get_first("name").unwrap().to_string(),
                         email: form.get_first("email").unwrap().to_string(),
                         phone: form.get_first("phone").unwrap().to_string(),
                         id: newid,
                     };
-                    let _ = ca.save_csr(&csrr).await;
+                    let _ = ca.save_ssh_request(&sshr).await;
                 }
                 id = newid;
             }
@@ -291,8 +322,10 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                                 .line_break(|a| a);
                             f.division(|div| {
                                 div.class("hidden");
-                                div.input(|i| i.type_("submit").id("submit").value("Submit"))
-                                .line_break(|a| a);
+                                div.text_area(|i| i.id("pubkey").name("pubkey"))
+                                    .line_break(|a|a)
+                                    .input(|i| i.type_("submit").id("submit").value("Submit"))
+                                    .line_break(|a| a);
                                 div
                             });
                             f

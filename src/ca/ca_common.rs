@@ -2135,6 +2135,27 @@ impl RawCsrRequest {
 
 /// Contains a user signing request for a certificate
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub struct SshRequest {
+    /// The public key of the ssh key
+    pub pubkey: String,
+    /// Requested usage for the key (see `ssh_key::certificate::CertType`)
+    pub usage: u32,
+    /// The principals for the ssh key
+    pub principals: Vec<String>,
+    /// The comment for the certificate
+    pub comment: String,
+    /// The name of the person issuing the request
+    pub name: String,
+    /// The email of the person issuing the request
+    pub email: String,
+    /// The phone number of the person issuing the request
+    pub phone: String,
+    /// The id of the request
+    pub id: u64,
+}
+
+/// Contains a user signing request for a certificate
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct CsrRequest {
     /// The actual certificate request in pem format
     pub cert: String,

@@ -213,6 +213,32 @@ impl Ca {
         }
     }
 
+    /// Save an ssh request to the storage medium
+    pub async fn save_ssh_request(&mut self, sshr: &SshRequest) -> Result<(), ()> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                let csr = sshr.to_owned();
+                p.conn(move |conn| {
+                    let principals = csr.principals.join("/n");
+                    let mut stmt = conn.prepare("INSERT INTO sshr (id, requestor, email, phone, pubkey, principals, comment, usage) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)").expect("Failed to build statement");
+                    stmt.execute([
+                        csr.id.to_sql().unwrap(),
+                        csr.name.to_sql().unwrap(),
+                        csr.email.to_sql().unwrap(),
+                        csr.phone.to_sql().unwrap(),
+                        csr.pubkey.to_sql().unwrap(),
+                        principals.to_sql().unwrap(),
+                        csr.comment.to_sql().unwrap(),
+                        csr.usage.to_sql().unwrap(),
+                    ]).expect("Failed to insert ssh request");
+                    Ok(())
+                }).await.expect("Failed to insert ssh request");
+                Ok(())
+            }
+        }
+    }
+
     /// Save the csr to the storage medium
     pub async fn save_csr(&mut self, csr: &CsrRequest) -> Result<(), ()> {
         match &self.medium {

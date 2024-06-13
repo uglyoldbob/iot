@@ -34,6 +34,10 @@ fn do_ssh_work(work: SshWork) {
     if let Some(key) = signing.generate_keypair(4096) {
         let public_key = key.public_key();
 
+        if let Some(pubkey) = crate::get_html_input_by_name(&d, "pubkey") {
+            pubkey.set_value(&public_key.to_openssh().unwrap());
+        }
+
         let p = public_key.to_openssh().unwrap();
         let file = crate::build_file(p.as_bytes());
         let _ = crate::download_file(&d, &file, "ssh.pub");
