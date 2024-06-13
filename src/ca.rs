@@ -609,39 +609,51 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
         if let Some(id) = s.get.get("id") {
             let id = str::parse::<u64>(id);
             if let Ok(id) = id {
-                if let Some(csrr) = ca.get_csr_by_id(id).await {
-                    use der::Encode;
-                    let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
-                    let der = der.to_der().unwrap();
-                    let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
-                    let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
-                    match a {
-                        Ok(csr) => {
-                            service::log::info!("Ready to sign the csr");
-                            let ca_cert = ca.root_ca_cert().unwrap();
-                            let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
-                            if let CertificateSigningMethod::Https(m) = ca.config.sign_method {
-                                let cert_to_sign = CaCertificateToBeSigned {
-                                    algorithm: m,
-                                    medium: ca.medium.clone(),
-                                    csr,
-                                    pkey: None,
-                                    name: "".into(),
-                                    id,
-                                };
-                                let cert = ca_cert
-                                    .sign_csr(cert_to_sign, ca, id, time::Duration::days(365))
-                                    .unwrap();
-                                let der = cert.contents();
-                                ca.mark_csr_done(id).await;
-                                ca.save_user_cert(id, &der, &snb).await;
-                                csr_check = Ok(der);
+                match &ca.config.sign_method {
+                    CertificateSigningMethod::Https(_) => {
+                        if let Some(csrr) = ca.get_csr_by_id(id).await {
+                            use der::Encode;
+                            let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
+                            let der = der.to_der().unwrap();
+                            let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
+                            let a = rcgen::CertificateSigningRequestParams::from_der(&csr_der);
+                            match a {
+                                Ok(csr) => {
+                                    service::log::info!("Ready to sign the csr");
+                                    let ca_cert = ca.root_ca_cert().unwrap();
+                                    let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
+                                    if let CertificateSigningMethod::Https(m) =
+                                        ca.config.sign_method
+                                    {
+                                        let cert_to_sign = CaCertificateToBeSigned {
+                                            algorithm: m,
+                                            medium: ca.medium.clone(),
+                                            csr,
+                                            pkey: None,
+                                            name: "".into(),
+                                            id,
+                                        };
+                                        let cert = ca_cert
+                                            .sign_csr(
+                                                cert_to_sign,
+                                                ca,
+                                                id,
+                                                time::Duration::days(365),
+                                            )
+                                            .unwrap();
+                                        let der = cert.contents();
+                                        ca.mark_csr_done(id).await;
+                                        ca.save_user_cert(id, &der, &snb).await;
+                                        csr_check = Ok(der);
+                                    }
+                                }
+                                Err(e) => {
+                                    service::log::error!("Error decoding csr to sign: {:?}", e);
+                                }
                             }
                         }
-                        Err(e) => {
-                            service::log::error!("Error decoding csr to sign: {:?}", e);
-                        }
                     }
+                    CertificateSigningMethod::Ssh(_) => todo!(),
                 }
             }
         }
@@ -1621,52 +1633,32 @@ pub fn ca_register_files(
 
 /// Register handlers into the specified webrouter.
 pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
+    let register = |router: &mut WebRouter, name: &str, ca: &Ca| {
+        router.register(&format!("{}/ca", name), ca_main_page);
+        router.register(&format!("{}/ca/", name), ca_main_page);
+        router.register(&format!("{}/ca/get_ca.rs", name), ca_get_cert);
+        router.register(&format!("{}/ca/request.rs", name), ca_request);
+        router.register(&format!("{}/ca/submit_request.rs", name), ca_submit_request);
+        router.register(&format!("{}/ca/view_cert.rs", name), ca_view_user_cert);
+        router.register(&format!("{}/ca/view_all_certs.rs", name), ca_view_all_certs);
+        router.register(&format!("{}/ca/get_cert.rs", name), ca_get_user_cert);
+        router.register(&format!("{}/ca/ocsp", name), ca_ocsp_responder);
+        router.register(&format!("{}/ca/list.rs", name), ca_list_requests);
+        router.register(&format!("{}/ca/request_sign.rs", name), ca_sign_request);
+        router.register(&format!("{}/ca/request_reject.rs", name), ca_reject_request);
+        router.register(&format!("{}/ca/get_admin.rs", name), ca_get_admin);
+    };
+
     match pki {
         PkiInstance::Pki(pki) => {
             router.register("/pki", pki_main_page);
             router.register("/pki/", pki_main_page);
-            for name in pki.roots.keys() {
-                router.register(&format!("/pki/{}/ca", name), ca_main_page);
-                router.register(&format!("/pki/{}/ca/", name), ca_main_page);
-                router.register(&format!("/pki/{}/ca/get_ca.rs", name), ca_get_cert);
-                router.register(&format!("/pki/{}/ca/request.rs", name), ca_request);
-                router.register(
-                    &format!("/pki/{}/ca/submit_request.rs", name),
-                    ca_submit_request,
-                );
-                router.register(&format!("/pki/{}/ca/view_cert.rs", name), ca_view_user_cert);
-                router.register(
-                    &format!("/pki/{}/ca/view_all_certs.rs", name),
-                    ca_view_all_certs,
-                );
-                router.register(&format!("/pki/{}/ca/get_cert.rs", name), ca_get_user_cert);
-                router.register(&format!("/pki/{}/ca/ocsp", name), ca_ocsp_responder);
-                router.register(&format!("/pki/{}/ca/list.rs", name), ca_list_requests);
-                router.register(
-                    &format!("/pki/{}/ca/request_sign.rs", name),
-                    ca_sign_request,
-                );
-                router.register(
-                    &format!("/pki/{}/ca/request_reject.rs", name),
-                    ca_reject_request,
-                );
-                router.register(&format!("/pki/{}/ca/get_admin.rs", name), ca_get_admin);
+            for (name, ca) in &pki.roots {
+                register(router, &format!("/pki/{}", name), ca);
             }
         }
-        PkiInstance::Ca(_ca) => {
-            router.register("/ca", ca_main_page);
-            router.register("/ca/", ca_main_page);
-            router.register("/ca/get_ca.rs", ca_get_cert);
-            router.register("/ca/request.rs", ca_request);
-            router.register("/ca/submit_request.rs", ca_submit_request);
-            router.register("/ca/view_cert.rs", ca_view_user_cert);
-            router.register("/ca/view_all_certs.rs", ca_view_all_certs);
-            router.register("/ca/get_cert.rs", ca_get_user_cert);
-            router.register("/ca/ocsp", ca_ocsp_responder);
-            router.register("/ca/list.rs", ca_list_requests);
-            router.register("/ca/request_sign.rs", ca_sign_request);
-            router.register("/ca/request_reject.rs", ca_reject_request);
-            router.register("/ca/get_admin.rs", ca_get_admin);
+        PkiInstance::Ca(ca) => {
+            register(router, "", ca);
         }
     }
 }
