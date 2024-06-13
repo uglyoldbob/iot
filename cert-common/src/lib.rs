@@ -289,16 +289,16 @@ impl HttpsSigningMethod {
 }
 
 impl SshSigningMethod {
-    pub fn generate_keypair(&self, size: usize) -> Option<ssh_key::private::KeypairData> {
+    pub fn generate_keypair(&self, size: usize) -> Option<ssh_key::PrivateKey> {
         let rng = &mut rand::thread_rng();
         match self {
             Self::Rsa => {
                 let kp = ssh_key::private::RsaKeypair::random(rng, size).unwrap();
-                Some(ssh_key::private::KeypairData::Rsa(kp))
+                Some(kp.into())
             }
             Self::Ed25519 => {
                 let kp = ssh_key::private::Ed25519Keypair::random(rng);
-                Some(ssh_key::private::KeypairData::Ed25519(kp))
+                Some(kp.into())
             }
         }
     }

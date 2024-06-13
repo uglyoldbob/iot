@@ -4,17 +4,11 @@ use crate::timeout;
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 
-#[derive(Default)]
-/// The parameters needed to build an ssh certificate
-pub struct SshParams {}
-
 #[wasm_bindgen]
 /// The elements needed to build an ssh certificate
 pub struct SshWork {
     /// the password to protect the private key
     private_key_password: Zeroizing<String>,
-    /// the parameters to generate the certificate
-    params: SshParams,
     /// the method to sign the certificate with
     signing: cert_common::SshSigningMethod,
 }
@@ -23,43 +17,35 @@ pub struct SshWork {
 struct SshFormData {
     /// The password to protect the private key
     private_key_password: Zeroizing<String>,
-    /// The certificate will be used to identify a client
-    client_id: bool,
-    /// The certificate will be used to sign code
-    code_usage: bool,
-    /// The certificate will be used to identify a server
-    server_id: bool,
-    /// cname of the certificate
-    cname: String,
-    /// Country field for the certificate
-    country: String,
-    /// State field for the certificate
-    state: String,
-    /// Locality field for the certificate
-    locality: String,
-    /// organization field for the certificate
-    organization: String,
-    /// organization unit fiedl for the certificate
-    ou: String,
-    /// the challenge password for the certificate request
-    cpassword: Zeroizing<String>,
-    /// the challenge name for the certificate request
-    challenge_name: String,
+    /// How the certificate will be used
+    use_type: String,
 }
 
 /// Do the work required to build a certificate request
 fn do_ssh_work(work: SshWork) {
     let SshWork {
         private_key_password,
-        params,
         signing,
     } = work;
 
     let w = web_sys::window().unwrap();
     let d = w.document().unwrap();
 
-    if let Some(keypair) = signing.generate_keypair(4096) {
-        todo!();
+    if let Some(key) = signing.generate_keypair(4096) {
+        let public_key = key.public_key();
+
+        let p = public_key.to_openssh().unwrap();
+        let file = crate::build_file(p.as_bytes());
+        let _ = crate::download_file(&d, &file, "ssh.pub");
+
+        let pkey = key
+            .encrypt(&mut rand::thread_rng(), private_key_password)
+            .unwrap();
+        let file2 = crate::build_file(pkey.to_bytes().unwrap().as_ref());
+        let _ = crate::download_file(&d, &file2, "ssh");
+        if let Some(button) = crate::get_html_element_by_name(&d, "submit") {
+            button.click();
+        }
     }
 }
 
@@ -70,25 +56,12 @@ fn generate_ssh_with_form(
     form: SshFormData,
     signing: cert_common::SshSigningMethod,
 ) -> timeout::TimeoutHandleSshWork {
-    let mut params: SshParams = Default::default();
-
     let SshFormData {
         private_key_password,
-        client_id,
-        code_usage,
-        server_id,
-        cname,
-        country,
-        state,
-        locality,
-        organization,
-        ou,
-        cpassword,
-        challenge_name,
+        use_type,
     } = form;
 
-    //TODO fill out the params
-
+    let _use_type: u32 = use_type.parse().unwrap();
     let elements_form = d.get_elements_by_class_name("cert-gen-stuff");
     let loading_form = d.get_elements_by_class_name("cert_generating");
 
@@ -97,7 +70,6 @@ fn generate_ssh_with_form(
 
     let work = SshWork {
         private_key_password,
-        params,
         signing,
     };
 
@@ -136,61 +108,28 @@ fn validate_ssh_form(d: &web_sys::Document) -> Result<SshFormData, String> {
     let private_key_password =
         crate::get_value_from_input_by_name(d, "password").ok_or("Missing form value")?;
 
-    let client_id =
-        crate::get_checked_from_input_by_name(d, "usage-client").ok_or("Missing form value")?;
-    let code_usage =
-        crate::get_checked_from_input_by_name(d, "usage-code").ok_or("Missing form value")?;
-    let server_id =
-        crate::get_checked_from_input_by_name(d, "usage-server").ok_or("Missing form value")?;
+    let _comment = crate::get_value_from_input_by_name(d, "comment").ok_or("Missing form value")?;
 
-    let cname = crate::get_value_from_input_by_name(d, "cname").ok_or("Missing form value")?;
-    let country = crate::get_value_from_input_by_name(d, "country").ok_or("Missing form value")?;
-    let state = crate::get_value_from_input_by_name(d, "state").ok_or("Missing form value")?;
-    let locality =
-        crate::get_value_from_input_by_name(d, "locality").ok_or("Missing form value")?;
-    let organization =
-        crate::get_value_from_input_by_name(d, "organization").ok_or("Missing form value")?;
-    let ou =
-        crate::get_value_from_input_by_name(d, "organization-unit").ok_or("Missing form value")?;
-    let cpassword =
+    let use_type =
+        crate::get_value_from_input_by_name(d, "usage-type").ok_or("Missing form value")?;
+
+    let principals =
+        crate::get_value_from_input_by_name(d, "principals").ok_or("Missing form value")?;
+
+    let _cpassword =
         crate::get_value_from_input_by_name(d, "challenge-pass").ok_or("Missing form value")?;
-    let challenge_name =
+    let _challenge_name =
         crate::get_value_from_input_by_name(d, "challenge-name").ok_or("Missing form value")?;
 
     let mut good_name = false;
 
-    if !cname.is_empty() {
-        good_name = true;
-    }
-    if !country.is_empty() {
-        good_name = true;
-    }
-    if !state.is_empty() {
-        good_name = true;
-    }
-    if !locality.is_empty() {
-        good_name = true;
-    }
-    if !organization.is_empty() {
-        good_name = true;
-    }
-    if !ou.is_empty() {
+    if !principals.is_empty() {
         good_name = true;
     }
 
     let form = SshFormData {
         private_key_password: Zeroizing::new(private_key_password),
-        client_id,
-        code_usage,
-        server_id,
-        cname,
-        country,
-        state,
-        locality,
-        organization,
-        ou,
-        cpassword: Zeroizing::new(cpassword),
-        challenge_name,
+        use_type,
     };
 
     if !good_name {

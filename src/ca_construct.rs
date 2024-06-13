@@ -287,7 +287,7 @@ impl Ca {
             }
             CertificateSigningMethod::Ssh(m) => {
                 if settings.root {
-                    let keypair = m.generate_keypair(4096).unwrap();
+                    let key = m.generate_keypair(4096).unwrap();
 
                     let valid_after = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -295,15 +295,9 @@ impl Ca {
                         .as_secs();
                     let valid_before = valid_after + (365 * 86400); // e.g. 1 year
 
-                    let pri_key: ssh_key::PrivateKey = match &keypair {
-                        ssh_key::private::KeypairData::Ed25519(kp) => kp.to_owned().into(),
-                        ssh_key::private::KeypairData::Rsa(kp) => kp.to_owned().into(),
-                        _ => todo!(),
-                    };
-
                     let mut cert_builder = ssh_key::certificate::Builder::new_with_random_nonce(
                         &mut rand::thread_rng(),
-                        pri_key.public_key(),
+                        key.public_key(),
                         valid_after,
                         valid_before,
                     )
@@ -315,8 +309,8 @@ impl Ca {
                         .unwrap();
                     cert_builder.valid_principal("invalid").unwrap();
                     cert_builder.comment(ca.config.common_name.clone()).unwrap();
-                    let cert = cert_builder.sign(&pri_key).unwrap();
-                    let sshc = SshCertificate::new(m, Some(keypair), cert);
+                    let cert = cert_builder.sign(&key).unwrap();
+                    let sshc = SshCertificate::new(m, Some(key.key_data().to_owned()), cert);
                     let root = CaCertificate::from_existing_ssh(
                         ca.medium.clone(),
                         sshc,

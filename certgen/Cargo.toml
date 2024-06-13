@@ -65,7 +65,7 @@ features = ["ring", "pem", "x509-parser"]
 
 [dependencies.ssh-key]
 version = "0.6.6"
-features = [ "rsa", "ed25519" ]
+features = [ "rsa", "ed25519", "encryption" ]
 
 [dependencies.cert-common]
 path = "../cert-common"

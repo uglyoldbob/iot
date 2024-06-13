@@ -265,38 +265,21 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                             f.heading_1(|h| {
                                 h.text("Certificate Usage").line_break(|a|a)
                             });
-                            f.input(|i| { i.type_("checkbox").id("usage-client").name("usage-client").value("client") });
-                            f.label(|l| l.for_("usage-client").text("Client certification")).line_break(|a|a);
-                            f.input(|i| { i.type_("checkbox").id("usage-code").name("usage-code").value("code") });
-                            f.label(|l| l.for_("usage-code").text("Code signing")).line_break(|a|a);
-                            f.input(|i| { i.type_("checkbox").id("usage-server").name("usage-server").value("server") });
-                            f.label(|l| l.for_("usage-server").text("Server certification")).line_break(|a|a);
+                            f.select(|i| {
+                                i.name("usage-type").id("usage-type")
+                                    .option(|o|o.value("1").text("User"))
+                                    .option(|o|o.value("2").text("Host"))
+                                }).line_break(|a|a);
                             f.heading_1(|h| {
                                 h.text("Certificate Information").line_break(|a|a)
                             });
-                            f.text("Certificate Name")
+                            f.text("Principals")
+                                    .line_break(|a| a)
+                                    .text_area(|i| i.id("principals").name("principals"))
+                                    .line_break(|a| a);
+                            f.text("Certificate comment")
                                 .line_break(|a| a)
-                                .input(|i| i.type_("text").id("cname").name("cname"))
-                                .line_break(|a| a);
-                            f.text("Country")
-                                .line_break(|a| a)
-                                .input(|i| i.type_("text").id("country").name("country"))
-                                .line_break(|a| a);
-                            f.text("State")
-                                .line_break(|a| a)
-                                .input(|i| i.type_("text").id("state").name("state"))
-                                .line_break(|a| a);
-                            f.text("Locality")
-                                .line_break(|a| a)
-                                .input(|i| i.type_("text").id("locality").name("locality"))
-                                .line_break(|a| a);
-                            f.text("Organization Name")
-                                .line_break(|a| a)
-                                .input(|i| i.type_("text").id("organization").name("organization"))
-                                .line_break(|a| a);
-                            f.text("Organization Unit")
-                                .line_break(|a| a)
-                                .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
+                                .input(|i| i.type_("text").id("comment").name("comment"))
                                 .line_break(|a| a);
                             f.text("Challenge password")
                                 .line_break(|a| a)
@@ -306,15 +289,6 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                                 .line_break(|a| a)
                                 .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
                                 .line_break(|a| a);
-                            f.division(|div| {
-                                div.class("advanced");
-                                div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
-                                div.text("CSR")
-                                    .line_break(|a| a)
-                                    .text_area(|i| i.id("csr").name("csr"))
-                                    .line_break(|a| a);
-                                div
-                            });
                             f.division(|div| {
                                 div.class("hidden");
                                 div.input(|i| i.type_("submit").id("submit").value("Submit"))
