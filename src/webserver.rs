@@ -1,12 +1,13 @@
 //! This module is used to run a webserver.
 
 use futures::stream::FuturesUnordered;
-use futures::Future;
+use futures::{Future, FutureExt};
 use hyper::{Request, Response, StatusCode};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -694,9 +695,7 @@ pub async fn http_webserver(
                         }
                     }));
                 }
-                Some(_) = f.next() => {
-                    println!("Testing");
-                }
+                Ok(Some(a)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
                 _ = tokio::signal::ctrl_c() => break,
             }
         }
@@ -821,9 +820,7 @@ pub async fn https_webserver(
                         }
                     }));
                 }
-                Some(_) = f.next() => {
-                    println!("Testing");
-                }
+                Ok(Some(a)) = AssertUnwindSafe(f.next()).catch_unwind() => { }
                 _ = tokio::signal::ctrl_c() => break,
                 else => break,
             }

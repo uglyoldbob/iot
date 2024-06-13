@@ -13,7 +13,6 @@ mod tpm2;
 use std::io::Write;
 use std::sync::Arc;
 
-use futures::FutureExt;
 use hyper::header::HeaderValue;
 
 mod user;
