@@ -44,10 +44,9 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     }
                 }
             }
-            CertificateSigningMethod::Ssh(m) => {
-                service::log::debug!("The request form is {:?}", form);
+            CertificateSigningMethod::Ssh(_) => {
                 let pub_string = form.get_first("pubkey").unwrap();
-                let u: u32 = form.get_first("usage_type").unwrap().parse().unwrap();
+                let u: u32 = form.get_first("usage-type").unwrap().parse().unwrap();
                 let u: ssh_key::certificate::CertType = u.try_into().unwrap();
                 let principals = form
                     .get_first("principals")
@@ -69,6 +68,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     };
                     let _ = ca.save_ssh_request(&sshr).await;
                 }
+                valid_csr = true;
                 id = newid;
             }
         }

@@ -9,21 +9,32 @@ use zeroize::Zeroizing;
 
 impl CaCertificateStorage {
     /// Initialize the storage medium
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) {
+        let sign_method = settings.sign_method;
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::Sqlite(p) => {
-                p.conn(|conn| {
+                p.conn(move |conn| {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
                     conn.execute(
                         "CREATE TABLE p12 ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, der BLOB )",
                         [],
                     )?;
-                    conn.execute(
-                        "CREATE TABLE csr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pem TEXT, rejection TEXT, done INTEGER DEFAULT 0 )",
-                        [],
-                    )?;
+                    match sign_method {
+                        CertificateSigningMethod::Https(_) => {
+                            conn.execute(
+                                "CREATE TABLE csr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pem TEXT, rejection TEXT, done INTEGER DEFAULT 0 )",
+                                [],
+                            )?;
+                        }
+                        CertificateSigningMethod::Ssh(_) => {
+                            conn.execute(
+                                "CREATE TABLE sshr ( id INTEGER PRIMARY KEY, requestor TEXT, email TEXT, phone TEXT, pubkey TEXT, principals TEXT, comment TEXT, usage INTEGER, rejection TEXT, done INTEGER DEFAULT 0 )",
+                                [],
+                            )?;
+                        }
+                    }
                     conn.execute(
                         "CREATE TABLE certs ( id INTEGER PRIMARY KEY, der BLOB )",
                         [],
@@ -166,7 +177,7 @@ impl Ca {
             panic!("Storage medium already exists");
         }
         let mut medium = settings.path.build(Some(options)).await;
-        medium.init().await;
+        medium.init(settings).await;
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
