@@ -735,10 +735,15 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
             let private = value.pkey;
             let mut pk = private.as_ref();
             let keypair = ssh_key::private::KeypairData::decode(&mut pk).unwrap();
+            let t = match &keypair {
+                ssh_key::private::KeypairData::Ed25519(_) => SshSigningMethod::Ed25519,
+                ssh_key::private::KeypairData::Rsa(_) => SshSigningMethod::Rsa,
+                _ => todo!(),
+            };
             return Ok(Self {
                 medium: CaCertificateStorage::Nowhere,
                 data: CertificateData::Ssh(SshCertificate {
-                    algorithm: SshSigningMethod::Rsa,
+                    algorithm: t,
                     keypair: Some(keypair),
                     cert,
                 }),

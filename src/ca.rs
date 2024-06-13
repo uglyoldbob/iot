@@ -130,103 +130,203 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                         div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_csr_ecdsa_sha256()"));
                     }
                 }
-                CertificateSigningMethod::Ssh(m) => todo!(),
+                CertificateSigningMethod::Ssh(m) => {
+                    match m {
+                        cert_common::SshSigningMethod::Rsa => {
+                            div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_ssh_rsa()"));
+                        }
+                        cert_common::SshSigningMethod::Ed25519 => {
+                            div.button(|b| b.text("Generate a certificate").onclick("wasm_bindgen.generate_ed25519_rsa()"));
+                        }
+                    }
+                }
             }
             div.line_break(|lb| lb);
-            div.division(|div| {
-                div.class("advanced");
-                div.button(|b| b.text("Simple").onclick("wasm_bindgen.show_regular()")).line_break(|a|a);
-                div
-            });
-            div.division(|div| {
-                div.class("regular");
-                div.button(|b| b.text("Advanced").onclick("wasm_bindgen.show_advanced()")).line_break(|a|a);
-                div
-            });
-            div.division(|div| {
-                div.form(|f| {
-                    f.name("request");
-                    f.action(format!("{}{}ca/submit_request.rs", s.proxy, pki));
-                    f.method("post");
-                    f.text("Your Name")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("name").name("name"))
-                        .line_break(|a| a);
-                    f.text("Email")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("email").id("email").name("email"))
-                        .line_break(|a| a);
-                    f.text("Phone Number")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("tel").id("phone").name("phone"))
-                        .line_break(|a| a);
-                    f.text("Password for private key")
-                        .line_break(|a|a)
-                        .input(|i| i.type_("password").id("password"))
-                        .line_break(|a|a);
-                    f.heading_1(|h| {
-                        h.text("Certificate Usage").line_break(|a|a)
-                    });
-                    f.input(|i| { i.type_("checkbox").id("usage-client").name("usage-client").value("client") });
-                    f.label(|l| l.for_("usage-client").text("Client certification")).line_break(|a|a);
-                    f.input(|i| { i.type_("checkbox").id("usage-code").name("usage-code").value("code") });
-                    f.label(|l| l.for_("usage-code").text("Code signing")).line_break(|a|a);
-                    f.input(|i| { i.type_("checkbox").id("usage-server").name("usage-server").value("server") });
-                    f.label(|l| l.for_("usage-server").text("Server certification")).line_break(|a|a);
-                    f.heading_1(|h| {
-                        h.text("Certificate Information").line_break(|a|a)
-                    });
-                    f.text("Certificate Name")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("cname").name("cname"))
-                        .line_break(|a| a);
-                    f.text("Country")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("country").name("country"))
-                        .line_break(|a| a);
-                    f.text("State")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("state").name("state"))
-                        .line_break(|a| a);
-                    f.text("Locality")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("locality").name("locality"))
-                        .line_break(|a| a);
-                    f.text("Organization Name")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("organization").name("organization"))
-                        .line_break(|a| a);
-                    f.text("Organization Unit")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
-                        .line_break(|a| a);
-                    f.text("Challenge password")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
-                        .line_break(|a| a);
-                    f.text("Challenge name")
-                        .line_break(|a| a)
-                        .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
-                        .line_break(|a| a);
-                    f.division(|div| {
+            match ca.config.sign_method {
+                CertificateSigningMethod::Https(_m) => {
+                    div.division(|div| {
                         div.class("advanced");
-                        div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
-                        div.text("CSR")
-                            .line_break(|a| a)
-                            .text_area(|i| i.id("csr").name("csr"))
-                            .line_break(|a| a);
+                        div.button(|b| b.text("Simple").onclick("wasm_bindgen.show_regular()")).line_break(|a|a);
                         div
                     });
-                    f.division(|div| {
-                        div.class("hidden");
-                        div.input(|i| i.type_("submit").id("submit").value("Submit"))
-                        .line_break(|a| a);
+                    div.division(|div| {
+                        div.class("regular");
+                        div.button(|b| b.text("Advanced").onclick("wasm_bindgen.show_advanced()")).line_break(|a|a);
                         div
                     });
-                    f
-                });
-                div
-            });
+                    div.division(|div| {
+                        div.form(|f| {
+                            f.name("request");
+                            f.action(format!("{}{}ca/submit_request.rs", s.proxy, pki));
+                            f.method("post");
+                            f.text("Your Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("name").name("name"))
+                                .line_break(|a| a);
+                            f.text("Email")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("email").id("email").name("email"))
+                                .line_break(|a| a);
+                            f.text("Phone Number")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("tel").id("phone").name("phone"))
+                                .line_break(|a| a);
+                            f.text("Password for private key")
+                                .line_break(|a|a)
+                                .input(|i| i.type_("password").id("password"))
+                                .line_break(|a|a);
+                            f.heading_1(|h| {
+                                h.text("Certificate Usage").line_break(|a|a)
+                            });
+                            f.input(|i| { i.type_("checkbox").id("usage-client").name("usage-client").value("client") });
+                            f.label(|l| l.for_("usage-client").text("Client certification")).line_break(|a|a);
+                            f.input(|i| { i.type_("checkbox").id("usage-code").name("usage-code").value("code") });
+                            f.label(|l| l.for_("usage-code").text("Code signing")).line_break(|a|a);
+                            f.input(|i| { i.type_("checkbox").id("usage-server").name("usage-server").value("server") });
+                            f.label(|l| l.for_("usage-server").text("Server certification")).line_break(|a|a);
+                            f.heading_1(|h| {
+                                h.text("Certificate Information").line_break(|a|a)
+                            });
+                            f.text("Certificate Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("cname").name("cname"))
+                                .line_break(|a| a);
+                            f.text("Country")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("country").name("country"))
+                                .line_break(|a| a);
+                            f.text("State")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("state").name("state"))
+                                .line_break(|a| a);
+                            f.text("Locality")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("locality").name("locality"))
+                                .line_break(|a| a);
+                            f.text("Organization Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("organization").name("organization"))
+                                .line_break(|a| a);
+                            f.text("Organization Unit")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
+                                .line_break(|a| a);
+                            f.text("Challenge password")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
+                                .line_break(|a| a);
+                            f.text("Challenge name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
+                                .line_break(|a| a);
+                            f.division(|div| {
+                                div.class("advanced");
+                                div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
+                                div.text("CSR")
+                                    .line_break(|a| a)
+                                    .text_area(|i| i.id("csr").name("csr"))
+                                    .line_break(|a| a);
+                                div
+                            });
+                            f.division(|div| {
+                                div.class("hidden");
+                                div.input(|i| i.type_("submit").id("submit").value("Submit"))
+                                .line_break(|a| a);
+                                div
+                            });
+                            f
+                        });
+                        div
+                    });
+                }
+                CertificateSigningMethod::Ssh(_m) => {
+                    div.division(|div| {
+                        div.text("SSH STUFF").line_break(|a|a);
+                        div.form(|f| {
+                            f.name("request");
+                            f.action(format!("{}{}ca/submit_request.rs", s.proxy, pki));
+                            f.method("post");
+                            f.text("Your Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("name").name("name"))
+                                .line_break(|a| a);
+                            f.text("Email")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("email").id("email").name("email"))
+                                .line_break(|a| a);
+                            f.text("Phone Number")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("tel").id("phone").name("phone"))
+                                .line_break(|a| a);
+                            f.text("Password for private key")
+                                .line_break(|a|a)
+                                .input(|i| i.type_("password").id("password"))
+                                .line_break(|a|a);
+                            f.heading_1(|h| {
+                                h.text("Certificate Usage").line_break(|a|a)
+                            });
+                            f.input(|i| { i.type_("checkbox").id("usage-client").name("usage-client").value("client") });
+                            f.label(|l| l.for_("usage-client").text("Client certification")).line_break(|a|a);
+                            f.input(|i| { i.type_("checkbox").id("usage-code").name("usage-code").value("code") });
+                            f.label(|l| l.for_("usage-code").text("Code signing")).line_break(|a|a);
+                            f.input(|i| { i.type_("checkbox").id("usage-server").name("usage-server").value("server") });
+                            f.label(|l| l.for_("usage-server").text("Server certification")).line_break(|a|a);
+                            f.heading_1(|h| {
+                                h.text("Certificate Information").line_break(|a|a)
+                            });
+                            f.text("Certificate Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("cname").name("cname"))
+                                .line_break(|a| a);
+                            f.text("Country")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("country").name("country"))
+                                .line_break(|a| a);
+                            f.text("State")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("state").name("state"))
+                                .line_break(|a| a);
+                            f.text("Locality")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("locality").name("locality"))
+                                .line_break(|a| a);
+                            f.text("Organization Name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("organization").name("organization"))
+                                .line_break(|a| a);
+                            f.text("Organization Unit")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("organization-unit").name("organization-unit"))
+                                .line_break(|a| a);
+                            f.text("Challenge password")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("password").id("challenge-pass").name("challenge-pass"))
+                                .line_break(|a| a);
+                            f.text("Challenge name")
+                                .line_break(|a| a)
+                                .input(|i| i.type_("text").id("challenge-name").name("challenge-name"))
+                                .line_break(|a| a);
+                            f.division(|div| {
+                                div.class("advanced");
+                                div.emphasis(|e| e.text("Advanced")).line_break(|a|a);
+                                div.text("CSR")
+                                    .line_break(|a| a)
+                                    .text_area(|i| i.id("csr").name("csr"))
+                                    .line_break(|a| a);
+                                div
+                            });
+                            f.division(|div| {
+                                div.class("hidden");
+                                div.input(|i| i.type_("submit").id("submit").value("Submit"))
+                                .line_break(|a| a);
+                                div
+                            });
+                            f
+                        });
+                        div
+                    });
+                }
+            }
             div
         });
         b.division(|div| {
@@ -345,20 +445,33 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             if admin {
                 b.text("You are admin").line_break(|a| a);
             }
-            b.anchor(|ab| {
-                ab.text("Download CA certificate as der");
-                ab.href(format!("{}{}ca/get_ca.rs?type=der", s.proxy, pki));
-                ab.target("_blank");
-                ab
-            });
-            b.line_break(|lb| lb);
-            b.anchor(|ab| {
-                ab.text("Download CA certificate as pem");
-                ab.href(format!("{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
-                ab.target("_blank");
-                ab
-            });
-            b.line_break(|lb| lb);
+            match &ca.config.sign_method {
+                CertificateSigningMethod::Https(m) => {
+                    b.anchor(|ab| {
+                        ab.text("Download CA certificate as der");
+                        ab.href(format!("{}{}ca/get_ca.rs?type=der", s.proxy, pki));
+                        ab.target("_blank");
+                        ab
+                    });
+                    b.line_break(|lb| lb);
+                    b.anchor(|ab| {
+                        ab.text("Download CA certificate as pem");
+                        ab.href(format!("{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
+                        ab.target("_blank");
+                        ab
+                    });
+                    b.line_break(|lb| lb);
+                }
+                CertificateSigningMethod::Ssh(m) => {
+                    b.anchor(|ab| {
+                        ab.text("Download SSH CA certificate");
+                        ab.href(format!("{}{}ca/get_ca.rs", s.proxy, pki));
+                        ab.target("_blank");
+                        ab
+                    });
+                    b.line_break(|lb| lb);
+                }
+            }
             b.anchor(|ab| {
                 ab.text("Request a signature on a certificate");
                 ab.href(format!("{}{}ca/request.rs", s.proxy, pki));
@@ -1187,38 +1300,54 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRe
     let mut cert: Option<Vec<u8>> = None;
 
     if let Ok(cert_der) = ca.root_ca_cert() {
-        let ty = if s.get.contains_key("type") {
-            s.get.get("type").unwrap().to_owned()
-        } else {
-            "der".to_string()
-        };
+        match &ca.config.sign_method {
+            CertificateSigningMethod::Https(_m) => {
+                let ty = if s.get.contains_key("type") {
+                    s.get.get("type").unwrap().to_owned()
+                } else {
+                    "der".to_string()
+                };
 
-        match ty.as_str() {
-            "der" => {
-                response.headers.append(
-                    "Content-Type",
-                    HeaderValue::from_static("application/x509-ca-cert"),
-                );
-                response.headers.append(
-                    "Content-Disposition",
-                    HeaderValue::from_static("attachment; filename=ca.cer"),
-                );
-                cert = Some(cert_der.contents());
+                match ty.as_str() {
+                    "der" => {
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x509-ca-cert"),
+                        );
+                        response.headers.append(
+                            "Content-Disposition",
+                            HeaderValue::from_static("attachment; filename=ca.cer"),
+                        );
+                        cert = Some(cert_der.contents());
+                    }
+                    "pem" => {
+                        response.headers.append(
+                            "Content-Type",
+                            HeaderValue::from_static("application/x-pem-file"),
+                        );
+                        response.headers.append(
+                            "Content-Disposition",
+                            HeaderValue::from_static("attachment; filename=ca.pem"),
+                        );
+                        if let Some(pem) = cert_der.public_pem() {
+                            cert = Some(pem.as_bytes().to_vec());
+                        }
+                    }
+                    _ => {}
+                }
             }
-            "pem" => {
-                response.headers.append(
-                    "Content-Type",
-                    HeaderValue::from_static("application/x-pem-file"),
-                );
+            CertificateSigningMethod::Ssh(_m) => {
+                response
+                    .headers
+                    .append("Content-Type", HeaderValue::from_static("text/plain"));
                 response.headers.append(
                     "Content-Disposition",
-                    HeaderValue::from_static("attachment; filename=ca.pem"),
+                    HeaderValue::from_static("attachment; filename=ca.txt"),
                 );
                 if let Some(pem) = cert_der.public_pem() {
                     cert = Some(pem.as_bytes().to_vec());
                 }
             }
-            _ => {}
         }
     }
 

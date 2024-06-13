@@ -287,10 +287,7 @@ impl Ca {
             }
             CertificateSigningMethod::Ssh(m) => {
                 if settings.root {
-                    let ca_keypair =
-                        ssh_key::private::RsaKeypair::random(&mut rand::thread_rng(), 4096)
-                            .unwrap();
-                    let keypair = ssh_key::private::KeypairData::Rsa(ca_keypair);
+                    let keypair = m.generate_keypair(4096).unwrap();
 
                     let valid_after = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -319,11 +316,7 @@ impl Ca {
                     cert_builder.valid_principal("invalid").unwrap();
                     cert_builder.comment(ca.config.common_name.clone()).unwrap();
                     let cert = cert_builder.sign(&pri_key).unwrap();
-                    let sshc = SshCertificate::new(
-                        cert_common::SshSigningMethod::Rsa,
-                        Some(keypair),
-                        cert,
-                    );
+                    let sshc = SshCertificate::new(m, Some(keypair), cert);
                     let root = CaCertificate::from_existing_ssh(
                         ca.medium.clone(),
                         sshc,
