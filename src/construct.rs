@@ -194,7 +194,7 @@ async fn main() {
         panic!("Service already exists");
     }
 
-    let _ca_instance = ca::PkiInstance::init(&config.pki, &answers, &config, &options).await;
+    let _ca_instance = ca::PkiInstance::init(&config.pki, &config, &options).await;
 
     if let Some(https) = &config.https {
         if !https.certificate.exists() {

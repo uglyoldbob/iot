@@ -14,6 +14,22 @@ use zeroize::Zeroizing;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
 
+/// Generate a password of the specified length
+pub fn generate_password(len: usize) -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                            abcdefghijklmnopqrstuvwxyz\
+                            0123456789\
+                            `~!@#$%^&*()-_=+[]{}\\|;:'\",<.>/?";
+    let mut rng = rand::thread_rng();
+    (0..len)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
 /// Get the list of sqlite files from the base filename for a sqlite database
 pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     let name = p.file_name().unwrap().to_owned();

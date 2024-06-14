@@ -482,10 +482,10 @@ async fn smain() {
     if let Some(https) = &settings.https {
         service::log::info!("Listening https on port {}", https.port);
 
-        let tls_pass = https.certpass.to_owned();
+        let tls_pass = https.certificate.password();
         let tls_cert = https.certificate.to_owned();
         let cert_contents = match tls_cert {
-            main_config::HttpsCertificateLocation::Existing(path) => {
+            main_config::HttpsCertificateLocation::Existing { path, password: _ } => {
                 use std::io::Read;
                 let mut certbytes = vec![];
                 let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
@@ -493,7 +493,11 @@ async fn smain() {
                 certf.read_to_end(&mut certbytes).unwrap();
                 certbytes
             }
-            main_config::HttpsCertificateLocation::New { path, ca_name: _ } => {
+            main_config::HttpsCertificateLocation::New {
+                path,
+                ca_name: _,
+                password: _,
+            } => {
                 use std::io::Read;
                 let mut certbytes = vec![];
                 service::log::info!(

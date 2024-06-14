@@ -52,12 +52,11 @@ impl Pki {
     #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfiguration,
-        answers: &crate::main_config::MainConfigurationAnswers,
         main_config: &crate::main_config::MainConfiguration,
         options: &OwnerOptions,
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
-        let ca_name = answers
+        let ca_name = main_config
             .https
             .as_ref()
             .map(|h| h.certificate.create_by_ca())
@@ -67,7 +66,7 @@ impl Pki {
             let mut ca = crate::ca::Ca::init(config, options).await;
             if let Some(ca_name) = &ca_name {
                 if ca_name == name {
-                    if let Some(https) = &answers.https {
+                    if let Some(https) = &main_config.https {
                         if https.certificate.create_by_ca().is_some() {
                             ca.create_https_certificate(
                                 https.certificate.pathbuf(),
@@ -76,7 +75,7 @@ impl Pki {
                                     .iter()
                                     .map(|a| a.to_string())
                                     .collect(),
-                                https.certpass.to_string().as_str(),
+                                https.certificate.password(),
                             )
                             .await;
                         }
@@ -94,19 +93,18 @@ impl PkiInstance {
     #[allow(dead_code)]
     pub async fn init(
         settings: &crate::ca::PkiConfigurationEnum,
-        answers: &crate::main_config::MainConfigurationAnswers,
         main_config: &crate::main_config::MainConfiguration,
         options: &OwnerOptions,
     ) -> Self {
         match settings {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::init(pki_config, answers, main_config, options).await;
+                let pki = crate::ca::Pki::init(pki_config, main_config, options).await;
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
                 let mut ca = crate::ca::Ca::init(&ca, &options).await;
-                if let Some(https) = &answers.https {
+                if let Some(https) = &main_config.https {
                     if https.certificate.create_by_ca().is_some() {
                         ca.create_https_certificate(
                             https.certificate.pathbuf(),
@@ -115,7 +113,7 @@ impl PkiInstance {
                                 .iter()
                                 .map(|a| a.to_string())
                                 .collect(),
-                            https.certpass.to_string().as_str(),
+                            https.certificate.password(),
                         )
                         .await;
                     }
