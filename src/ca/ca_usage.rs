@@ -83,7 +83,42 @@ impl Ca {
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
                             let id = r.get(0).unwrap();
-                            let dbentry = CsrRequestDbEntry::new(r);
+                            let dbentry = DbEntry::new(r);
+                            let csr = dbentry.into();
+                            s.send((index, csr, id)).unwrap();
+                            index += 1;
+                        }
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                }
+            }
+        });
+        while let Some((index, csr, id)) = r.recv().await {
+            process(index, csr, id);
+        }
+    }
+
+    /// Performs an iteration of all ssh request that are not done, processing them with the given closure.
+    pub async fn ssh_processing<'a, F>(&'a self, mut process: F)
+    where
+        F: FnMut(usize, SshRequest, u64) + Send + 'a,
+    {
+        let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
+
+        let self2_medium = self.medium.to_owned();
+        tokio::spawn(async move {
+            match self2_medium {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::Sqlite(p) => {
+                    p.conn(move |conn| {
+                        let mut stmt = conn.prepare("SELECT * from sshr WHERE done='0'").unwrap();
+                        let mut rows = stmt.query([]).unwrap();
+                        let mut index = 0;
+                        while let Ok(Some(r)) = rows.next() {
+                            let id = r.get(0).unwrap();
+                            let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
                             s.send((index, csr, id)).unwrap();
                             index += 1;
@@ -124,22 +159,45 @@ impl Ca {
 
     /// Retrieve the reason the csr was rejected
     pub async fn get_rejection_reason_by_id(&self, id: u64) -> Option<String> {
-        let rejection: Option<CsrRejection> = match &self.medium {
+        match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::Sqlite(p) => {
-                let cert: Result<CsrRejection, async_sqlite::Error> = p
-                    .conn(move |conn| {
-                        conn.query_row(&format!("SELECT * FROM csr WHERE id='{}'", id), [], |r| {
-                            let dbentry = CsrRejectionDbEntry::new(r);
-                            let csr = dbentry.into();
-                            Ok(csr)
+            CaCertificateStorage::Sqlite(p) => match &self.config.sign_method {
+                cert_common::CertificateSigningMethod::Https(_) => {
+                    let cert: Result<CsrRejection, async_sqlite::Error> = p
+                        .conn(move |conn| {
+                            conn.query_row(
+                                &format!("SELECT * FROM csr WHERE id='{}'", id),
+                                [],
+                                |r| {
+                                    let dbentry = DbEntry::new(r);
+                                    let csr = dbentry.into();
+                                    Ok(csr)
+                                },
+                            )
                         })
-                    })
-                    .await;
-                cert.ok()
-            }
-        };
-        rejection.map(|r| r.rejection)
+                        .await;
+                    let rejection: Option<CsrRejection> = cert.ok();
+                    rejection.map(|r| r.rejection)
+                }
+                cert_common::CertificateSigningMethod::Ssh(_) => {
+                    let cert: Result<SshRejection, async_sqlite::Error> = p
+                        .conn(move |conn| {
+                            conn.query_row(
+                                &format!("SELECT * FROM sshr WHERE id='{}'", id),
+                                [],
+                                |r| {
+                                    let dbentry = DbEntry::new(r);
+                                    let csr = dbentry.into();
+                                    Ok(csr)
+                                },
+                            )
+                        })
+                        .await;
+                    let rejection: Option<SshRejection> = cert.ok();
+                    rejection.map(|r| r.rejection)
+                }
+            },
+        }
     }
 
     /// Reject an existing certificate signing request by id.
@@ -188,7 +246,7 @@ impl Ca {
         }
     }
 
-    /// Retrieve a certificate signing request by id, if it exists
+    /// Retrieve a https certificate signing request by id, if it exists
     pub async fn get_csr_by_id(&self, id: u64) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
@@ -196,7 +254,7 @@ impl Ca {
                 let cert: Result<CsrRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
                         conn.query_row(&format!("SELECT * FROM csr WHERE id='{}'", id), [], |r| {
-                            let dbentry = CsrRequestDbEntry::new(r);
+                            let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
                             Ok(csr)
                         })
@@ -206,6 +264,31 @@ impl Ca {
                     Ok(c) => Some(c),
                     Err(e) => {
                         service::log::error!("Error retrieving csr {:?}", e);
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// Retrieve a ssh certificate signing request by id, if it exists
+    pub async fn get_ssh_request_by_id(&self, id: u64) -> Option<SshRequest> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => {
+                let cert: Result<SshRequest, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(&format!("SELECT * FROM sshr WHERE id='{}'", id), [], |r| {
+                            let dbentry = DbEntry::new(r);
+                            let csr = dbentry.into();
+                            Ok(csr)
+                        })
+                    })
+                    .await;
+                match cert {
+                    Ok(c) => Some(c),
+                    Err(e) => {
+                        service::log::error!("Error retrieving sshr {:?}", e);
                         None
                     }
                 }

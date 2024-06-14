@@ -1990,33 +1990,6 @@ impl CertAttribute {
     }
 }
 
-/// Represents an intermediate object for a CsrRejection
-pub struct CsrRejectionDbEntry<'a> {
-    /// The row contents
-    row_data: &'a async_sqlite::rusqlite::Row<'a>,
-}
-
-impl<'a> CsrRejectionDbEntry<'a> {
-    #[allow(dead_code)]
-    /// Construct a new Self from a sqlite row.
-    pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
-        Self { row_data: row }
-    }
-}
-
-impl<'a> From<CsrRejectionDbEntry<'a>> for CsrRejection {
-    fn from(val: CsrRejectionDbEntry<'a>) -> Self {
-        Self {
-            cert: val.row_data.get(4).unwrap(),
-            name: val.row_data.get(1).unwrap(),
-            email: val.row_data.get(2).unwrap(),
-            phone: val.row_data.get(3).unwrap(),
-            rejection: val.row_data.get(5).unwrap(),
-            id: val.row_data.get(0).unwrap(),
-        }
-    }
-}
-
 /// Contains a user signing request for a certificate
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct CsrRejection {
@@ -2049,13 +2022,45 @@ impl CsrRejection {
     }
 }
 
-/// The database form of a CsrRequest
-pub struct CsrRequestDbEntry<'a> {
+/// Contains a user signing request for a certificate
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct SshRejection {
+    /// The principals for the ssh cert
+    principals: Vec<String>,
+    /// The name of the person issuing the request
+    name: String,
+    /// The email of the person issuing the request
+    email: String,
+    /// The phone number of the person issuing the request
+    phone: String,
+    /// The reason for rejection
+    pub rejection: String,
+    /// The id for the csr
+    pub id: u64,
+}
+
+impl SshRejection {
+    #[allow(dead_code)]
+    /// Build a new Self, with the csr and the reason.
+    pub fn from_csr_with_reason(csr: SshRequest, reason: &String) -> Self {
+        Self {
+            principals: csr.principals.clone(),
+            name: csr.name,
+            email: csr.email,
+            phone: csr.phone,
+            rejection: reason.to_owned(),
+            id: csr.id,
+        }
+    }
+}
+
+/// The database form of an entry
+pub struct DbEntry<'a> {
     /// The row contents
     row_data: &'a async_sqlite::rusqlite::Row<'a>,
 }
 
-impl<'a> CsrRequestDbEntry<'a> {
+impl<'a> DbEntry<'a> {
     #[allow(dead_code)]
     /// Construct a new Self from a sqlite row
     pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
@@ -2063,14 +2068,57 @@ impl<'a> CsrRequestDbEntry<'a> {
     }
 }
 
-impl<'a> From<CsrRequestDbEntry<'a>> for CsrRequest {
-    fn from(val: CsrRequestDbEntry<'a>) -> Self {
-        CsrRequest {
+impl<'a> From<DbEntry<'a>> for CsrRequest {
+    fn from(val: DbEntry<'a>) -> Self {
+        Self {
             cert: val.row_data.get(4).unwrap(),
             name: val.row_data.get(1).unwrap(),
             email: val.row_data.get(2).unwrap(),
             phone: val.row_data.get(3).unwrap(),
             id: val.row_data.get(0).unwrap(),
+        }
+    }
+}
+
+impl<'a> From<DbEntry<'a>> for SshRequest {
+    fn from(val: DbEntry<'a>) -> Self {
+        let p: String = val.row_data.get(5).unwrap();
+        Self {
+            name: val.row_data.get(1).unwrap(),
+            email: val.row_data.get(2).unwrap(),
+            phone: val.row_data.get(3).unwrap(),
+            id: val.row_data.get(0).unwrap(),
+            pubkey: val.row_data.get(4).unwrap(),
+            principals: p.lines().map(|a| a.to_string()).collect(),
+            comment: val.row_data.get(6).unwrap(),
+            usage: val.row_data.get(7).unwrap(),
+        }
+    }
+}
+
+impl<'a> From<DbEntry<'a>> for CsrRejection {
+    fn from(val: DbEntry<'a>) -> Self {
+        Self {
+            cert: val.row_data.get(4).unwrap(),
+            name: val.row_data.get(1).unwrap(),
+            email: val.row_data.get(2).unwrap(),
+            phone: val.row_data.get(3).unwrap(),
+            rejection: val.row_data.get(5).unwrap(),
+            id: val.row_data.get(0).unwrap(),
+        }
+    }
+}
+
+impl<'a> From<DbEntry<'a>> for SshRejection {
+    fn from(val: DbEntry<'a>) -> Self {
+        let p: String = val.row_data.get(5).unwrap();
+        Self {
+            name: val.row_data.get(1).unwrap(),
+            email: val.row_data.get(2).unwrap(),
+            phone: val.row_data.get(3).unwrap(),
+            id: val.row_data.get(0).unwrap(),
+            principals: p.lines().map(|a| a.to_string()).collect(),
+            rejection: val.row_data.get(8).unwrap(),
         }
     }
 }

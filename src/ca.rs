@@ -713,7 +713,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get the pending signing requests for a certificate authority
-async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
@@ -870,8 +870,8 @@ async fn handle_ca_list_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::
     }
 }
 
-/// A page for listing all requests in the system. It also can enumerate a single request.
-async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
+/// A page for listing all https requests in the system. It also can enumerate a single request.
+async fn ca_list_https_requests(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -880,9 +880,135 @@ async fn ca_list_requests(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_list_requests(ca, &s).await
+            handle_ca_list_https_requests(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_list_requests(ca, &s).await,
+        PkiInstance::Ca(ca) => handle_ca_list_https_requests(ca, &s).await,
+    }
+}
+
+/// Get the pending signing requests for a certificate authority
+async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let csrr = if let Some(id) = s.get.get("id") {
+        let id = str::parse::<u64>(id);
+        if let Ok(id) = id {
+            ca.get_ssh_request_by_id(id).await
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let mut csr_list: Vec<(SshRequest, u64)> = Vec::new();
+    ca.ssh_processing(|_index, csr, id| {
+        csr_list.push((csr, id));
+    })
+    .await;
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+        .body(|b| {
+            if let Some(id) = s.get.get("id") {
+                if let Some(csrr) = csrr {
+                    b.anchor(|ab| {
+                        ab.text("Back to all requests");
+                        ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                    if let Ok(u) = csrr.usage.try_into() {
+                        let u: ssh_key::certificate::CertType = u;
+                        b.text(format!("Certificate Usage: {:?}", u))
+                            .line_break(|a| a);
+                    } else {
+                        b.text("Certificate Usage is invalid!").line_break(|a| a);
+                    }
+                    for p in &csrr.principals {
+                        b.text(format!("Principal: {}", p)).line_break(|a| a);
+                    }
+                    b.text(format!("Comment: {}", csrr.comment))
+                        .line_break(|a| a);
+                    b.anchor(|ab| {
+                        ab.text("Sign this request");
+                        ab.href(format!("{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.form(|f| {
+                        f.action(format!("{}{}ca/request_reject.rs", s.proxy, pki));
+                        f.text("Reject reason")
+                            .line_break(|a| a)
+                            .input(|i| i.type_("hidden").id("id").name("id").value(id.to_string()))
+                            .input(|i| i.type_("text").id("rejection").name("rejection"))
+                            .line_break(|a| a);
+                        f.input(|i| i.type_("submit").value("Reject this request"))
+                            .line_break(|a| a);
+                        f
+                    });
+                }
+            } else if admin {
+                b.text("List all pending requests");
+                b.line_break(|a| a);
+                let mut index_shown = 0;
+                for (csrr, id) in csr_list {
+                    if index_shown > 0 {
+                        b.thematic_break(|a| a);
+                    }
+                    index_shown += 1;
+                    b.anchor(|ab| {
+                        ab.text("View this request");
+                        ab.href(format!("{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                        ab
+                    })
+                    .line_break(|a| a);
+                    b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
+                    b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
+                    b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
+                }
+                b.anchor(|ab| {
+                    ab.text("Back to main page");
+                    ab.href(format!("{}{}ca", s.proxy, pki));
+                    ab
+                });
+            }
+            b
+        });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// A page for listing all https requests in the system. It also can enumerate a single request.
+async fn ca_list_ssh_requests(s: WebPageContext) -> webserver::WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_list_ssh_requests(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_list_ssh_requests(ca, &s).await,
     }
 }
 
@@ -965,7 +1091,7 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// View a user certificate for a certificate authority
-async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
@@ -1154,7 +1280,7 @@ async fn handle_ca_view_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver:
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_view_user_https_cert(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1163,9 +1289,149 @@ async fn ca_view_user_cert(s: WebPageContext) -> webserver::WebResponse {
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
             let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_user_cert(ca, &s).await
+            handle_ca_view_user_https_cert(ca, &s).await
         }
-        PkiInstance::Ca(ca) => handle_ca_view_user_cert(ca, &s).await,
+        PkiInstance::Ca(ca) => handle_ca_view_user_https_cert(ca, &s).await,
+    }
+}
+
+/// View a user certificate for a certificate authority
+async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+
+    let mut cert: Option<Vec<u8>> = None;
+    let mut csr = None;
+    let mut rejection = None;
+    let mut myid = 0;
+
+    if let Some(id) = s.get.get("id") {
+        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
+        if let Ok(id) = id {
+            cert = ca.get_user_cert(id).await;
+            if cert.is_none() {
+                csr = ca.get_ssh_request_by_id(id).await;
+            }
+            if csr.is_none() {
+                rejection = Some(ca.get_rejection_reason_by_id(id).await);
+            }
+            myid = id;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, s, ca)
+            .title(|t| t.text(ca.config.common_name.to_owned()))
+            .script(|sb| {
+                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb
+            })
+    })
+    .body(|b| {
+        b.script(|s| {
+            s.text("async function run() {\n")
+                .text("await wasm_bindgen();\n")
+                .text("}\n")
+                .text("run();\n")
+        });
+        if let Some(cert) = cert {
+            if admin {
+                b.text(format!("Valid from {} to {}", 42, 43))
+                    .line_break(|a| a);
+            }
+            b.button(|b| {
+                b.text("Build certificate")
+                    .onclick("wasm_bindgen.build_cert()")
+            });
+            b.form(|form| {
+                form.input(|i| i.type_("file").id("file-selector"))
+                    .line_break(|a| a);
+                form.text("Password for private key").line_break(|a| a);
+                form.input(|i| i.type_("password").id("password"));
+                form.line_break(|a| a);
+                form.text("Password for certificate").line_break(|a| a);
+                form.input(|i| i.type_("password").id("cert-password"));
+                form.line_break(|a| a);
+                form
+            });
+            b.division(|div| {
+                div.class("hidden");
+                div.anchor(|a| {
+                    a.id("get_request").text(format!(
+                        "{}{}ca/get_cert.rs?id={}&type=pem",
+                        s.proxy, pki, myid
+                    ))
+                });
+                div
+            });
+            b.line_break(|lb| lb);
+        } else if csr.is_some() {
+            b.text(format!(
+                "Your request is pending at {}",
+                time::OffsetDateTime::now_utc()
+            ))
+            .line_break(|a| a);
+        } else if let Some(reason) = rejection {
+            match reason {
+                Some(reason) => {
+                    if reason.is_empty() {
+                        b.text("Your request is rejected: No reason given")
+                            .line_break(|a| a);
+                    } else {
+                        b.text(format!("Your request is rejected: {}", reason))
+                            .line_break(|a| a);
+                    }
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
+                None => {
+                    b.text("Your request is rejected: No reason given")
+                        .line_break(|a| a);
+                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                        .line_break(|a| a);
+                }
+            }
+        }
+        b.anchor(|ab| {
+            ab.text("Back to main page");
+            ab.href(format!("{}{}ca", s.proxy, pki));
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
+    let html = html.build();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// Runs the page for fetching the user certificate for the certificate authority being run
+async fn ca_view_user_ssh_cert(s: WebPageContext) -> webserver::WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_view_user_ssh_cert(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_view_user_ssh_cert(ca, &s).await,
     }
 }
 
@@ -1639,14 +1905,25 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
         router.register(&format!("{}/ca/get_ca.rs", name), ca_get_cert);
         router.register(&format!("{}/ca/request.rs", name), ca_request);
         router.register(&format!("{}/ca/submit_request.rs", name), ca_submit_request);
-        router.register(&format!("{}/ca/view_cert.rs", name), ca_view_user_cert);
         router.register(&format!("{}/ca/view_all_certs.rs", name), ca_view_all_certs);
         router.register(&format!("{}/ca/get_cert.rs", name), ca_get_user_cert);
         router.register(&format!("{}/ca/ocsp", name), ca_ocsp_responder);
-        router.register(&format!("{}/ca/list.rs", name), ca_list_requests);
         router.register(&format!("{}/ca/request_sign.rs", name), ca_sign_request);
         router.register(&format!("{}/ca/request_reject.rs", name), ca_reject_request);
         router.register(&format!("{}/ca/get_admin.rs", name), ca_get_admin);
+        match &ca.config.sign_method {
+            CertificateSigningMethod::Https(_) => {
+                router.register(
+                    &format!("{}/ca/view_cert.rs", name),
+                    ca_view_user_https_cert,
+                );
+                router.register(&format!("{}/ca/list.rs", name), ca_list_https_requests);
+            }
+            CertificateSigningMethod::Ssh(_) => {
+                router.register(&format!("{}/ca/view_cert.rs", name), ca_view_user_ssh_cert);
+                router.register(&format!("{}/ca/list.rs", name), ca_list_ssh_requests);
+            }
+        }
     };
 
     match pki {
