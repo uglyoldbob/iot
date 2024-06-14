@@ -84,7 +84,10 @@ impl Pki {
             }
             hm.insert(name.to_owned(), ca);
         }
-        Self { roots: hm }
+        Self {
+            roots: hm,
+            super_admin: None,
+        }
     }
 }
 
@@ -184,6 +187,7 @@ impl Ca {
             ocsp_urls: Self::get_ocsp_urls(settings),
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
+            super_admin: None,
         }
     }
 

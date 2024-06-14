@@ -1164,6 +1164,18 @@ pub enum CertificateData {
 }
 
 impl CertificateData {
+    /// Erase the private key from the certificate
+    pub fn erase_private_key(&mut self) {
+        match self {
+            Self::Https(c) => {
+                c.pkey.take();
+            }
+            Self::Ssh(c) => {
+                c.keypair.take();
+            }
+        }
+    }
+
     /// Retrieve the certificate in pem format
     pub fn public_pem(&self) -> Option<String> {
         match self {
@@ -1301,6 +1313,11 @@ pub struct CaCertificate {
 }
 
 impl CaCertificate {
+    /// Erase the private key from the certificate
+    pub fn erase_private_key(&mut self) {
+        self.data.erase_private_key();
+    }
+
     /// Try to get an x509 certificate
     pub fn x509_cert(&self) -> Option<x509_cert::Certificate> {
         self.data.x509_cert()
@@ -1499,6 +1516,8 @@ pub struct ProxyConfig {
 pub struct PkiConfigurationAnswers {
     /// List of local ca
     pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
+    /// The provider for the super-admin key
+    super_admin: Option<String>,
 }
 
 /// The configuration of a general pki instance.
@@ -1506,6 +1525,8 @@ pub struct PkiConfigurationAnswers {
 pub struct PkiConfiguration {
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
+    /// The super-admin certificate provider
+    pub super_admin: Option<String>,
 }
 
 impl From<PkiConfigurationAnswers> for PkiConfiguration {
@@ -1518,7 +1539,10 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
                 (s.to_owned(), v.to_owned().into())
             })
             .collect();
-        Self { local_ca: map2 }
+        Self {
+            local_ca: map2,
+            super_admin: value.super_admin.clone(),
+        }
     }
 }
 
@@ -1711,6 +1735,8 @@ impl PkiConfigurationEnum {
 pub struct Pki {
     /// All of the root certificate authorities
     pub roots: std::collections::HashMap<String, Ca>,
+    /// The super-admin certificate
+    pub super_admin: Option<CaCertificate>,
 }
 
 impl Pki {
@@ -1726,7 +1752,25 @@ impl Pki {
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);
         }
-        Self { roots: hm }
+        let super_admin = if let Some(sa) = &settings.super_admin {
+            if let Some(ca) = hm.get_mut(sa) {
+                let p = ca.admin_access.to_string();
+                ca.load_admin_cert(&p).await.ok().cloned()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(sa) = &super_admin {
+            for ca in hm.values_mut() {
+                ca.insert_super_admin(sa.to_owned());
+            }
+        }
+        Self {
+            roots: hm,
+            super_admin,
+        }
     }
 
     /// Retrieve the certificate authorities associated with verifying client certificates
@@ -1773,6 +1817,8 @@ pub struct Ca {
     pub ocsp_signer: Result<CaCertificate, CertificateLoadingError>,
     /// The administrator certificate
     pub admin: Result<CaCertificate, CertificateLoadingError>,
+    /// The super-admin certificate
+    pub super_admin: Option<CaCertificate>,
     /// The urls for the ca
     pub ocsp_urls: Vec<String>,
     /// The access token for the admin certificate
@@ -1969,12 +2015,7 @@ impl Ca {
         p.contents
     }
 
-    /// Attempt to get the already loaded admin certificate data
-    pub async fn retrieve_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.admin.as_ref()
-    }
-
-    /// Load the admin signer certificate, loading if required.
+    /// Load the admin signer certificate, loading if required and erasing the private key.
     pub async fn load_admin_cert(
         &mut self,
         password: &str,
@@ -1988,7 +2029,7 @@ impl Ca {
             )
             .try_into()
             .unwrap();
-            //cert.pkey = None; TODO
+            cert.erase_private_key();
             self.admin = Ok(cert);
         }
         self.admin.as_ref()
@@ -2012,6 +2053,13 @@ impl Ca {
         self.ocsp_signer.as_ref()
     }
 
+    /// Insert a super admin certificate if one does not already exist.
+    pub fn insert_super_admin(&mut self, admin: CaCertificate) {
+        if self.super_admin.is_none() {
+            self.super_admin.replace(admin);
+        }
+    }
+
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Self {
         let medium = settings.path.build(None).await;
@@ -2023,6 +2071,7 @@ impl Ca {
             ocsp_urls: Self::get_ocsp_urls(settings),
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
+            super_admin: None,
         }
     }
 
