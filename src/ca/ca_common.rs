@@ -1,5 +1,7 @@
 //! Common code for a certificate authority, used from both using the certificate authority and constructing a certificate authority.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use async_sqlite::rusqlite::ToSql;
@@ -56,8 +58,8 @@ pub struct StandaloneCaConfiguration {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
@@ -90,8 +92,8 @@ impl From<StandaloneCaConfigurationAnswers> for StandaloneCaConfiguration {
         Self {
             sign_method: value.sign_method,
             path: value.path,
-            root: value.root,
-            common_name: value.common_name.clone(),
+            inferior_to: value.inferior_to,
+            common_name: value.common_name,
             days: value.days,
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
@@ -134,7 +136,7 @@ impl StandaloneCaConfiguration {
         CaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             san,
             common_name: self.common_name.clone(),
             days: self.days,
@@ -166,8 +168,8 @@ pub struct StandaloneCaConfigurationAnswers {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
@@ -196,7 +198,7 @@ impl StandaloneCaConfigurationAnswers {
         Self {
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
-            root: true,
+            inferior_to: None,
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
@@ -212,7 +214,7 @@ impl StandaloneCaConfigurationAnswers {
         CaConfigurationAnswers {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             san: Vec::new(),
             common_name: self.common_name.clone(),
             days: self.days,
@@ -256,7 +258,7 @@ impl StandaloneCaConfigurationAnswers {
         CaConfigurationAnswers {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             san,
             common_name: self.common_name.clone(),
             days: self.days,
@@ -286,8 +288,8 @@ pub struct LocalCaConfigurationAnswers {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
@@ -314,7 +316,7 @@ impl LocalCaConfigurationAnswers {
         Self {
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
-            root: true,
+            inferior_to: None,
             common_name: "".to_string(),
             days: 1,
             chain_length: 0,
@@ -329,7 +331,7 @@ impl LocalCaConfigurationAnswers {
         CaConfigurationAnswers {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             san: Vec::new(),
             common_name: self.common_name.clone(),
             days: self.days,
@@ -359,8 +361,8 @@ pub struct LocalCaConfiguration {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The common name of the certificate authority
     pub common_name: String,
     /// The number of days the certificate authority should be good for.
@@ -384,8 +386,8 @@ impl From<LocalCaConfigurationAnswers> for LocalCaConfiguration {
         Self {
             sign_method: value.sign_method,
             path: value.path,
-            root: value.root,
-            common_name: value.common_name.clone(),
+            inferior_to: value.inferior_to,
+            common_name: value.common_name,
             days: value.days,
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
@@ -427,7 +429,7 @@ impl LocalCaConfiguration {
         CaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             san,
             common_name: self.common_name.clone(),
             days: self.days,
@@ -452,8 +454,8 @@ pub struct CaConfiguration {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The subject alternate names for the certificate authority.
     pub san: Vec<String>,
     /// The common name of the certificate authority
@@ -512,8 +514,8 @@ pub struct CaConfigurationAnswers {
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
-    /// Is this certificate authority a root?
-    pub root: bool,
+    /// Does this authority have a superior authority?
+    pub inferior_to: Option<String>,
     /// The subject alternate names for the certificate authority.
     pub san: Vec<String>,
     /// The common name of the certificate authority
@@ -550,7 +552,7 @@ impl CaConfigurationAnswers {
         LocalCaConfigurationAnswers {
             sign_method: self.sign_method,
             path: self.path.clone(),
-            root: self.root,
+            inferior_to: self.inferior_to.clone(),
             common_name: self.common_name.clone(),
             days: self.days,
             chain_length: self.chain_length,
@@ -574,7 +576,7 @@ impl CaConfigurationAnswers {
         Self {
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
-            root: true,
+            inferior_to: None,
             san: Vec::new(),
             common_name: "".to_string(),
             days: 1,
@@ -1734,7 +1736,7 @@ impl PkiConfigurationEnum {
 #[derive(Debug)]
 pub struct Pki {
     /// All of the root certificate authorities
-    pub roots: std::collections::HashMap<String, Ca>,
+    pub roots: HashMap<String, Ca>,
     /// The super-admin certificate
     pub super_admin: Option<CaCertificate>,
 }
@@ -1746,7 +1748,7 @@ impl Pki {
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
     ) -> Self {
-        let mut hm = std::collections::HashMap::new();
+        let mut hm = HashMap::new();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(config).await;
@@ -1767,6 +1769,54 @@ impl Pki {
                 ca.insert_super_admin(sa.to_owned());
             }
         }
+        let mut s: HashSet<String> = HashSet::new();
+        //Add root authorities to the list first
+        for (name, a) in settings.local_ca.iter() {
+            if a.inferior_to.is_none() {
+                s.insert(name.to_owned());
+            }
+        }
+        let mut iter_count = 0;
+        loop {
+            service::log::info!(
+                "Adding admin certificate for inferior certificates round {}",
+                iter_count + 1
+            );
+            let mut iter_done = true;
+            for (name, a) in settings.local_ca.iter() {
+                if let Some(superior) = &a.inferior_to {
+                    if superior == name {
+                        service::log::error!("An authority cannot be superior to itself");
+                        panic!("An authority cannot be superior to itself");
+                    }
+                    if s.contains(superior) {
+                        let mut superiors = Vec::new();
+                        let mut admin = None;
+                        if let Some(sca) = hm.get(superior) {
+                            superiors = sca.get_superior_admin();
+                            admin = sca.admin.as_ref().ok().cloned();
+                        }
+                        if let Some(current_ca) = hm.get_mut(name) {
+                            service::log::info!("..{}", name);
+                            for s in superiors {
+                                current_ca.add_superior_admin(s);
+                            }
+                            if let Some(admin) = admin {
+                                current_ca.add_superior_admin(admin.to_owned());
+                            }
+                            s.insert(name.to_owned());
+                        }
+                    } else {
+                        iter_done = false;
+                    }
+                }
+            }
+            iter_count += 1;
+            if iter_done {
+                break;
+            }
+        }
+        service::log::info!("Adding admin certificate for inferior certificates done");
         Self {
             roots: hm,
             super_admin,
@@ -1819,6 +1869,8 @@ pub struct Ca {
     pub admin: Result<CaCertificate, CertificateLoadingError>,
     /// The super-admin certificate
     pub super_admin: Option<CaCertificate>,
+    /// Admin certificates for superior authorities
+    pub admin_authorities: Vec<CaCertificate>,
     /// The urls for the ca
     pub ocsp_urls: Vec<String>,
     /// The access token for the admin certificate
@@ -2060,6 +2112,16 @@ impl Ca {
         }
     }
 
+    /// Add an admin certificate from a superior certificate authority. A superior authority is one that is directly or indirectly responsible for creating this authority.
+    pub fn add_superior_admin(&mut self, admin: CaCertificate) {
+        self.admin_authorities.push(admin);
+    }
+
+    /// Retrieve a copy of all superior admin certificates, used for building the proper chain of superior admin certificates.
+    pub fn get_superior_admin(&self) -> Vec<CaCertificate> {
+        self.admin_authorities.clone()
+    }
+
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Self {
         let medium = settings.path.build(None).await;
@@ -2072,6 +2134,7 @@ impl Ca {
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
             super_admin: None,
+            admin_authorities: Vec::new(),
         }
     }
 

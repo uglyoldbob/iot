@@ -188,6 +188,7 @@ impl Ca {
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
             super_admin: None,
+            admin_authorities: Vec::new(),
         }
     }
 
@@ -197,7 +198,7 @@ impl Ca {
 
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
-                if settings.root {
+                if settings.inferior_to.is_none() {
                     service::log::info!("Generating a root certificate for ca operations");
 
                     let (key_pair, _unused) = m.generate_keypair(4096).unwrap();
@@ -299,7 +300,7 @@ impl Ca {
                 }
             }
             CertificateSigningMethod::Ssh(m) => {
-                if settings.root {
+                if settings.inferior_to.is_none() {
                     let key = m.generate_keypair(4096).unwrap();
 
                     let valid_after = std::time::SystemTime::now()
