@@ -393,8 +393,10 @@ pub struct MainConfigurationAnswers {
     pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<userprompt::FileOpen>>,
     /// The settings for a pki
-    pub pki: crate::ca::PkiConfigurationEnum,
+    pub pki: crate::ca::PkiConfigurationEnumAnswers,
     /// The desired minimum debug level
     pub debug_level: service::LogLevel,
     /// Is tpm2 hardware required to setup the pki?
@@ -420,7 +422,7 @@ pub struct MainConfiguration {
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
     /// Settings for client certificates
-    pub client_certs: Option<Vec<String>>,
+    pub client_certs: Option<Vec<std::path::PathBuf>>,
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
     /// The desired minimum debug level
@@ -430,44 +432,7 @@ pub struct MainConfiguration {
     pub tpm2_required: bool,
 }
 
-impl Default for MainConfiguration {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl MainConfiguration {
-    /// Construct an empty configuration file
-    pub fn new() -> Self {
-        Self {
-            general: GeneralSettings::new(),
-            admin: AdminSettings::new(),
-            http: None,
-            https: None,
-            proxy_config: None,
-            database: DatabaseSettings::new(),
-            public_names: Vec::new(),
-            client_certs: None,
-            pki: crate::ca::PkiConfigurationEnum::new(),
-            debug_level: Some(service::LogLevel::default()),
-            tpm2_required: true,
-        }
-    }
-
-    /// Process the answers, cloning them into self.
-    fn process_answers(&mut self, answers: &MainConfigurationAnswers) {
-        self.general = answers.general.clone();
-        self.admin = answers.admin.clone();
-        self.http = answers.http.clone();
-        self.https = answers.https.clone().map(|a| a.into());
-        self.database = answers.database.clone();
-        self.public_names = answers.public_names.clone();
-        self.proxy_config = answers.proxy_config.clone();
-        self.pki = answers.pki.clone();
-        self.debug_level = Some(answers.debug_level.clone());
-        self.tpm2_required = answers.tpm2_required;
-    }
-
     /// Remove relative paths
     pub fn remove_relative_paths(&mut self) {
         if let Some(https) = &mut self.https {
@@ -492,8 +457,23 @@ impl MainConfiguration {
     }
 
     /// Fill out this configuration file with answers from the specified answer configuration
-    pub fn provide_answers(&mut self, answers: &MainConfigurationAnswers) {
-        self.process_answers(answers)
+    pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
+        Self {
+            general: answers.general.clone(),
+            admin: answers.admin.clone(),
+            http: answers.http.clone(),
+            https: answers.https.clone().map(|a| a.into()),
+            database: answers.database.clone(),
+            public_names: answers.public_names.clone(),
+            proxy_config: answers.proxy_config.clone(),
+            client_certs: answers
+                .client_certs
+                .clone()
+                .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
+            pki: answers.pki.clone().into(),
+            debug_level: Some(answers.debug_level.clone()),
+            tpm2_required: answers.tpm2_required,
+        }
     }
 
     /// Return the port number for the http server

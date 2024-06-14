@@ -2614,9 +2614,9 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "userprompt"
-version = "0.0.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc886527f3e4d437ce5e55a78cfad1a49c8cb4c467b3883afd3310baf02b3c9a"
+checksum = "1c5fef4a10b37f087ba7976ff21aaaabd2ac66679875a1eca82aa291365097f9"
 dependencies = [
  "egui",
  "rfd",

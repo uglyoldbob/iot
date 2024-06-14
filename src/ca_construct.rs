@@ -61,7 +61,7 @@ impl Pki {
             .as_ref()
             .map(|h| h.certificate.create_by_ca())
             .flatten();
-        for (name, config) in settings.local_ca.map() {
+        for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
             let mut ca = crate::ca::Ca::init(config, options).await;
             if let Some(ca_name) = &ca_name {

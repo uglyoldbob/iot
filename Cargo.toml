@@ -88,10 +88,6 @@ git = "https://github.com/uglyoldbob/ocsp-rs"
 version = "0.10.2"
 features = ["encryption", "pem", "std"]
 
-[dependencies.userprompt]
-version = "0.0.1"
-features = ["serde", "egui"]
-
 [dependencies.rcgen]
 version = "0.13.0"
 git = "https://github.com/uglyoldbob/rcgen.git"
@@ -126,6 +122,10 @@ features = ["rustls"]
 [dependencies.tokio]
 version = "1.36.0"
 features = ["full"]
+
+[dependencies.userprompt]
+version = "0.2.0"
+features = ["serde", "egui"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.28.0", features = ["user"] }

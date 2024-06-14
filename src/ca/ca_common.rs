@@ -65,66 +65,46 @@ pub struct StandaloneCaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: userprompt::Password2,
+    pub admin_access_password: String,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    pub admin_password: String,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: userprompt::Password2,
+    pub ocsp_password: String,
     /// The password to protect the root p12 certificate document.
-    pub root_password: userprompt::Password2,
+    pub root_password: String,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The name of the ca instance
     pub name: String,
 }
 
-impl Default for StandaloneCaConfiguration {
-    fn default() -> Self {
-        Self::new()
+impl From<Box<StandaloneCaConfigurationAnswers>> for Box<StandaloneCaConfiguration> {
+    fn from(value: Box<StandaloneCaConfigurationAnswers>) -> Self {
+        let a: &StandaloneCaConfigurationAnswers = &value;
+        Box::new(a.to_owned().into())
+    }
+}
+
+impl From<StandaloneCaConfigurationAnswers> for StandaloneCaConfiguration {
+    fn from(value: StandaloneCaConfigurationAnswers) -> Self {
+        Self {
+            sign_method: value.sign_method,
+            path: value.path,
+            root: value.root,
+            common_name: value.common_name.clone(),
+            days: value.days,
+            chain_length: value.chain_length,
+            admin_access_password: value.admin_access_password.to_string(),
+            admin_password: value.admin_password.to_string(),
+            ocsp_password: crate::ca::generate_password(32),
+            root_password: crate::ca::generate_password(32),
+            ocsp_signature: value.ocsp_signature,
+            name: value.name.clone(),
+        }
     }
 }
 
 impl StandaloneCaConfiguration {
-    /// Construct a blank Self.
-    pub fn new() -> Self {
-        Self {
-            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-            path: CaCertificateStorageBuilder::Nowhere,
-            root: true,
-            common_name: "".to_string(),
-            days: 1,
-            chain_length: 0,
-            admin_access_password: userprompt::Password2::new("".to_string()),
-            admin_password: userprompt::Password2::new("".to_string()),
-            ocsp_password: userprompt::Password2::new("".to_string()),
-            root_password: userprompt::Password2::new("".to_string()),
-            ocsp_signature: false,
-            name: String::new(),
-        }
-    }
-
-    ///Get a Caconfiguration for editing
-    pub fn get_editable_ca(&self) -> CaConfiguration {
-        CaConfiguration {
-            sign_method: self.sign_method,
-            path: self.path.clone(),
-            root: self.root,
-            san: Vec::new(),
-            common_name: self.common_name.clone(),
-            days: self.days,
-            chain_length: self.chain_length,
-            admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
-            ocsp_password: self.ocsp_password.clone(),
-            root_password: self.root_password.clone(),
-            ocsp_signature: self.ocsp_signature,
-            http_port: None,
-            https_port: None,
-            proxy: None,
-            pki_name: None,
-        }
-    }
-
     ///Get a CaConfiguration from a LocalCaConfiguration
     /// #Arguments
     /// * name - The name of the ca for pki purposes
@@ -172,6 +152,199 @@ impl StandaloneCaConfiguration {
     }
 }
 
+/// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
+#[derive(
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct StandaloneCaConfigurationAnswers {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
+    /// Where to store the certificate authority
+    pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
+    pub root: bool,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: userprompt::Password2,
+    /// The password to protect the admin p12 certificate document.
+    pub admin_password: userprompt::Password2,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+    /// The name of the ca instance
+    pub name: String,
+}
+
+impl Default for StandaloneCaConfigurationAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StandaloneCaConfigurationAnswers {
+    /// Construct a blank Self.
+    pub fn new() -> Self {
+        Self {
+            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
+            path: CaCertificateStorageBuilder::Nowhere,
+            root: true,
+            common_name: "".to_string(),
+            days: 1,
+            chain_length: 0,
+            admin_access_password: userprompt::Password2::new("".to_string()),
+            admin_password: userprompt::Password2::new("".to_string()),
+            ocsp_signature: false,
+            name: String::new(),
+        }
+    }
+
+    ///Get a Caconfiguration for editing
+    pub fn get_editable_ca(&self) -> CaConfigurationAnswers {
+        CaConfigurationAnswers {
+            sign_method: self.sign_method,
+            path: self.path.clone(),
+            root: self.root,
+            san: Vec::new(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port: None,
+            https_port: None,
+            proxy: None,
+            pki_name: None,
+        }
+    }
+
+    ///Get a CaConfiguration from a LocalCaConfiguration
+    /// #Arguments
+    /// * name - The name of the ca for pki purposes
+    /// * settings - The application settings
+    pub fn get_ca(&self, settings: &MainConfiguration) -> CaConfigurationAnswers {
+        let mut full_name = self.name.clone();
+        if !full_name.ends_with('/') && !full_name.is_empty() {
+            full_name.push('/');
+        }
+        let san: Vec<String> = settings
+            .public_names
+            .iter()
+            .map(|n| n.domain.clone())
+            .collect();
+        let http_port = settings
+            .proxy_config
+            .as_ref()
+            .map(|a| a.http_port)
+            .flatten()
+            .or_else(|| settings.get_http_port());
+        let https_port = settings
+            .proxy_config
+            .as_ref()
+            .map(|a| a.https_port)
+            .flatten()
+            .or_else(|| settings.get_https_port());
+        CaConfigurationAnswers {
+            sign_method: self.sign_method,
+            path: self.path.clone(),
+            root: self.root,
+            san,
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port,
+            https_port,
+            proxy: Some(settings.public_names[0].subdomain.to_owned()),
+            pki_name: Some(format!("pki/{}", full_name)),
+        }
+    }
+}
+
+/// The items used to configure a local certificate authority in a pki configuration
+#[derive(
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct LocalCaConfigurationAnswers {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
+    /// Where to store the certificate authority
+    pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
+    pub root: bool,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: userprompt::Password2,
+    /// The password to protect the admin p12 certificate document.
+    pub admin_password: userprompt::Password2,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+}
+
+impl Default for LocalCaConfigurationAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LocalCaConfigurationAnswers {
+    /// Construct a blank Self.
+    pub fn new() -> Self {
+        Self {
+            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
+            path: CaCertificateStorageBuilder::Nowhere,
+            root: true,
+            common_name: "".to_string(),
+            days: 1,
+            chain_length: 0,
+            admin_access_password: userprompt::Password2::new("".to_string()),
+            admin_password: userprompt::Password2::new("".to_string()),
+            ocsp_signature: false,
+        }
+    }
+
+    ///Get a Caconfiguration for editing
+    pub fn get_editable_ca(&self) -> CaConfigurationAnswers {
+        CaConfigurationAnswers {
+            sign_method: self.sign_method,
+            path: self.path.clone(),
+            root: self.root,
+            san: Vec::new(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_signature: self.ocsp_signature,
+            http_port: None,
+            https_port: None,
+            proxy: None,
+            pki_name: None,
+        }
+    }
+}
+
 /// The items used to configure a local certificate authority in a pki configuration
 #[derive(
     Clone,
@@ -195,63 +368,36 @@ pub struct LocalCaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: userprompt::Password2,
+    pub admin_access_password: String,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    pub admin_password: String,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: userprompt::Password2,
+    pub ocsp_password: String,
     /// The password to protect the root p12 certificate document.
-    pub root_password: userprompt::Password2,
+    pub root_password: String,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
 }
 
-impl Default for LocalCaConfiguration {
-    fn default() -> Self {
-        Self::new()
+impl From<LocalCaConfigurationAnswers> for LocalCaConfiguration {
+    fn from(value: LocalCaConfigurationAnswers) -> Self {
+        Self {
+            sign_method: value.sign_method,
+            path: value.path,
+            root: value.root,
+            common_name: value.common_name.clone(),
+            days: value.days,
+            chain_length: value.chain_length,
+            admin_access_password: value.admin_access_password.to_string(),
+            admin_password: value.admin_password.to_string(),
+            ocsp_password: crate::ca::generate_password(32),
+            root_password: crate::ca::generate_password(32),
+            ocsp_signature: value.ocsp_signature,
+        }
     }
 }
 
 impl LocalCaConfiguration {
-    /// Construct a blank Self.
-    pub fn new() -> Self {
-        Self {
-            sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-            path: CaCertificateStorageBuilder::Nowhere,
-            root: true,
-            common_name: "".to_string(),
-            days: 1,
-            chain_length: 0,
-            admin_access_password: userprompt::Password2::new("".to_string()),
-            admin_password: userprompt::Password2::new("".to_string()),
-            ocsp_password: userprompt::Password2::new("".to_string()),
-            root_password: userprompt::Password2::new("".to_string()),
-            ocsp_signature: false,
-        }
-    }
-
-    ///Get a Caconfiguration for editing
-    pub fn get_editable_ca(&self) -> CaConfiguration {
-        CaConfiguration {
-            sign_method: self.sign_method,
-            path: self.path.clone(),
-            root: self.root,
-            san: Vec::new(),
-            common_name: self.common_name.clone(),
-            days: self.days,
-            chain_length: self.chain_length,
-            admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
-            ocsp_password: self.ocsp_password.clone(),
-            root_password: self.root_password.clone(),
-            ocsp_signature: self.ocsp_signature,
-            http_port: None,
-            https_port: None,
-            proxy: None,
-            pki_name: None,
-        }
-    }
-
     ///Get a CaConfiguration from a LocalCaConfiguration
     /// #Arguments
     /// * name - The name of the ca for pki purposes
@@ -317,13 +463,13 @@ pub struct CaConfiguration {
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
-    pub admin_access_password: userprompt::Password2,
+    pub admin_access_password: String,
     /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    pub admin_password: String,
     /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: userprompt::Password2,
+    pub ocsp_password: String,
     /// The password to protect the root p12 certificate document.
-    pub root_password: userprompt::Password2,
+    pub root_password: String,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The externally accessible https port, if accessible by https
@@ -336,27 +482,13 @@ pub struct CaConfiguration {
     pub pki_name: Option<String>,
 }
 
-impl Default for CaConfiguration {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CaConfiguration {
-    /// Get a local ca configuration
-    pub fn get_local(&self) -> LocalCaConfiguration {
-        LocalCaConfiguration {
-            sign_method: self.sign_method,
-            path: self.path.clone(),
-            root: self.root,
-            common_name: self.common_name.clone(),
-            days: self.days,
-            chain_length: self.chain_length,
-            admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
-            ocsp_password: self.ocsp_password.clone(),
-            root_password: self.root_password.clone(),
-            ocsp_signature: self.ocsp_signature,
+    /// Get the pki name for the configuration
+    pub fn get_pki_name(&self) -> &str {
+        if let Some(p) = &self.pki_name {
+            p
+        } else {
+            ""
         }
     }
 
@@ -369,6 +501,62 @@ impl CaConfiguration {
                     let _e = std::fs::remove_file(p);
                 }
             }
+        }
+    }
+}
+
+/// The items used to configure a certificate authority
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct CaConfigurationAnswers {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
+    /// Where to store the certificate authority
+    pub path: CaCertificateStorageBuilder,
+    /// Is this certificate authority a root?
+    pub root: bool,
+    /// The subject alternate names for the certificate authority.
+    pub san: Vec<String>,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: userprompt::Password2,
+    /// The password to protect the admin p12 certificate document.
+    pub admin_password: userprompt::Password2,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+    /// The externally accessible https port, if accessible by https
+    pub https_port: Option<u16>,
+    /// The externally accessible http port, if accessible by http
+    pub http_port: Option<u16>,
+    /// The proxy configuration for this authority
+    pub proxy: Option<String>,
+    /// The pki name for the authority, used when operating a pki
+    pub pki_name: Option<String>,
+}
+
+impl Default for CaConfigurationAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CaConfigurationAnswers {
+    /// Get a local ca configuration
+    pub fn get_local(&self) -> LocalCaConfigurationAnswers {
+        LocalCaConfigurationAnswers {
+            sign_method: self.sign_method,
+            path: self.path.clone(),
+            root: self.root,
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_password: self.admin_password.clone(),
+            ocsp_signature: self.ocsp_signature,
         }
     }
 
@@ -393,8 +581,6 @@ impl CaConfiguration {
             chain_length: 0,
             admin_access_password: userprompt::Password2::new("".to_string()),
             admin_password: userprompt::Password2::new("".to_string()),
-            ocsp_password: userprompt::Password2::new("".to_string()),
-            root_password: userprompt::Password2::new("".to_string()),
             ocsp_signature: false,
             http_port: None,
             https_port: None,
@@ -1310,9 +1496,30 @@ pub struct ProxyConfig {
     serde::Deserialize,
     serde::Serialize,
 )]
+pub struct PkiConfigurationAnswers {
+    /// List of local ca
+    pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
+}
+
+/// The configuration of a general pki instance.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct PkiConfiguration {
     /// List of local ca
-    pub local_ca: userprompt::SelectedHashMap<LocalCaConfiguration>,
+    pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
+}
+
+impl From<PkiConfigurationAnswers> for PkiConfiguration {
+    fn from(value: PkiConfigurationAnswers) -> Self {
+        let map = value.local_ca.map().clone();
+        let map2 = map
+            .iter()
+            .map(|(s, v)| {
+                let v: LocalCaConfiguration = v.to_owned().into();
+                (s.to_owned(), v.to_owned().into())
+            })
+            .collect();
+        Self { local_ca: map2 }
+    }
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -1325,6 +1532,28 @@ pub struct PkiConfiguration {
     serde::Serialize,
     strum::EnumIter,
 )]
+pub enum PkiConfigurationEnumAnswers {
+    /// A generic Pki configuration
+    Pki(PkiConfigurationAnswers),
+    /// A standard certificate authority configuration
+    Ca(Box<StandaloneCaConfigurationAnswers>),
+}
+
+impl Default for PkiConfigurationEnumAnswers {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PkiConfigurationEnumAnswers {
+    /// Construct a new ca, defaulting to a Ca configuration
+    pub fn new() -> Self {
+        Self::Ca(Box::new(StandaloneCaConfigurationAnswers::new()))
+    }
+}
+
+///A generic configuration for a pki or certificate authority.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
     Pki(PkiConfiguration),
@@ -1332,9 +1561,12 @@ pub enum PkiConfigurationEnum {
     Ca(Box<StandaloneCaConfiguration>),
 }
 
-impl Default for PkiConfigurationEnum {
-    fn default() -> Self {
-        Self::new()
+impl From<PkiConfigurationEnumAnswers> for PkiConfigurationEnum {
+    fn from(value: PkiConfigurationEnumAnswers) -> Self {
+        match value {
+            PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
+            PkiConfigurationEnumAnswers::Ca(ca) => Self::Ca(ca.into()),
+        }
     }
 }
 
@@ -1343,7 +1575,7 @@ impl PkiConfigurationEnum {
     pub fn remove_relative_paths(&mut self) {
         match self {
             PkiConfigurationEnum::Pki(pki) => {
-                for (_k, a) in pki.local_ca.map_mut().iter_mut() {
+                for (_k, a) in pki.local_ca.iter_mut() {
                     a.path.remove_relative_paths();
                 }
             }
@@ -1465,11 +1697,6 @@ impl PkiConfigurationEnum {
         }
     }
 
-    /// Construct a new ca, defaulting to a Ca configuration
-    pub fn new() -> Self {
-        Self::Ca(Box::new(StandaloneCaConfiguration::new()))
-    }
-
     /// The display name of the item for gui purposes
     pub fn display(&self) -> &str {
         match self {
@@ -1494,7 +1721,7 @@ impl Pki {
         main_config: &MainConfiguration,
     ) -> Self {
         let mut hm = std::collections::HashMap::new();
-        for (name, config) in settings.local_ca.map() {
+        for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(config).await;
             hm.insert(name.to_owned(), ca);

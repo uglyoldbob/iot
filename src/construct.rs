@@ -130,9 +130,8 @@ async fn main() {
         }
     }
 
-    let mut config = main_config::MainConfiguration::new();
     let answers: MainConfigurationAnswers;
-    if let Some(ipc) = &args.ipc {
+    let mut config = if let Some(ipc) = &args.ipc {
         use interprocess::local_socket::ToFsName;
         let ipc_name = ipc
             .clone()
@@ -145,7 +144,7 @@ async fn main() {
         let ipc_log = LocalLogging::new(s);
         service::log::set_max_level(service::log::LevelFilter::Debug);
         service::log::set_boxed_logger(Box::new(ipc_log)).unwrap();
-        config.provide_answers(&answers);
+        MainConfiguration::provide_answers(&answers)
     } else if let Some(answers_path) = &args.answers {
         println!(
             "Expect to read answers from {}",
@@ -155,10 +154,10 @@ async fn main() {
             .await
             .expect("Expected some answers were specified");
         answers = toml::from_str(&answers_file).expect("Failed to parse configuration");
-        config.provide_answers(&answers);
+        MainConfiguration::provide_answers(&answers)
     } else {
         answers = MainConfigurationAnswers::prompt(None).unwrap();
-        config.provide_answers(&answers);
+        MainConfiguration::provide_answers(&answers)
     };
 
     #[cfg(target_family = "unix")]

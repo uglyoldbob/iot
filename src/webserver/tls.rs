@@ -42,16 +42,18 @@ pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCe
         let mut rcs = RootCertStore::empty();
 
         for s in section {
-            service::log::info!("\tClient cert {}", s);
+            service::log::info!("\tClient cert {}", s.display());
             let mut certbytes = vec![];
-            let mut certf = File::open(s)
-                .unwrap_or_else(|e| panic!("Failed to open client certificate {}: {}", s, e));
-            certf
-                .read_to_end(&mut certbytes)
-                .unwrap_or_else(|e| panic!("Failed to read client certificate {}: {}", s, e));
+            let mut certf = File::open(s).unwrap_or_else(|e| {
+                panic!("Failed to open client certificate {}: {}", s.display(), e)
+            });
+            certf.read_to_end(&mut certbytes).unwrap_or_else(|e| {
+                panic!("Failed to read client certificate {}: {}", s.display(), e)
+            });
             let cder = CertificateDer::from(certbytes);
-            rcs.add(cder)
-                .unwrap_or_else(|e| panic!("Failed to add client certificate {}: {}", s, e));
+            rcs.add(cder).unwrap_or_else(|e| {
+                panic!("Failed to add client certificate {}: {}", s.display(), e)
+            });
         }
 
         Some(rcs)

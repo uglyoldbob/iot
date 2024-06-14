@@ -123,10 +123,6 @@ impl TrackedWindow for RootWindow {
                         ui.label("Name of the service");
                         ui.text_edit_singleline(&mut self.service_name);
                         let reason_no_generate = self.answers.build_gui(ui, None);
-                        if reason_no_generate.is_ok() {
-                            let mut config = crate::main_config::MainConfiguration::new();
-                            config.provide_answers(&self.answers);
-                        }
                         if let Err(reason) = reason_no_generate {
                             ui.label("Not ready to generate service");
                             ui.label(reason.to_string());
