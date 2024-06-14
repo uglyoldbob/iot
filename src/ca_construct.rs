@@ -63,26 +63,28 @@ impl Pki {
             .flatten();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
-            let mut ca = crate::ca::Ca::init(config, options).await;
-            if let Some(ca_name) = &ca_name {
-                if ca_name == name {
-                    if let Some(https) = &main_config.https {
-                        if https.certificate.create_by_ca().is_some() {
-                            ca.create_https_certificate(
-                                https.certificate.pathbuf(),
-                                main_config
-                                    .public_names
-                                    .iter()
-                                    .map(|a| a.to_string())
-                                    .collect(),
-                                https.certificate.password(),
-                            )
-                            .await;
+            let ca = crate::ca::Ca::init(config, options, None).await; //TODO Use the proper ca superior object instead of None
+            if let Some(mut ca) = ca {
+                if let Some(ca_name) = &ca_name {
+                    if ca_name == name {
+                        if let Some(https) = &main_config.https {
+                            if https.certificate.create_by_ca().is_some() {
+                                ca.create_https_certificate(
+                                    https.certificate.pathbuf(),
+                                    main_config
+                                        .public_names
+                                        .iter()
+                                        .map(|a| a.to_string())
+                                        .collect(),
+                                    https.certificate.password(),
+                                )
+                                .await;
+                            }
                         }
                     }
                 }
+                hm.insert(name.to_owned(), ca);
             }
-            hm.insert(name.to_owned(), ca);
         }
         Self {
             roots: hm,
@@ -106,22 +108,26 @@ impl PkiInstance {
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
-                let mut ca = crate::ca::Ca::init(&ca, &options).await;
-                if let Some(https) = &main_config.https {
-                    if https.certificate.create_by_ca().is_some() {
-                        ca.create_https_certificate(
-                            https.certificate.pathbuf(),
-                            main_config
-                                .public_names
-                                .iter()
-                                .map(|a| a.to_string())
-                                .collect(),
-                            https.certificate.password(),
-                        )
-                        .await;
+                let ca = crate::ca::Ca::init(&ca, &options, None).await; //TODO Use the proper ca superior object instead of None
+                if let Some(mut ca) = ca {
+                    if let Some(https) = &main_config.https {
+                        if https.certificate.create_by_ca().is_some() {
+                            ca.create_https_certificate(
+                                https.certificate.pathbuf(),
+                                main_config
+                                    .public_names
+                                    .iter()
+                                    .map(|a| a.to_string())
+                                    .collect(),
+                                https.certificate.password(),
+                            )
+                            .await;
+                        }
                     }
+                    Self::Ca(ca)
+                } else {
+                    panic!("Failed to make a ca");
                 }
-                Self::Ca(ca)
             }
         }
     }
@@ -193,7 +199,12 @@ impl Ca {
     }
 
     /// Initialize a Ca instance with the specified configuration and options for setting file ownerships (as required).
-    pub async fn init(settings: &crate::ca::CaConfiguration, options: &OwnerOptions) -> Self {
+    /// superior is used to generate the root certificate for intermediate authorities.
+    pub async fn init(
+        settings: &crate::ca::CaConfiguration,
+        options: &OwnerOptions,
+        superior: Option<&mut Self>,
+    ) -> Option<Self> {
         let mut ca = Self::init_from_config(settings, options).await;
 
         match settings.sign_method {
@@ -295,8 +306,10 @@ impl Ca {
                         .save_to_medium(&mut ca, &settings.admin_password)
                         .await;
                     ca.admin = Ok(admin_cert);
-                } else {
+                } else if let Some(superior) = superior {
                     todo!("Intermediate certificate authority generation not implemented");
+                } else {
+                    todo!("Intermediate certificate authority generation not possible");
                 }
             }
             CertificateSigningMethod::Ssh(m) => {
@@ -333,12 +346,14 @@ impl Ca {
                     );
                     root.save_to_medium(&mut ca, &settings.root_password).await;
                     ca.root_cert = Ok(root);
+                } else if let Some(superior) = superior {
+                    todo!("Intermediate certificate authority generation not implemented");
                 } else {
-                    todo!("Intermediate ssh authority not implemmented");
+                    todo!("Intermediate certificate authority generation not possible");
                 }
             }
         }
-        ca
+        Some(ca)
     }
 
     /// Generate a signing request
