@@ -93,6 +93,8 @@ pub struct HttpContext {
 
 /// Represents extra context for a web service
 pub struct ExtraContext {
+    /// True when the context is https
+    pub https: bool,
     /// The optional list of user certificates
     pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
 }
@@ -123,6 +125,8 @@ impl UserCerts {
 
 /// Represents the context necessary to render a webpage
 pub struct WebPageContext {
+    /// Was https used to access the page?
+    https: bool,
     /// The domain that was used to access the request
     pub domain: String,
     /// The actual page requested
@@ -143,6 +147,17 @@ pub struct WebPageContext {
     pub settings: Arc<crate::MainConfiguration>,
     /// The pki object
     pub pki: Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
+}
+
+impl WebPageContext {
+    /// Build an absolute url
+    pub fn get_absolute_url(&self, sd: &str, url: &str) -> String {
+        if self.https {
+            format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
+        } else {
+            format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+        }
+    }
 }
 
 /// Represents the contents of a post request
@@ -221,6 +236,8 @@ struct WebService<F, R, C> {
     context: Arc<C>,
     /// The address that is being listened on
     addr: SocketAddr,
+    /// True when https is involved
+    https: bool,
     /// The user certificates for the request
     user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
     /// The async function called to service web requests
@@ -239,10 +256,11 @@ where
     /// * context - The context for the web service
     /// * addr - The address the service is listening on
     /// * f - The async function used to handle web requests
-    fn new(context: Arc<C>, addr: SocketAddr, f: F) -> Self {
+    fn new(context: Arc<C>, https: bool, addr: SocketAddr, f: F) -> Self {
         Self {
             context,
             addr,
+            https,
             user_certs: Arc::new(None),
             f,
             _req: PhantomData,
@@ -260,6 +278,7 @@ where
             context: self.context.clone(),
             user_certs: self.user_certs.clone(),
             addr: self.addr,
+            https: self.https,
             _req: PhantomData,
         }
     }
@@ -279,6 +298,7 @@ where
 
     fn call(&self, req: Request<ReqBody>) -> Self::Future {
         let ec = ExtraContext {
+            https: self.https,
             user_certs: self.user_certs.clone(),
         };
         (self.f)(self.context.clone(), ec, self.addr, req)
@@ -369,15 +389,16 @@ async fn handle<'a>(
     }
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
-
+    service::log::debug!("URI IS \"{}\" \"{}\"", rparts.method, rparts.uri);
     let domain = hdrs.get("host").unwrap().to_str().unwrap().to_string();
-    let domain = if let Some((a, _b)) = domain.split_once(':') {
+    service::log::debug!("Domain host is \"{}\"", domain);
+    let domain2 = if let Some((a, _b)) = domain.as_str().split_once(':') {
         a.to_string()
     } else {
-        domain
+        domain.clone()
     };
     let path = rparts.uri.path();
-    let proxy = if let Some(p) = context.proxy.get(&domain) {
+    let proxy = if let Some(p) = context.proxy.get(&domain2) {
         p.to_owned()
     } else {
         String::new()
@@ -386,9 +407,10 @@ async fn handle<'a>(
 
     let cookiename = format!("{}{}", proxy, context.cookiename);
 
-    service::log::info!("Lookup {} on {}{}", fixed_path, domain, proxy);
+    service::log::info!("Lookup {} on {}{}", fixed_path, domain2, proxy);
 
     let p = WebPageContext {
+        https: ec.https,
         domain,
         page: <std::path::PathBuf as std::str::FromStr>::from_str(&fixed_path).unwrap(),
         post: post_data,
@@ -650,7 +672,7 @@ pub async fn http_webserver(
         .await
         .map_err(|e| ServiceError::Other(e.to_string()))?;
 
-    let webservice = WebService::new(hc, addr, handle);
+    let webservice = WebService::new(hc, false, addr, handle);
 
     tasks.spawn(async move {
         service::log::info!("Rust-iot server is running");
@@ -750,7 +772,7 @@ pub async fn https_webserver(
         .await
         .map_err(|e| ServiceError::Other(e.to_string()))?;
 
-    let webservice = WebService::new(hc, addr, handle);
+    let webservice = WebService::new(hc, true, addr, handle);
 
     tasks.spawn(async move {
         service::log::info!("Rust-iot https server is running");

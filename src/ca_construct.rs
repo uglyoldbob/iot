@@ -61,29 +61,42 @@ impl Pki {
             .as_ref()
             .map(|h| h.certificate.create_by_ca())
             .flatten();
-        for (name, config) in &settings.local_ca {
-            let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::init(config, options, None).await; //TODO Use the proper ca superior object instead of None
-            if let Some(mut ca) = ca {
-                if let Some(ca_name) = &ca_name {
-                    if ca_name == name {
-                        if let Some(https) = &main_config.https {
-                            if https.certificate.create_by_ca().is_some() {
-                                ca.create_https_certificate(
-                                    https.certificate.pathbuf(),
-                                    main_config
-                                        .public_names
-                                        .iter()
-                                        .map(|a| a.to_string())
-                                        .collect(),
-                                    https.certificate.password(),
-                                )
-                                .await;
+        loop {
+            let mut done = true;
+            for (name, config) in &settings.local_ca {
+                let config = &config.get_ca(name, main_config);
+                let ca = crate::ca::Ca::init(
+                    config,
+                    options,
+                    config.inferior_to.as_ref().map(|n| hm.get_mut(n)).flatten(),
+                )
+                .await;
+                if let Some(mut ca) = ca {
+                    if let Some(ca_name) = &ca_name {
+                        if ca_name == name {
+                            if let Some(https) = &main_config.https {
+                                if https.certificate.create_by_ca().is_some() {
+                                    ca.create_https_certificate(
+                                        https.certificate.pathbuf(),
+                                        main_config
+                                            .public_names
+                                            .iter()
+                                            .map(|a| a.to_string())
+                                            .collect(),
+                                        https.certificate.password(),
+                                    )
+                                    .await;
+                                }
                             }
                         }
                     }
+                    hm.insert(name.to_owned(), ca);
+                } else {
+                    done = false;
                 }
-                hm.insert(name.to_owned(), ca);
+            }
+            if done {
+                break;
             }
         }
         Self {
@@ -205,13 +218,18 @@ impl Ca {
         options: &OwnerOptions,
         superior: Option<&mut Self>,
     ) -> Option<Self> {
+        service::log::info!("Attempting init for {}", settings.common_name);
+        // Unable to to gnerate an intermediate instance without the superior ca reference
+        if settings.inferior_to.is_some() && superior.is_none() {
+            return None;
+        }
+
         let mut ca = Self::init_from_config(settings, options).await;
 
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
-                if settings.inferior_to.is_none() {
+                {
                     service::log::info!("Generating a root certificate for ca operations");
-
                     let (key_pair, _unused) = m.generate_keypair(4096).unwrap();
 
                     let san: Vec<String> = settings.san.to_owned();
@@ -230,87 +248,111 @@ impl Ca {
                         certparams.not_before + time::Duration::days(days as i64);
                     let basic_constraints = rcgen::BasicConstraints::Constrained(chain_length);
                     certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
+                    let rootcert = if settings.inferior_to.is_none() {
+                        let cert = certparams.self_signed(&key_pair).unwrap();
+                        let cert_der = cert.der().to_owned();
+                        let key_der = key_pair.serialize_der();
+                        let rootcert = CaCertificate::from_existing_https(
+                            m,
+                            ca.medium.clone(),
+                            &cert_der,
+                            Some(Zeroizing::from(key_der)),
+                            "root".to_string(),
+                            0,
+                        );
+                        rootcert
+                    } else if let Some(superior) = superior {
+                        let id = superior.get_new_request_id().await.unwrap();
+                        let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
+                        let extensions = vec![cert_common::CsrAttribute::build_extended_key_usage(
+                            key_usage_oids,
+                        )
+                        .to_custom_extension()
+                        .unwrap()];
+                        let ocsp_csr = superior.generate_signing_request(
+                            m,
+                            "root".to_string(),
+                            "Root Certificate".to_string(),
+                            ca.config.san.clone(),
+                            extensions,
+                            id,
+                        );
+                        let mut root_cert = superior
+                            .root_cert
+                            .as_ref()
+                            .unwrap()
+                            .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
+                            .unwrap();
+                        root_cert.medium = ca.medium.clone();
+                        root_cert
+                    } else {
+                        todo!("Intermediate certificate authority generation not possible");
+                    };
 
-                    let cert = certparams.self_signed(&key_pair).unwrap();
-                    let cert_der = cert.der();
-                    let key_der = key_pair.serialize_der();
-
-                    let cacert = CaCertificate::from_existing_https(
-                        m,
-                        ca.medium.clone(),
-                        cert_der,
-                        Some(Zeroizing::from(key_der)),
-                        "root".to_string(),
-                        0,
-                    );
-                    cacert
+                    rootcert
                         .save_to_medium(&mut ca, &settings.root_password)
                         .await;
-                    ca.root_cert = Ok(cacert);
-                    service::log::info!("Generating OCSP responder certificate");
-                    let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned()];
-                    let extensions =
-                        vec![
-                            cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
-                                .to_custom_extension()
-                                .unwrap(),
-                        ];
-
-                    let id = ca.get_new_request_id().await.unwrap();
-                    let ocsp_csr = ca.generate_signing_request(
-                        m,
-                        "ocsp".to_string(),
-                        "OCSP Responder".to_string(),
-                        ca.ocsp_urls.to_owned(),
-                        extensions,
-                        id,
-                    );
-                    let mut ocsp_cert = ca
-                        .root_cert
-                        .as_ref()
-                        .unwrap()
-                        .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
-                        .unwrap();
-                    ocsp_cert.medium = ca.medium.clone();
-                    ocsp_cert
-                        .save_to_medium(&mut ca, &settings.ocsp_password)
-                        .await;
-                    ca.ocsp_signer = Ok(ocsp_cert);
-
-                    let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
-                    let extensions =
-                        vec![
-                            cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
-                                .to_custom_extension()
-                                .unwrap(),
-                        ];
-
-                    service::log::info!("Generating administrator certificate");
-                    let id = ca.get_new_request_id().await.unwrap();
-                    let admin_csr = ca.generate_signing_request(
-                        m,
-                        "admin".to_string(),
-                        format!("{} Administrator", settings.common_name),
-                        Vec::new(),
-                        extensions,
-                        id,
-                    );
-                    let mut admin_cert = ca
-                        .root_cert
-                        .as_ref()
-                        .unwrap()
-                        .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
-                        .unwrap();
-                    admin_cert.medium = ca.medium.clone();
-                    admin_cert
-                        .save_to_medium(&mut ca, &settings.admin_password)
-                        .await;
-                    ca.admin = Ok(admin_cert);
-                } else if let Some(superior) = superior {
-                    todo!("Intermediate certificate authority generation not implemented");
-                } else {
-                    todo!("Intermediate certificate authority generation not possible");
+                    ca.root_cert = Ok(rootcert);
                 }
+                service::log::info!("Generating OCSP responder certificate");
+                let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_owned()];
+                let extensions =
+                    vec![
+                        cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                            .to_custom_extension()
+                            .unwrap(),
+                    ];
+
+                let id = ca.get_new_request_id().await.unwrap();
+                let ocsp_csr = ca.generate_signing_request(
+                    m,
+                    "ocsp".to_string(),
+                    "OCSP Responder".to_string(),
+                    ca.ocsp_urls.to_owned(),
+                    extensions,
+                    id,
+                );
+                let mut ocsp_cert = ca
+                    .root_cert
+                    .as_ref()
+                    .unwrap()
+                    .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
+                    .unwrap();
+                ocsp_cert.medium = ca.medium.clone();
+                ocsp_cert
+                    .save_to_medium(&mut ca, &settings.ocsp_password)
+                    .await;
+                ca.ocsp_signer = Ok(ocsp_cert);
+
+                let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
+                let extensions =
+                    vec![
+                        cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                            .to_custom_extension()
+                            .unwrap(),
+                    ];
+
+                service::log::info!("Generating administrator certificate");
+                let id = ca.get_new_request_id().await.unwrap();
+                let admin_csr = ca.generate_signing_request(
+                    m,
+                    "admin".to_string(),
+                    format!("{} Administrator", settings.common_name),
+                    Vec::new(),
+                    extensions,
+                    id,
+                );
+                let mut admin_cert = ca
+                    .root_cert
+                    .as_ref()
+                    .unwrap()
+                    .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
+                    .unwrap();
+                admin_cert.medium = ca.medium.clone();
+                admin_cert
+                    .save_to_medium(&mut ca, &settings.admin_password)
+                    .await;
+                ca.admin = Ok(admin_cert);
             }
             CertificateSigningMethod::Ssh(m) => {
                 if settings.inferior_to.is_none() {

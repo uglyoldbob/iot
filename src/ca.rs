@@ -133,7 +133,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     html.head(|h| {
         generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb.src(s.get_absolute_url(pki, "js/certgen.js"));
                 sb
             })
     })
@@ -374,6 +374,7 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
 /// The main landing page for a pki object
 async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     let mut pki = s.pki.lock().await;
+    service::log::debug!("Proxy is \"{}\"", s.proxy);
     if let PkiInstance::Pki(pki) = std::ops::DerefMut::deref_mut(&mut pki) {
         let mut html = html::root::Html::builder();
         html.head(|h| {
@@ -393,6 +394,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
         .body(|b| {
             b.text("This is the pki page").line_break(|a| a);
             for (name, ca) in &pki.roots {
+                service::log::debug!("Root name \"{}\"", name);
                 b.thematic_break(|a| a);
                 let validity = ca.get_validity();
                 if let Some(valid) = validity {
@@ -435,10 +437,27 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+///The page that redirects to /main.rs
+async fn pki_main_page2(s: WebPageContext) -> webserver::WebResponse {
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.status = hyper::http::StatusCode::from_u16(302).unwrap();
+    let url = format!("{}/pki", s.proxy);
+    service::log::debug!("Redirect to {}", url);
+    response
+        .headers
+        .insert("Location", HeaderValue::from_str(&url).unwrap());
+
+    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie,
+    }
+}
+
 /// The main page for a certificate authority
 async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
-    let pki = ca.config.get_pki_name();
-    service::log::debug!("Proxy {} {}", pki, s.proxy);
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -457,14 +476,14 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
                 CertificateSigningMethod::Https(m) => {
                     b.anchor(|ab| {
                         ab.text("Download CA certificate as der");
-                        ab.href(format!("{}{}ca/get_ca.rs?type=der", s.proxy, pki));
+                        ab.href("ca/get_ca.rs?type=der");
                         ab.target("_blank");
                         ab
                     });
                     b.line_break(|lb| lb);
                     b.anchor(|ab| {
                         ab.text("Download CA certificate as pem");
-                        ab.href(format!("{}{}ca/get_ca.rs?type=pem", s.proxy, pki));
+                        ab.href("ca/get_ca.rs?type=pem");
                         ab.target("_blank");
                         ab
                     });
@@ -473,7 +492,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
                 CertificateSigningMethod::Ssh(m) => {
                     b.anchor(|ab| {
                         ab.text("Download SSH CA certificate");
-                        ab.href(format!("{}{}ca/get_ca.rs", s.proxy, pki));
+                        ab.href("ca/get_ca.rs");
                         ab.target("_blank");
                         ab
                     });
@@ -482,20 +501,20 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             }
             b.anchor(|ab| {
                 ab.text("Request a signature on a certificate");
-                ab.href(format!("{}{}ca/request.rs", s.proxy, pki));
+                ab.href("ca/request.rs");
                 ab
             });
             b.line_break(|lb| lb);
             if admin {
                 b.anchor(|ab| {
                     ab.text("List pending requests");
-                    ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                    ab.href("ca/list.rs");
                     ab
                 });
                 b.line_break(|lb| lb);
                 b.anchor(|ab| {
                     ab.text("List all certificates");
-                    ab.href(format!("{}{}ca/view_all_certs.rs", s.proxy, pki));
+                    ab.href("ca/view_all_certs.rs");
                     ab
                 });
                 b.line_break(|lb| lb);
@@ -1128,7 +1147,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
         generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb.src(s.get_absolute_url(pki, "js/certgen.js"));
                 sb
             })
     })
@@ -1333,7 +1352,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webser
         generic_head(h, s, ca)
             .title(|t| t.text(ca.config.common_name.to_owned()))
             .script(|sb| {
-                sb.src(format!("{}js/certgen.js", s.proxy));
+                sb.src(s.get_absolute_url(pki, "js/certgen.js"));
                 sb
             })
     })
@@ -1852,12 +1871,12 @@ fn generic_head<'a>(
     let pki = ca.config.get_pki_name();
     h.meta(|m| m.charset("UTF-8"));
     h.link(|h| {
-        h.href(format!("{}{}css/ca.css", s.proxy, pki))
+        h.href(s.get_absolute_url(pki, "css/ca.css"))
             .rel("stylesheet")
             .media("all")
     });
     h.link(|h| {
-        h.href(format!("{}{}css/ca-mobile.css", s.proxy, pki))
+        h.href(s.get_absolute_url(pki, "css/ca-mobile.css"))
             .rel("stylesheet")
             .media("screen and (max-width: 640px)")
     });
@@ -1888,6 +1907,10 @@ pub fn ca_register_files(
                 static_map.insert(
                     format!("/pki/{}/js/certgen_wasm.js", name),
                     "/js/certgen_wasm.js".to_string(),
+                );
+                static_map.insert(
+                    format!("/pki/{}/js/certgen.js", name),
+                    "/js/certgen.js".to_string(),
                 );
             }
         }
@@ -1929,7 +1952,7 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
     match pki {
         PkiInstance::Pki(pki) => {
             router.register("/pki", pki_main_page);
-            router.register("/pki/", pki_main_page);
+            router.register("/pki/", pki_main_page2);
             for (name, ca) in &pki.roots {
                 register(router, &format!("/pki/{}", name), ca);
             }
