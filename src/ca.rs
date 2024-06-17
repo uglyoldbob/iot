@@ -81,12 +81,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
                 b.text("Your request has been submitted").line_break(|f| f);
                 b.anchor(|ab| {
                     ab.text("View status of request");
-                    ab.href(format!(
-                        "{}{}ca/view_cert.rs?id={}",
-                        s.proxy,
-                        ca.config.get_pki_name(),
-                        id.unwrap()
-                    ));
+                    ab.href(format!("view_cert.rs?id={}", id.unwrap()));
                     ab
                 });
                 b.line_break(|lb| lb);
@@ -149,7 +144,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
             div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
             div.anchor(|ab| {
                 ab.text("Back to main page");
-                ab.href(format!("{}{}ca", s.proxy, pki));
+                ab.href(".");
                 ab
             }).line_break(|a|a);
             match ca.config.sign_method {
@@ -188,7 +183,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                     div.division(|div| {
                         div.form(|f| {
                             f.name("request");
-                            f.action(format!("{}{}ca/submit_request.rs", s.proxy, pki));
+                            f.action("submit_request.rs");
                             f.method("post");
                             f.text("Your Name")
                                 .line_break(|a| a)
@@ -275,7 +270,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
                         div.text("SSH STUFF").line_break(|a|a);
                         div.form(|f| {
                             f.name("request");
-                            f.action(format!("{}{}ca/submit_request.rs", s.proxy, pki));
+                            f.action("ca/submit_request.rs");
                             f.method("post");
                             f.text("Your Name")
                                 .line_break(|a| a)
@@ -437,7 +432,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
-///The page that redirects to /main.rs
+///The page that redirects to the pki main page without a trailing /
 async fn pki_main_page2(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
@@ -544,6 +539,42 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
             handle_ca_main_page(ca, &s).await
         }
         PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s).await,
+    }
+}
+
+async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+    let pki = ca.config.get_pki_name();
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.status = hyper::http::StatusCode::from_u16(302).unwrap();
+    let url = s.get_absolute_url(pki, "ca");
+
+    service::log::debug!("Redirect to {}", url);
+    response
+        .headers
+        .insert("Location", HeaderValue::from_str(&url).unwrap());
+
+    let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
+    webserver::WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+///The page that redirects to the ca main page without a trailing /
+async fn ca_main_page2(s: WebPageContext) -> webserver::WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_main_page2(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_main_page2(ca, &s).await,
     }
 }
 
@@ -777,7 +808,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webse
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
                             ab.text("Back to all requests");
-                            ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                            ab.href("list.rs");
                             ab
                         })
                         .line_break(|a| a);
@@ -872,7 +903,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webse
                 }
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(format!("{}{}ca", s.proxy, pki));
+                    ab.href(".");
                     ab
                 });
             }
@@ -1033,7 +1064,6 @@ async fn ca_list_ssh_requests(s: WebPageContext) -> webserver::WebResponse {
 
 /// View all certificates for a certificate authority
 async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
-    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -1069,7 +1099,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
                         .line_break(|a| a);
                     b.anchor(|ab| {
                         ab.text("View details");
-                        ab.href(format!("{}{}ca/view_cert.rs?id={}", s.proxy, pki, c.1));
+                        ab.href(format!("view_cert.rs?id={}", c.1));
                         ab
                     });
                     b.line_break(|lb| lb);
@@ -1078,7 +1108,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
             b.thematic_break(|a| a);
             b.anchor(|ab| {
                 ab.text("Back to main page");
-                ab.href(format!("{}{}ca", s.proxy, pki));
+                ab.href(".");
                 ab
             });
             b.line_break(|lb| lb);
@@ -1241,10 +1271,8 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
                     b.division(|div| {
                         div.class("hidden");
                         div.anchor(|a| {
-                            a.id("get_request").text(format!(
-                                "{}{}ca/get_cert.rs?id={}&type=pem",
-                                s.proxy, pki, myid
-                            ))
+                            a.id("get_request")
+                                .text(format!("get_cert.rs?id={}&type=pem", myid))
                         });
                         div
                     });
@@ -1283,7 +1311,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(format!("{}{}ca", s.proxy, pki));
+            ab.href(".");
             ab
         });
         b.line_break(|lb| lb);
@@ -1423,7 +1451,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webser
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(format!("{}{}ca", s.proxy, pki));
+            ab.href(".");
             ab
         });
         b.line_break(|lb| lb);
@@ -1562,6 +1590,12 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
         let mut html = html::root::Html::builder();
         html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
             .body(|b| {
+                b.anchor(|ab| {
+                    ab.text("Back to main page");
+                    ab.href(".");
+                    ab
+                })
+                .line_break(|a| a);
                 b.form(|f| {
                     f.method("POST");
                     f.text("Access key for admin certificate")
@@ -1924,7 +1958,7 @@ pub fn ca_register_files(
 pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
     let register = |router: &mut WebRouter, name: &str, ca: &Ca| {
         router.register(&format!("{}/ca", name), ca_main_page);
-        router.register(&format!("{}/ca/", name), ca_main_page);
+        router.register(&format!("{}/ca/", name), ca_main_page2);
         router.register(&format!("{}/ca/get_ca.rs", name), ca_get_cert);
         router.register(&format!("{}/ca/request.rs", name), ca_request);
         router.register(&format!("{}/ca/submit_request.rs", name), ca_submit_request);

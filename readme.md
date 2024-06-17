@@ -58,3 +58,4 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Implement HSM for certificate operations with pkcs11 api
 - [ ] Add ssh certificate operations
 - [ ] Implement paging operations for certificate lists
+- [ ] For intermediate authorities, add ability to get full certificate chain

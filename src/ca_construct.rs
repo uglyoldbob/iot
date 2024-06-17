@@ -283,6 +283,10 @@ impl Ca {
                             .unwrap()
                             .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
                             .unwrap();
+                        let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
+                        superior
+                            .save_user_cert(id, &root_cert.contents(), &snb)
+                            .await;
                         root_cert.medium = ca.medium.clone();
                         root_cert
                     } else {
