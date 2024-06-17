@@ -8,6 +8,7 @@
 #![recursion_limit = "512"]
 
 mod ca;
+mod hsm2;
 mod tpm2;
 
 use std::io::Write;
@@ -22,6 +23,7 @@ mod main_config;
 pub use main_config::MainConfiguration;
 use tokio::io::AsyncReadExt;
 use userprompt::Prompting;
+use zeroize::Zeroizing;
 
 use crate::webserver::tls::*;
 use crate::webserver::*;
@@ -264,6 +266,8 @@ async fn smain() {
     };
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
+    std::env::set_var("SOFTHSM2_CONF", config_path.join("softhsm2.conf"));
+
     let name = args.name.unwrap_or("default".to_string());
 
     service::log::debug!("Load config from {:?}", config_path);
@@ -404,10 +408,41 @@ async fn smain() {
             .level_filter(),
     );
 
+    let mut hsm: hsm2::Hsm;
+    if let Some(hsm_t) = hsm2::Hsm::create(
+        settings.hsm_path_override.as_ref().map(|a| a.to_path_buf()),
+        Zeroizing::new(settings.hsm_pin.clone()),
+        Zeroizing::new(settings.hsm_pin2.clone()),
+    ) {
+        hsm = hsm_t;
+    } else {
+        service::log::error!("Failed to open the hardware security module");
+        panic!("Failed to open the hardware security module");
+    }
+
     let mut proxy_map = std::collections::HashMap::new();
 
     for name in &settings.public_names {
         proxy_map.insert(name.domain.clone(), name.subdomain.clone());
+    }
+
+    {
+        let n = config_path.join(format!("{}-initialized", name));
+        if n.exists() && n.metadata().unwrap().len() > 2 {
+            use tokio::io::AsyncWriteExt;
+            let _ca_instance = ca::PkiInstance::init(&settings.pki, &settings).await;
+            let mut f = tokio::fs::File::create(&n).await.unwrap();
+            f.write_all("".as_bytes())
+                .await
+                .expect("Failed to initialization file update");
+        }
+    }
+
+    if let Some(https) = &settings.https {
+        if !https.certificate.exists() {
+            service::log::error!("Failed to open https certificate");
+            panic!("No https certificate to run with");
+        }
     }
 
     let settings = Arc::new(settings);

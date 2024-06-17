@@ -7,6 +7,7 @@
 #[path = "ca_construct.rs"]
 /// The ca module, with code used to destroy a ca
 mod ca;
+mod hsm2;
 mod main_config;
 mod tpm2;
 

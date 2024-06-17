@@ -653,11 +653,17 @@ pub enum CaCertificateStorageBuilder {
 
 impl CaCertificateStorageBuilder {
     /// Remove relative paths
-    pub fn remove_relative_paths(&mut self) {
+    pub async fn remove_relative_paths(&mut self) {
         match self {
             Self::Nowhere => {}
             Self::Sqlite(p) => {
                 if p.is_relative() {
+                    use tokio::io::AsyncWriteExt;
+                    let p2: std::path::PathBuf = p.to_path_buf();
+                    let mut f = tokio::fs::File::create(p2).await.unwrap();
+                    f.write_all(" ".as_bytes())
+                        .await
+                        .expect("Failed to write dummy database file");
                     **p = p.canonicalize().unwrap();
                 }
             }
@@ -792,8 +798,7 @@ impl OwnerOptions {
 impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
     /// # Argumments
-    /// * options - The optional arguments used to set applicable file permissions
-    pub async fn build(&self, options: Option<&OwnerOptions>) -> CaCertificateStorage {
+    pub async fn build(&self) -> CaCertificateStorage {
         match self {
             CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
             CaCertificateStorageBuilder::Sqlite(p) => {
@@ -802,43 +807,7 @@ impl CaCertificateStorageBuilder {
                 let mut pool;
                 loop {
                     let p: &std::path::PathBuf = &p;
-                    let mode = if options.is_none() {
-                        async_sqlite::JournalMode::Wal
-                    } else {
-                        async_sqlite::JournalMode::Memory
-                    };
-                    pool = async_sqlite::PoolBuilder::new()
-                        .path(p)
-                        .journal_mode(mode)
-                        .open()
-                        .await;
-                    if pool.is_err() {
-                        count += 1;
-                        if count > 10 {
-                            panic!("Failed to create database {}", p.display());
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                let pool = pool.unwrap();
-                pool.close_blocking().unwrap();
-                if let Some(o) = options {
-                    let paths = get_sqlite_paths(p);
-                    for p in paths {
-                        if p.exists() {
-                            o.set_owner(&p, 0o600);
-                        }
-                    }
-                }
-                let mut pool;
-                loop {
-                    let p: &std::path::PathBuf = &p;
-                    let mode = if options.is_none() {
-                        async_sqlite::JournalMode::Wal
-                    } else {
-                        async_sqlite::JournalMode::Memory
-                    };
+                    let mode = async_sqlite::JournalMode::Wal;
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
                         .journal_mode(mode)
@@ -1598,15 +1567,15 @@ impl From<PkiConfigurationEnumAnswers> for PkiConfigurationEnum {
 
 impl PkiConfigurationEnum {
     /// Remove relative pathnames from all paths specified
-    pub fn remove_relative_paths(&mut self) {
+    pub async fn remove_relative_paths(&mut self) {
         match self {
             PkiConfigurationEnum::Pki(pki) => {
                 for (_k, a) in pki.local_ca.iter_mut() {
-                    a.path.remove_relative_paths();
+                    a.path.remove_relative_paths().await;
                 }
             }
             PkiConfigurationEnum::Ca(ca) => {
-                ca.path.remove_relative_paths();
+                ca.path.remove_relative_paths().await;
             }
         }
     }
@@ -2125,7 +2094,7 @@ impl Ca {
 
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Self {
-        let medium = settings.path.build(None).await;
+        let medium = settings.path.build().await;
         Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),

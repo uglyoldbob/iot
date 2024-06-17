@@ -7,6 +7,7 @@
 #[path = "ca_construct.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;
+mod hsm2;
 mod main_config;
 mod tpm2;
 
@@ -16,6 +17,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use userprompt::Prompting;
+use zeroize::Zeroizing;
 
 use crate::main_config::MainConfigurationAnswers;
 
@@ -121,6 +123,14 @@ async fn main() {
     #[cfg(feature = "tpm2")]
     let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
 
+    {
+        if hsm2::Hsm::check(None).is_err() {
+            service::log::error!("HSM NOT DETECTED AT DEFAULT LOCATION!!!");
+        } else {
+            service::log::info!("HSM DETECTED AT DEFAULT LOCATION");
+        }
+    }
+
     #[cfg(feature = "tpm2")]
     {
         if tpm2.is_none() {
@@ -144,6 +154,7 @@ async fn main() {
         let ipc_log = LocalLogging::new(s);
         service::log::set_max_level(service::log::LevelFilter::Debug);
         service::log::set_boxed_logger(Box::new(ipc_log)).unwrap();
+
         MainConfiguration::provide_answers(&answers)
     } else if let Some(answers_path) = &args.answers {
         println!(
@@ -193,13 +204,15 @@ async fn main() {
         panic!("Service already exists");
     }
 
-    let _ca_instance = ca::PkiInstance::init(&config.pki, &config, &options).await;
-
-    if let Some(https) = &config.https {
-        if !https.certificate.exists() {
-            service::log::error!("Failed to open https certificate");
-            panic!("No https certificate to run with");
-        }
+    {
+        let n = config_path.join(format!("{}-initialized", name));
+        let mut f = tokio::fs::File::create(&n)
+            .await
+            .expect("Failed to create initialization file");
+        f.write_all("false".as_bytes())
+            .await
+            .expect("Failed to write initialization file");
+        options.set_owner(&n, 0o700);
     }
 
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
@@ -215,6 +228,43 @@ async fn main() {
             .await
             .expect("Failed to write reverse proxy file");
         options.set_owner(&proxy_name, 0o644);
+    }
+
+    {
+        let softhsm_config = config_path.join("softhsm2.conf");
+        let token_path = config_path.join("tokens");
+        let hsm_contents = format!(
+            "directories.tokendir = {}\n
+        objectstore.backend = file
+
+# ERROR, WARNING, INFO, DEBUG
+log.level = DEBUG
+
+# If CKF_REMOVABLE_DEVICE flag should be set
+slots.removable = false
+
+# Enable and disable PKCS#11 mechanisms using slots.mechanisms.
+slots.mechanisms = ALL
+
+# If the library should reset the state on fork
+library.reset_on_fork = false
+",
+            token_path.display()
+        );
+        let mut f3 = tokio::fs::File::create(&softhsm_config)
+            .await
+            .expect("Failed to create softhsm config");
+        f3.write_all(hsm_contents.as_bytes())
+            .await
+            .expect("Failed to write softhsm config");
+        options.set_owner(&softhsm_config, 0o700);
+
+        let mut builder = tokio::fs::DirBuilder::new();
+        builder.recursive(true);
+        tokio::fs::DirBuilder::create(&builder, &token_path)
+            .await
+            .expect("Failed to create token directory");
+        options.set_owner(&token_path, 0o700);
     }
 
     let service_args = vec![
@@ -240,7 +290,25 @@ async fn main() {
     }
 
     service::log::info!("Saving the configuration file");
-    config.remove_relative_paths();
+    if let Some(https) = &config.https {
+        https.certificate.make_dummy().await;
+    }
+    config.remove_relative_paths().await;
+    if let Some(https) = &config.https {
+        https.certificate.destroy();
+    }
+    match &config.pki {
+        ca::PkiConfigurationEnum::Pki(pki) => {
+            for (name, ca) in &pki.local_ca {
+                let ca = ca.get_ca(name, &config);
+                ca.destroy_backend().await;
+            }
+        }
+        ca::PkiConfigurationEnum::Ca(ca) => {
+            let ca = ca.get_ca(&config);
+            ca.destroy_backend().await;
+        }
+    }
     let config_data = toml::to_string(&config).unwrap();
     let config_file = config_path.join(format!("{}-config.toml", name));
     if config_file.exists() {
@@ -317,7 +385,6 @@ async fn main() {
     {
         do_without_tpm2().await
     }
-
     service.create_async(service_config).await;
     let _ = service.start();
 }

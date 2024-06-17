@@ -1,6 +1,7 @@
 //! Contains code related to the main configuration of the application
 
 use egui_multiwin::egui;
+use zeroize::Zeroizing;
 
 use crate::ca::{ComplexName, ProxyConfig};
 
@@ -168,6 +169,23 @@ impl From<HttpsCertificateLocationAnswers> for HttpsCertificateLocation {
 }
 
 impl HttpsCertificateLocation {
+    /// Construct a temporary file for being able to remove relative file paths
+    pub async fn make_dummy(&self) {
+        if let HttpsCertificateLocation::New {
+            path,
+            ca_name: _,
+            password: _,
+        } = self
+        {
+            use tokio::io::AsyncWriteExt;
+            let pb = (*path).to_owned();
+            let mut f = tokio::fs::File::create(&pb).await.unwrap();
+            f.write_all(" ".as_bytes())
+                .await
+                .expect("Failed to write dummy https certificate");
+        }
+    }
+
     /// Destroy the certificate by deleting the file if it was created by the construction process
     pub fn destroy(&self) {
         if let HttpsCertificateLocation::New {
@@ -379,6 +397,8 @@ pub struct MainConfigurationAnswers {
     pub username: String,
     /// The password for the user
     pub password: Option<userprompt::Password2>,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
     /// General settings
     pub general: GeneralSettings,
     /// Admin user settings
@@ -430,11 +450,17 @@ pub struct MainConfiguration {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: bool,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The pin for the hardware security module
+    pub hsm_pin: String,
+    /// The user pin for the hardware security module
+    pub hsm_pin2: String,
 }
 
 impl MainConfiguration {
     /// Remove relative paths
-    pub fn remove_relative_paths(&mut self) {
+    pub async fn remove_relative_paths(&mut self) {
         if let Some(https) = &mut self.https {
             match &mut https.certificate {
                 HttpsCertificateLocation::Existing { path, password: _ } => {
@@ -453,7 +479,7 @@ impl MainConfiguration {
                 }
             }
         }
-        self.pki.remove_relative_paths();
+        self.pki.remove_relative_paths().await;
     }
 
     /// Fill out this configuration file with answers from the specified answer configuration
@@ -473,6 +499,9 @@ impl MainConfiguration {
             pki: answers.pki.clone().into(),
             debug_level: Some(answers.debug_level.clone()),
             tpm2_required: answers.tpm2_required,
+            hsm_path_override: answers.hsm_path_override.clone(),
+            hsm_pin: crate::ca::generate_password(32).into(),
+            hsm_pin2: crate::ca::generate_password(32).into(),
         }
     }
 
