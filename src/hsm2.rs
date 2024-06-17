@@ -1,6 +1,26 @@
 //! Code related to the pkcs11 interface for hardware security modules
 
+use cert_common::{CertificateSigningMethod, HttpsSigningMethod};
 use zeroize::Zeroizing;
+
+pub struct Pkcs11KeyPair {
+    public: cryptoki::object::ObjectHandle,
+    private: cryptoki::object::ObjectHandle,
+}
+
+impl rcgen::RemoteKeyPair for Pkcs11KeyPair {
+    fn public_key(&self) -> &[u8] {
+        todo!()
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+        todo!()
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        todo!()
+    }
+}
 
 /// Retrieve the default path for the tpm2 device node
 #[cfg(target_os = "linux")]
@@ -111,5 +131,47 @@ impl Hsm {
                 s
             })
             .ok()
+    }
+
+    /// Generate a keypair for certificate operations
+    pub fn generate_https_keypair(
+        &mut self,
+        session: &mut cryptoki::session::Session,
+        method: HttpsSigningMethod,
+        keysize: usize,
+    ) -> Option<rcgen::KeyPair> {
+        match method {
+            HttpsSigningMethod::RsaSha256 => {
+                let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
+                let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
+
+                let pub_key_template = vec![
+                    cryptoki::object::Attribute::Token(true),
+                    cryptoki::object::Attribute::Private(false),
+                    cryptoki::object::Attribute::PublicExponent(public_exponent),
+                    cryptoki::object::Attribute::ModulusBits((keysize as u64).into()),
+                    cryptoki::object::Attribute::Encrypt(true),
+                ];
+                let priv_key_template = vec![
+                    cryptoki::object::Attribute::Token(true),
+                    cryptoki::object::Attribute::Decrypt(true),
+                ];
+                let (public, private) = session
+                    .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
+                    .ok()?;
+                let attrs = session
+                    .get_attributes(public, &[cryptoki::object::AttributeType::PublicKeyInfo])
+                    .unwrap();
+                service::log::debug!("Attributes are {:?}", attrs);
+                if let cryptoki::object::Attribute::PublicKeyInfo(pk) = &attrs[0] {
+                    service::log::debug!("The public key is {} {:?}", pk.len(), pk);
+                }
+                let rkp = Pkcs11KeyPair { public, private };
+                rcgen::KeyPair::from_remote(Box::new(rkp)).ok()
+            }
+            HttpsSigningMethod::EcdsaSha256 => {
+                todo!()
+            }
+        }
     }
 }
