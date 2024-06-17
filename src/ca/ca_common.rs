@@ -1978,6 +1978,7 @@ impl Ca {
             let proxy = if let Some(p) = &settings.proxy { p } else { "" };
 
             let pki = settings.get_pki_name();
+            url.push_str("/");
             url.push_str(proxy);
             url.push_str(pki);
             url.push_str("ca/ocsp");

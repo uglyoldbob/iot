@@ -729,7 +729,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
             }
             b.anchor(|ab| {
                 ab.text("List pending requests");
-                ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                ab.href("list.rs");
                 ab
             });
             b.line_break(|lb| lb);
@@ -764,7 +764,6 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
 
 /// Get the pending signing requests for a certificate authority
 async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
-    let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -850,12 +849,12 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webse
                         }
                         b.anchor(|ab| {
                             ab.text("Sign this request");
-                            ab.href(format!("{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
+                            ab.href(format!("request_sign.rs?id={}", id));
                             ab
                         })
                         .line_break(|a| a);
                         b.form(|f| {
-                            f.action(format!("{}{}ca/request_reject.rs", s.proxy, pki));
+                            f.action("request_reject.rs");
                             f.text("Reject reason")
                                 .line_break(|a| a)
                                 .input(|i| {
@@ -891,7 +890,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webse
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
                             ab.text("View this request");
-                            ab.href(format!("{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                            ab.href(format!("list.rs?id={}", id));
                             ab
                         })
                         .line_break(|a| a);
