@@ -1,16 +1,20 @@
 //! Code related to the pkcs11 interface for hardware security modules
 
-use cert_common::{CertificateSigningMethod, HttpsSigningMethod};
+use std::sync::Arc;
+
+use cert_common::{oid::OID_PKCS1_RSA_ENCRYPTION, HttpsSigningMethod};
 use zeroize::Zeroizing;
 
 pub struct Pkcs11KeyPair {
     public: cryptoki::object::ObjectHandle,
     private: cryptoki::object::ObjectHandle,
+    pubkey: Vec<u8>,
+    hsm: Arc<crate::hsm2::Hsm>,
 }
 
 impl rcgen::RemoteKeyPair for Pkcs11KeyPair {
     fn public_key(&self) -> &[u8] {
-        todo!()
+        &self.pubkey
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
@@ -18,7 +22,7 @@ impl rcgen::RemoteKeyPair for Pkcs11KeyPair {
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
-        todo!()
+        rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_RSA_ENCRYPTION.components()).unwrap()
     }
 }
 
@@ -117,7 +121,7 @@ impl Hsm {
     }
 
     /// Attempt to get a session as a user
-    pub fn get_user_session(&mut self) -> Option<cryptoki::session::Session> {
+    pub fn get_user_session(&self) -> Option<cryptoki::session::Session> {
         self.pkcs11
             .open_rw_session(self.so_slot)
             .map(|s| {
@@ -135,21 +139,22 @@ impl Hsm {
 
     /// Generate a keypair for certificate operations
     pub fn generate_https_keypair(
-        &mut self,
-        session: &mut cryptoki::session::Session,
+        self: Arc<Self>,
         method: HttpsSigningMethod,
         keysize: usize,
     ) -> Option<rcgen::KeyPair> {
+        let session = self.get_user_session()?;
         match method {
             HttpsSigningMethod::RsaSha256 => {
                 let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
                 let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
-
+                let bits: cryptoki::types::Ulong = (keysize as u64).into();
+                service::log::debug!("Keysize is {:?}", bits);
                 let pub_key_template = vec![
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Private(false),
                     cryptoki::object::Attribute::PublicExponent(public_exponent),
-                    cryptoki::object::Attribute::ModulusBits((keysize as u64).into()),
+                    cryptoki::object::Attribute::ModulusBits(bits),
                     cryptoki::object::Attribute::Encrypt(true),
                 ];
                 let priv_key_template = vec![
@@ -160,13 +165,56 @@ impl Hsm {
                     .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
                     .ok()?;
                 let attrs = session
-                    .get_attributes(public, &[cryptoki::object::AttributeType::PublicKeyInfo])
+                    .get_attributes(public, &[cryptoki::object::AttributeType::Modulus])
                     .unwrap();
                 service::log::debug!("Attributes are {:?}", attrs);
-                if let cryptoki::object::Attribute::PublicKeyInfo(pk) = &attrs[0] {
-                    service::log::debug!("The public key is {} {:?}", pk.len(), pk);
+                let mut rsamod = Vec::new();
+                let rsaexp = rsa::BigUint::new(vec![65537 as u32]);
+                for attr in &attrs {
+                    match attr {
+                        cryptoki::object::Attribute::Modulus(v) => {
+                            rsamod = v.to_owned();
+                        }
+                        _ => {
+                            service::log::error!("Unexpected attribute");
+                        }
+                    }
                 }
-                let rkp = Pkcs11KeyPair { public, private };
+
+                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_le(&rsamod), rsaexp)
+                    .expect("Failed to build public key");
+
+                let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
+                    .expect("Faiiled to build public key bytes");
+                let pubvec = pubbytes.as_bytes().to_vec();
+                service::log::debug!("The public key is {:02x?}", pubvec,);
+
+                // data to encrypt
+                let data = vec![0xFF, 0x55, 0xDD];
+
+                // encrypt something with it
+                let encrypted_data = session
+                    .encrypt(&cryptoki::mechanism::Mechanism::RsaPkcs, public, &data)
+                    .ok()?;
+
+                // decrypt
+                let decrypted_data = session
+                    .decrypt(
+                        &cryptoki::mechanism::Mechanism::RsaPkcs,
+                        private,
+                        &encrypted_data,
+                    )
+                    .ok()?;
+
+                // The decrypted buffer is bigger than the original one.
+                assert_eq!(data, decrypted_data);
+
+                let rkp = Pkcs11KeyPair {
+                    public,
+                    private,
+                    pubkey: pubvec,
+                    hsm: self,
+                };
                 rcgen::KeyPair::from_remote(Box::new(rkp)).ok()
             }
             HttpsSigningMethod::EcdsaSha256 => {

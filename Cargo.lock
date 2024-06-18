@@ -4067,6 +4067,7 @@ dependencies = [
  "rand",
  "rcgen",
  "ring",
+ "rsa",
  "runas",
  "rustls-pki-types",
  "scrypt",

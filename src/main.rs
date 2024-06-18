@@ -420,6 +420,8 @@ async fn smain() {
         panic!("Failed to open the hardware security module");
     }
 
+    let hsm = Arc::new(hsm);
+
     let mut proxy_map = std::collections::HashMap::new();
 
     for name in &settings.public_names {
@@ -430,7 +432,7 @@ async fn smain() {
         let n = config_path.join(format!("{}-initialized", name));
         if n.exists() && n.metadata().unwrap().len() > 2 {
             use tokio::io::AsyncWriteExt;
-            let _ca_instance = ca::PkiInstance::init(&mut hsm, &settings.pki, &settings).await;
+            let _ca_instance = ca::PkiInstance::init(hsm, &settings.pki, &settings).await;
             let mut f = tokio::fs::File::create(&n).await.unwrap();
             f.write_all("".as_bytes())
                 .await

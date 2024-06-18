@@ -1,6 +1,8 @@
 #[path = "ca_common.rs"]
 mod ca_common;
 
+use std::sync::Arc;
+
 use async_sqlite::rusqlite::ToSql;
 pub use ca_common::*;
 
@@ -411,7 +413,7 @@ impl Pki {
     /// Initialize a Pki instance with the specified configuration and options for setting file ownerships (as required).
     #[allow(dead_code)]
     pub async fn init(
-        hsm: &mut crate::hsm2::Hsm,
+        hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Self {
@@ -427,7 +429,7 @@ impl Pki {
                 if !hm.contains_key(name) {
                     let config = &config.get_ca(name, main_config);
                     let ca = crate::ca::Ca::init(
-                        hsm,
+                        hsm.clone(),
                         config,
                         config.inferior_to.as_ref().map(|n| hm.get_mut(n)).flatten(),
                     )
@@ -472,7 +474,7 @@ impl PkiInstance {
     /// Init a pki Instance from the given settings
     #[allow(dead_code)]
     pub async fn init(
-        hsm: &mut crate::hsm2::Hsm,
+        hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfigurationEnum,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Self {
@@ -573,7 +575,7 @@ impl Ca {
     /// Initialize a Ca instance with the specified configuration.
     /// superior is used to generate the root certificate for intermediate authorities.
     pub async fn init(
-        hsm: &mut crate::hsm2::Hsm,
+        hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::CaConfiguration,
         superior: Option<&mut Self>,
     ) -> Option<Self> {
@@ -583,10 +585,6 @@ impl Ca {
             return None;
         }
 
-        let mut hsm_session = hsm
-            .get_user_session()
-            .expect("Failed to get hsm user session");
-
         let mut ca = Self::init_from_config(settings).await;
 
         match settings.sign_method {
@@ -594,9 +592,7 @@ impl Ca {
                 {
                     service::log::info!("Generating a root certificate for ca operations");
 
-                    let key_pair = hsm
-                        .generate_https_keypair(&mut hsm_session, m, 4096)
-                        .unwrap();
+                    let key_pair = hsm.generate_https_keypair(m, 4096).unwrap();
 
                     let san: Vec<String> = settings.san.to_owned();
                     let mut certparams = rcgen::CertificateParams::new(san).unwrap();
