@@ -854,8 +854,8 @@ pub struct CaCertificateToBeSigned {
     pub medium: CaCertificateStorage,
     /// The certificate signing request parameters
     pub csr: rcgen::CertificateSigningRequestParams,
-    /// The optional private key in der format
-    pub pkey: Option<Zeroizing<Vec<u8>>>,
+    /// The optional key
+    pub keypair: Option<crate::hsm2::KeyPair>,
     /// The certificate name to use for storage
     pub name: String,
     /// The id of the certificate to be signed
@@ -896,7 +896,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
                 data: CertificateData::Https(HttpsCertificate {
                     algorithm: algorithm.try_into().unwrap(),
                     cert: cert_der.to_owned(),
-                    pkey: Some(value.pkey),
+                    keypair: todo!(),
                     attributes: value.attributes.clone(),
                 }),
                 name,
@@ -958,6 +958,7 @@ impl CaCertificateStorage {
                     .expect("Failed to insert certificate");
                 }
             }
+        } else {
         }
         ca.save_user_cert(cert.id, &cert.contents(), &cert.get_snb())
             .await;
@@ -997,8 +998,8 @@ pub struct HttpsCertificate {
     algorithm: HttpsSigningMethod,
     /// The public certificate in der format
     cert: Vec<u8>,
-    /// The optional private key in der format
-    pkey: Option<Zeroizing<Vec<u8>>>,
+    /// The keypair
+    keypair: Option<crate::hsm2::KeyPair>,
     /// The extra attributes for the certificate
     attributes: Vec<cert_common::pkcs12::BagAttribute>,
 }
@@ -1010,42 +1011,21 @@ impl HttpsCertificate {
         x509_cert::Certificate::from_der(&self.cert).ok()
     }
 
-    /// Attempt to build a p12 document
-    pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
-        if let Some(pkey) = &self.pkey {
-            let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
-                cert: self.cert.clone(),
-                pkey: pkey.to_owned(),
-                attributes: self.attributes.clone(),
-                id,
-            };
-            let p12_der = p12.get_pkcs12(password);
-            Some(p12_der)
-        } else {
-            service::log::error!("Attempted to build a p12 with no private key");
-            None
-        }
-    }
-
     /// Returns the keypair for this certificate
-    pub fn keypair(&self) -> rcgen::KeyPair {
-        if let Some(pri) = &self.pkey {
-            let pkcs8 = rustls_pki_types::PrivatePkcs8KeyDer::from(pri.as_slice());
-            let alg =
-                rcgen::SignatureAlgorithm::from_oid(&self.algorithm.oid().components()).unwrap();
-            rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&pkcs8, alg).unwrap()
-        } else {
-            todo!("Implement getting keypair from remote keypair");
-        }
+    pub fn keypair(&self) -> Option<rcgen::KeyPair> {
+        self.keypair.clone().map(|a| a.keypair())
     }
 
     /// Retrieve the certificate in the rcgen Certificate format
-    pub fn as_certificate(&self) -> rcgen::Certificate {
-        let keypair = self.keypair();
-        let ca_cert_der = rustls_pki_types::CertificateDer::from(self.cert.clone());
-        let p = rcgen::CertificateParams::from_ca_cert_der(&ca_cert_der).unwrap();
-        //TODO unsure if this is correct
-        p.self_signed(&keypair).unwrap()
+    pub fn as_certificate(&self) -> Option<rcgen::Certificate> {
+        if let Some(keypair) = self.keypair() {
+            let ca_cert_der = rustls_pki_types::CertificateDer::from(self.cert.clone());
+            let p = rcgen::CertificateParams::from_ca_cert_der(&ca_cert_der).unwrap();
+            //TODO unsure if this is correct
+            Some(p.self_signed(&keypair).unwrap())
+        } else {
+            None
+        }
     }
 
     /// Create a pem version of the public certificate
@@ -1138,9 +1118,7 @@ impl CertificateData {
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         match self {
-            Self::Https(c) => {
-                c.pkey.take();
-            }
+            Self::Https(c) => {}
             Self::Ssh(c) => {
                 c.keypair.take();
             }
@@ -1167,15 +1145,16 @@ impl CertificateData {
     pub fn sign_csr(&self, csr: CaCertificateToBeSigned) -> CaCertificate {
         match self {
             Self::Https(c) => {
-                let issuer = &c.as_certificate();
-                let issuer_key = &c.keypair();
+                //TODO make a single function that returls both of the next variables
+                let issuer = &c.as_certificate().unwrap();
+                let issuer_key = &c.keypair().unwrap();
                 let rc_cert = csr.csr.signed_by(issuer, issuer_key).unwrap();
                 CaCertificate {
                     medium: CaCertificateStorage::Nowhere,
                     data: Self::Https(HttpsCertificate {
                         algorithm: csr.algorithm,
                         cert: rc_cert.der().to_vec(),
-                        pkey: csr.pkey,
+                        keypair: csr.keypair,
                         attributes: vec![
                             BagAttribute::LocalKeyId(vec![42; 16]), //TODO
                             BagAttribute::FriendlyName(csr.name.clone()),
@@ -1199,7 +1178,7 @@ impl CertificateData {
     /// Attempt to build a p12 document
     pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
         match self {
-            Self::Https(c) => c.try_p12(id, password),
+            Self::Https(c) => None,
             Self::Ssh(c) => c.try_p12(id, password),
         }
     }
@@ -1234,35 +1213,11 @@ impl CertificateData {
     /// Attempt to sign the specified data
     pub fn sign(&self, data: &[u8]) -> Option<Signature> {
         match self {
-            Self::Https(c) => match c.algorithm {
-                HttpsSigningMethod::EcdsaSha256 => {
-                    if let Some(pkey) = &c.pkey {
-                        let alg = &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING;
-                        let rng = &ring::rand::SystemRandom::new();
-                        let key =
-                            ring::signature::EcdsaKeyPair::from_pkcs8(alg, pkey, rng).unwrap();
-                        let signature = key.sign(rng, data).unwrap();
-                        let sig =
-                            Signature::OidSignature(c.algorithm.oid(), signature.as_ref().to_vec());
-                        Some(sig)
-                    } else {
-                        todo!("Sign with external method")
-                    }
-                }
-                HttpsSigningMethod::RsaSha256 => {
-                    if let Some(pkey) = &c.pkey {
-                        let rng = &ring::rand::SystemRandom::new();
-                        let key = ring::signature::RsaKeyPair::from_pkcs8(pkey).unwrap();
-                        let mut signature = vec![0; key.public().modulus_len()];
-                        let pad = &ring::signature::RSA_PKCS1_SHA256;
-                        key.sign(pad, rng, data, &mut signature).unwrap();
-                        let sig = Signature::OidSignature(c.algorithm.oid(), signature);
-                        Some(sig)
-                    } else {
-                        todo!("Sign with external method")
-                    }
-                }
-            },
+            Self::Https(c) => {
+                use rcgen::RemoteKeyPair;
+                let sig = c.keypair.as_ref().unwrap().sign(data).ok()?;
+                Some(Signature::OidSignature(c.algorithm.oid(), sig))
+            }
             Self::Ssh(c) => {
                 todo!();
             }
@@ -1334,7 +1289,7 @@ impl CaCertificate {
         algorithm: HttpsSigningMethod,
         medium: CaCertificateStorage,
         der: &[u8],
-        pkey: Option<Zeroizing<Vec<u8>>>,
+        keypair: crate::hsm2::KeyPair,
         name: String,
         id: u64,
     ) -> Self {
@@ -1343,7 +1298,7 @@ impl CaCertificate {
             data: CertificateData::Https(HttpsCertificate {
                 algorithm,
                 cert: der.to_vec(),
-                pkey,
+                keypair: Some(keypair),
                 attributes: vec![
                     BagAttribute::LocalKeyId(vec![42; 16]), //TODO
                     BagAttribute::FriendlyName(name.clone()),

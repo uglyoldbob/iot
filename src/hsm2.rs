@@ -1,28 +1,74 @@
 //! Code related to the pkcs11 interface for hardware security modules
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use cert_common::{oid::OID_PKCS1_RSA_ENCRYPTION, HttpsSigningMethod};
+use cert_common::{oid::OID_PKCS1_SHA256_RSA_ENCRYPTION, HttpsSigningMethod};
+use cryptoki::context::Pkcs11;
 use zeroize::Zeroizing;
 
-pub struct Pkcs11KeyPair {
+#[derive(Clone, Debug)]
+pub enum KeyPair {
+    RsaSha256(RsaSha256Keypair),
+}
+
+impl KeyPair {
+    pub fn keypair(&self) -> rcgen::KeyPair {
+        match self {
+            KeyPair::RsaSha256(m) => rcgen::KeyPair::from_remote(Box::new(m.clone())).unwrap(),
+        }
+    }
+}
+
+impl rcgen::RemoteKeyPair for KeyPair {
+    fn public_key(&self) -> &[u8] {
+        match self {
+            KeyPair::RsaSha256(m) => m.public_key(),
+        }
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+        match self {
+            KeyPair::RsaSha256(m) => m.sign(msg),
+        }
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        match self {
+            KeyPair::RsaSha256(m) => m.algorithm(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RsaSha256Keypair {
+    session: Arc<Mutex<cryptoki::session::Session>>,
     public: cryptoki::object::ObjectHandle,
     private: cryptoki::object::ObjectHandle,
     pubkey: Vec<u8>,
     hsm: Arc<crate::hsm2::Hsm>,
 }
 
-impl rcgen::RemoteKeyPair for Pkcs11KeyPair {
+impl rcgen::RemoteKeyPair for RsaSha256Keypair {
     fn public_key(&self) -> &[u8] {
         &self.pubkey
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
-        todo!()
+        let session = self.session.lock().unwrap();
+        service::log::debug!("Signing {} bytes for rsa", msg.len());
+        let hash = session
+            .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
+            .map_err(|_| rcgen::Error::RemoteKeyError)?;
+        let r = session.sign(
+            &cryptoki::mechanism::Mechanism::RsaPkcs,
+            self.private,
+            &hash,
+        );
+        r.map_err(|_| rcgen::Error::RemoteKeyError)
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
-        rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_RSA_ENCRYPTION.components()).unwrap()
+        rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components()).unwrap()
     }
 }
 
@@ -142,7 +188,7 @@ impl Hsm {
         self: Arc<Self>,
         method: HttpsSigningMethod,
         keysize: usize,
-    ) -> Option<rcgen::KeyPair> {
+    ) -> Option<KeyPair> {
         let session = self.get_user_session()?;
         match method {
             HttpsSigningMethod::RsaSha256 => {
@@ -161,13 +207,29 @@ impl Hsm {
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Decrypt(true),
                 ];
+                let m2 = self
+                    .pkcs11
+                    .get_mechanism_list(self.so_slot)
+                    .expect("Failed to get mechanisms");
+                for m in &m2 {
+                    let info = self
+                        .pkcs11
+                        .get_mechanism_info(self.so_slot, *m)
+                        .expect("Failed to get mechanism info");
+                    service::log::debug!(
+                        "Mechanism {} {:?} {} {}",
+                        m,
+                        m,
+                        info.generate(),
+                        info.generate_key_pair()
+                    );
+                }
                 let (public, private) = session
                     .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
-                    .ok()?;
+                    .expect("Failed to generate keypair");
                 let attrs = session
                     .get_attributes(public, &[cryptoki::object::AttributeType::Modulus])
                     .unwrap();
-                service::log::debug!("Attributes are {:?}", attrs);
                 let mut rsamod = Vec::new();
                 let rsaexp = rsa::BigUint::new(vec![65537 as u32]);
                 for attr in &attrs {
@@ -180,14 +242,15 @@ impl Hsm {
                         }
                     }
                 }
-
-                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_le(&rsamod), rsaexp)
+                service::log::debug!("modulus is {:02X?}", rsamod);
+                service::log::debug!("rsa exp is {:02X?}", rsaexp);
+                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod), rsaexp)
                     .expect("Failed to build public key");
 
                 let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
                     .expect("Faiiled to build public key bytes");
                 let pubvec = pubbytes.as_bytes().to_vec();
-                service::log::debug!("The public key is {:02x?}", pubvec,);
+                service::log::debug!("The public key is {:02x?}", pubvec);
 
                 // data to encrypt
                 let data = vec![0xFF, 0x55, 0xDD];
@@ -195,7 +258,7 @@ impl Hsm {
                 // encrypt something with it
                 let encrypted_data = session
                     .encrypt(&cryptoki::mechanism::Mechanism::RsaPkcs, public, &data)
-                    .ok()?;
+                    .expect("Failed to encrypt sample data");
 
                 // decrypt
                 let decrypted_data = session
@@ -204,18 +267,19 @@ impl Hsm {
                         private,
                         &encrypted_data,
                     )
-                    .ok()?;
+                    .expect("Failed to decrypt sample data");
 
                 // The decrypted buffer is bigger than the original one.
                 assert_eq!(data, decrypted_data);
 
-                let rkp = Pkcs11KeyPair {
+                let rkp = RsaSha256Keypair {
+                    session: Arc::new(Mutex::new(session)),
                     public,
                     private,
                     pubkey: pubvec,
                     hsm: self,
                 };
-                rcgen::KeyPair::from_remote(Box::new(rkp)).ok()
+                Some(KeyPair::RsaSha256(rkp))
             }
             HttpsSigningMethod::EcdsaSha256 => {
                 todo!()

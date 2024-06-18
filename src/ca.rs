@@ -679,7 +679,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                                             algorithm: m,
                                             medium: ca.medium.clone(),
                                             csr,
-                                            pkey: None,
+                                            keypair: None,
                                             name: "".into(),
                                             id,
                                         };

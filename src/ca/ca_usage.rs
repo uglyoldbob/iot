@@ -379,10 +379,6 @@ impl CaCertificateStorage {
                 p.conn(move |conn| {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
-                    conn.execute(
-                        "CREATE TABLE p12 ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, der BLOB )",
-                        [],
-                    )?;
                     match sign_method {
                         CertificateSigningMethod::Https(_) => {
                             conn.execute(
@@ -547,8 +543,6 @@ impl Ca {
             cert.medium = self.medium.clone();
             let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
             self.save_user_cert(id, &cert.contents(), &snb).await;
-            let p12 = cert.try_p12(password).unwrap();
-            std::fs::write(destination, p12).unwrap();
         }
     }
 
@@ -611,14 +605,13 @@ impl Ca {
                     let basic_constraints = rcgen::BasicConstraints::Constrained(chain_length);
                     certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
                     let rootcert = if settings.inferior_to.is_none() {
-                        let cert = certparams.self_signed(&key_pair).unwrap();
+                        let cert = certparams.self_signed(&key_pair.keypair()).unwrap();
                         let cert_der = cert.der().to_owned();
-                        let key_der = key_pair.serialize_der();
                         let rootcert = CaCertificate::from_existing_https(
                             m,
                             ca.medium.clone(),
                             &cert_der,
-                            Some(Zeroizing::from(key_der)),
+                            key_pair,
                             "root".to_string(),
                             0,
                         );
@@ -782,7 +775,7 @@ impl Ca {
     ) -> CaCertificateToBeSigned {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names).unwrap();
-        let (keypair, pkey) = t.generate_keypair(4096).unwrap();
+        let keypair = generate_https_keypair_hsm(t, 4096).unwrap();
         params.distinguished_name = rcgen::DistinguishedName::new();
         params
             .distinguished_name
@@ -791,7 +784,7 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
-        let csr = params.serialize_request(&keypair).unwrap();
+        let csr = params.serialize_request(&keypair.keypair()).unwrap();
         let csr_der = csr.der();
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
@@ -806,9 +799,16 @@ impl Ca {
             algorithm: t,
             medium: self.medium.clone(),
             csr,
-            pkey,
+            keypair: Some(keypair),
             name,
             id,
         }
     }
+}
+
+pub fn generate_https_keypair_hsm(
+    t: HttpsSigningMethod,
+    size: usize,
+) -> Option<crate::hsm2::KeyPair> {
+    todo!()
 }
