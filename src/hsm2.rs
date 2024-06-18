@@ -89,6 +89,7 @@ pub struct Hsm {
     so_slot: cryptoki::slot::Slot,
     admin_pin: Zeroizing<String>,
     user_pin: Zeroizing<String>,
+    session: Arc<Mutex<cryptoki::session::Session>>,
 }
 
 impl Hsm {
@@ -136,11 +137,25 @@ impl Hsm {
                 .init_pin(&cryptoki::types::AuthPin::new(user_pin.to_string()))
                 .unwrap();
         }
+
+        let session = pkcs11
+            .open_rw_session(so_slot)
+            .map(|s| {
+                s.login(
+                    cryptoki::session::UserType::User,
+                    Some(&cryptoki::types::AuthPin::new(user_pin.as_str().into())),
+                )
+                .unwrap();
+                s
+            })
+            .expect("Failed to get user session");
+
         Some(Self {
             pkcs11,
             so_slot,
             admin_pin,
             user_pin,
+            session: Arc::new(Mutex::new(session)),
         })
     }
 
@@ -158,38 +173,42 @@ impl Hsm {
             .initialize(cryptoki::context::CInitializeArgs::OsThreads)
             .unwrap();
         let so_slot = pkcs11.get_slots_with_token().unwrap().remove(0);
+
+        let session = pkcs11
+            .open_rw_session(so_slot)
+            .map(|s| {
+                s.login(
+                    cryptoki::session::UserType::User,
+                    Some(&cryptoki::types::AuthPin::new(user_pin.as_str().into())),
+                )
+                .unwrap();
+                s
+            })
+            .expect("Failed to get user session");
+
         Some(Self {
             pkcs11,
             so_slot,
             admin_pin,
             user_pin,
+            session: Arc::new(Mutex::new(session)),
         })
     }
 
     /// Attempt to get a session as a user
-    pub fn get_user_session(&self) -> Option<cryptoki::session::Session> {
-        self.pkcs11
-            .open_rw_session(self.so_slot)
-            .map(|s| {
-                s.login(
-                    cryptoki::session::UserType::User,
-                    Some(&cryptoki::types::AuthPin::new(
-                        self.user_pin.as_str().into(),
-                    )),
-                )
-                .unwrap();
-                s
-            })
-            .ok()
+    fn get_user_session(&self) -> Arc<Mutex<cryptoki::session::Session>> {
+        self.session.clone()
     }
 
     /// Generate a keypair for certificate operations
     pub fn generate_https_keypair(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         method: HttpsSigningMethod,
         keysize: usize,
     ) -> Option<KeyPair> {
-        let session = self.get_user_session()?;
+        let session2 = self.get_user_session().clone();
+        let session = self.get_user_session();
+        let session = session.lock().unwrap();
         match method {
             HttpsSigningMethod::RsaSha256 => {
                 let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
@@ -273,11 +292,11 @@ impl Hsm {
                 assert_eq!(data, decrypted_data);
 
                 let rkp = RsaSha256Keypair {
-                    session: Arc::new(Mutex::new(session)),
+                    session: session2,
                     public,
                     private,
                     pubkey: pubvec,
-                    hsm: self,
+                    hsm: self.clone(),
                 };
                 Some(KeyPair::RsaSha256(rkp))
             }

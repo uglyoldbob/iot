@@ -436,6 +436,7 @@ impl Pki {
                                 if let Some(https) = &main_config.https {
                                     if https.certificate.create_by_ca().is_some() {
                                         ca.create_https_certificate(
+                                            hsm.clone(),
                                             https.certificate.pathbuf(),
                                             main_config
                                                 .public_names
@@ -481,11 +482,12 @@ impl PkiInstance {
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
-                let ca = crate::ca::Ca::init(hsm, &ca, None).await; //TODO Use the proper ca superior object instead of None
+                let ca = crate::ca::Ca::init(hsm.clone(), &ca, None).await; //TODO Use the proper ca superior object instead of None
                 if let Some(mut ca) = ca {
                     if let Some(https) = &main_config.https {
                         if https.certificate.create_by_ca().is_some() {
                             ca.create_https_certificate(
+                                hsm,
                                 https.certificate.pathbuf(),
                                 main_config
                                     .public_names
@@ -510,6 +512,7 @@ impl Ca {
     /// Create the required https certificate
     pub async fn create_https_certificate(
         &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
         destination: std::path::PathBuf,
         https_names: Vec<String>,
         password: &str,
@@ -529,6 +532,7 @@ impl Ca {
         };
         if let CertificateSigningMethod::Https(m) = algorithm {
             let csr = self.generate_signing_request(
+                hsm,
                 m,
                 "https".to_string(),
                 "HTTPS Server".to_string(),
@@ -625,6 +629,7 @@ impl Ca {
                         .to_custom_extension()
                         .unwrap()];
                         let ocsp_csr = superior.generate_signing_request(
+                            hsm.clone(),
                             m,
                             "root".to_string(),
                             "Root Certificate".to_string(),
@@ -664,6 +669,7 @@ impl Ca {
 
                 let id = ca.get_new_request_id().await.unwrap();
                 let ocsp_csr = ca.generate_signing_request(
+                    hsm.clone(),
                     m,
                     "ocsp".to_string(),
                     "OCSP Responder".to_string(),
@@ -694,6 +700,7 @@ impl Ca {
                 service::log::info!("Generating administrator certificate");
                 let id = ca.get_new_request_id().await.unwrap();
                 let admin_csr = ca.generate_signing_request(
+                    hsm.clone(),
                     m,
                     "admin".to_string(),
                     format!("{} Administrator", settings.common_name),
@@ -766,6 +773,7 @@ impl Ca {
     /// * extension - The list of extensions to use for the certificate
     pub fn generate_signing_request(
         &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
         t: HttpsSigningMethod,
         name: String,
         common_name: String,
@@ -775,7 +783,7 @@ impl Ca {
     ) -> CaCertificateToBeSigned {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names).unwrap();
-        let keypair = generate_https_keypair_hsm(t, 4096).unwrap();
+        let keypair = hsm.generate_https_keypair(t, 4096).unwrap();
         params.distinguished_name = rcgen::DistinguishedName::new();
         params
             .distinguished_name
@@ -804,11 +812,4 @@ impl Ca {
             id,
         }
     }
-}
-
-pub fn generate_https_keypair_hsm(
-    t: HttpsSigningMethod,
-    size: usize,
-) -> Option<crate::hsm2::KeyPair> {
-    todo!()
 }
