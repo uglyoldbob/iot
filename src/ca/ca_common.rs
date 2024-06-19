@@ -1013,6 +1013,7 @@ impl HttpsCertificate {
 
     /// Returns the keypair for this certificate
     pub fn keypair(&self) -> Option<rcgen::KeyPair> {
+        use crate::hsm2::KeyPairTrait;
         self.keypair.clone().map(|a| a.keypair())
     }
 

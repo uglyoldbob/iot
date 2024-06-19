@@ -4,18 +4,23 @@ use std::sync::{Arc, Mutex};
 
 use cert_common::{oid::OID_PKCS1_SHA256_RSA_ENCRYPTION, HttpsSigningMethod};
 use cryptoki::context::Pkcs11;
+use egui_multiwin::enum_dispatch::enum_dispatch;
 use zeroize::Zeroizing;
 
 #[derive(Clone, Debug)]
+#[enum_dispatch::enum_dispatch(KeyPairTrait)]
 pub enum KeyPair {
     RsaSha256(RsaSha256Keypair),
 }
 
-impl KeyPair {
-    pub fn keypair(&self) -> rcgen::KeyPair {
-        match self {
-            KeyPair::RsaSha256(m) => rcgen::KeyPair::from_remote(Box::new(m.clone())).unwrap(),
-        }
+#[enum_dispatch::enum_dispatch]
+pub trait KeyPairTrait {
+    fn keypair(&self) -> rcgen::KeyPair;
+}
+
+impl KeyPairTrait for RsaSha256Keypair {
+    fn keypair(&self) -> rcgen::KeyPair {
+        rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
     }
 }
 
@@ -164,6 +169,28 @@ impl Hsm {
         })
     }
 
+    /// list certificates
+    pub fn list_certificates(&self) {
+        let session = self.session.lock().unwrap();
+
+        let mut templates = Vec::new();
+
+        let a = vec![
+            cryptoki::object::Attribute::Token(true),
+            cryptoki::object::Attribute::Private(false),
+            cryptoki::object::Attribute::Class(cryptoki::object::ObjectClass::PUBLIC_KEY),
+            cryptoki::object::Attribute::KeyType(cryptoki::object::KeyType::RSA),
+        ];
+        templates.push(a);
+        for t in &templates {
+            let res = session.find_objects(t).expect("Expected to find objects");
+            service::log::debug!("There are {} objects", res.len());
+            for t2 in res {
+                service::log::debug!("Found object {:?}", t2);
+            }
+        }
+    }
+
     /// Open the hsm
     pub fn open(
         p: Option<std::path::PathBuf>,
@@ -219,7 +246,6 @@ impl Hsm {
                 let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
                 let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
                 let bits: cryptoki::types::Ulong = (keysize as u64).into();
-                service::log::debug!("Keysize is {:?}", bits);
                 let pub_key_template = vec![
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Private(false),
@@ -231,23 +257,6 @@ impl Hsm {
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Decrypt(true),
                 ];
-                let m2 = self
-                    .pkcs11
-                    .get_mechanism_list(self.so_slot)
-                    .expect("Failed to get mechanisms");
-                for m in &m2 {
-                    let info = self
-                        .pkcs11
-                        .get_mechanism_info(self.so_slot, *m)
-                        .expect("Failed to get mechanism info");
-                    service::log::debug!(
-                        "Mechanism {} {:?} {} {}",
-                        m,
-                        m,
-                        info.generate(),
-                        info.generate_key_pair()
-                    );
-                }
                 let (public, private) = session
                     .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
                     .expect("Failed to generate keypair");
@@ -266,18 +275,14 @@ impl Hsm {
                         }
                     }
                 }
-                service::log::debug!("modulus is {} {:02X?}", rsamod.len(), rsamod);
-                service::log::debug!("rsa exp is {:02X?}", rsaexp);
                 let mut rsamod2 = vec![0];
                 rsamod2.append(&mut rsamod);
-                service::log::debug!("modulus2 is {} {:02X?}", rsamod2.len(), rsamod2);
                 let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod2), rsaexp)
                     .expect("Failed to build public key");
 
                 let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
                     .expect("Faiiled to build public key bytes");
                 let pubvec = pubbytes.as_bytes().to_vec();
-                service::log::debug!("The public key is {:02x?}", pubvec);
 
                 // data to encrypt
                 let data = vec![0xFF, 0x55, 0xDD];

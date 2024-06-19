@@ -609,6 +609,7 @@ impl Ca {
                     let basic_constraints = rcgen::BasicConstraints::Constrained(chain_length);
                     certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
                     let rootcert = if settings.inferior_to.is_none() {
+                        use crate::hsm2::KeyPairTrait;
                         let cert = certparams.self_signed(&key_pair.keypair()).unwrap();
                         let cert_der = cert.der().to_owned();
                         let rootcert = CaCertificate::from_existing_https(
@@ -792,6 +793,7 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
+        use crate::hsm2::KeyPairTrait;
         let rckeypair = keypair.keypair();
         service::log::debug!(
             "The rc keypair for {} is {}",
