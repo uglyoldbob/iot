@@ -55,14 +55,19 @@ impl rcgen::RemoteKeyPair for RsaSha256Keypair {
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
         let session = self.session.lock().unwrap();
-        service::log::debug!("Signing {} bytes for rsa", msg.len());
-        let hash = session
+        let mut hash = session
             .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
             .map_err(|_| rcgen::Error::RemoteKeyError)?;
+        // pkcs 1.5 with sha256
+        let mut prehash = vec![
+            0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+            0x01, 0x05, 0x00, 0x04, 0x20,
+        ];
+        prehash.append(&mut hash);
         let r = session.sign(
             &cryptoki::mechanism::Mechanism::RsaPkcs,
             self.private,
-            &hash,
+            &prehash,
         );
         r.map_err(|_| rcgen::Error::RemoteKeyError)
     }
@@ -261,9 +266,12 @@ impl Hsm {
                         }
                     }
                 }
-                service::log::debug!("modulus is {:02X?}", rsamod);
+                service::log::debug!("modulus is {} {:02X?}", rsamod.len(), rsamod);
                 service::log::debug!("rsa exp is {:02X?}", rsaexp);
-                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod), rsaexp)
+                let mut rsamod2 = vec![0];
+                rsamod2.append(&mut rsamod);
+                service::log::debug!("modulus2 is {} {:02X?}", rsamod2.len(), rsamod2);
+                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod2), rsaexp)
                     .expect("Failed to build public key");
 
                 let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)

@@ -792,8 +792,15 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
-        let csr = params.serialize_request(&keypair.keypair()).unwrap();
+        let rckeypair = keypair.keypair();
+        service::log::debug!(
+            "The rc keypair for {} is {}",
+            name,
+            rckeypair.public_key_pem()
+        );
+        let csr = params.serialize_request(&rckeypair).unwrap();
         let csr_der = csr.der();
+        service::log::debug!("The csr is {:02X?}", csr_der);
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
         let mut sn = [0; 20];

@@ -3,6 +3,16 @@ Generating a self-signed certificate for testing:
 `openssl req -x509 -newkey rsa:4096 -keyout self-key.pem -out self-cert.pem -days 365 -nodes`
 `openssl pkcs12 -export -out keyStore.p12 -inkey self-key.pem -in self-cert.pem`
 
+Examine an rsa public key
+`openssl rsa -pubin -in ./pubkeytest.pub -text`
+
+Examine a certificate signing request pem format
+`openssl req -text -in request.csr`
+
+Examine a certificate signing request der format
+`openssl req -text -inform der -in request.csr`
+
+
 Generate a certificate to be signed by a certificate authority:
 ```
 openssl req -newkey rsa:2048 -keyout private.key -out server.csr
