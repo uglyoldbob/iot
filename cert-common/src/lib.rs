@@ -267,7 +267,7 @@ impl HttpsSigningMethod {
     }
 
     /// Generate a keypair
-    pub fn generate_keypair(&self, size: usize) -> Option<(rcgen::KeyPair, Option<Zeroizing<Vec<u8>>>)> {
+    pub fn generate_keypair(&self, size: usize) -> Option<(rcgen::KeyPair, Zeroizing<Vec<u8>>)> {
         match self {
             Self::RsaSha256 => {
                 use pkcs8::EncodePrivateKey;
@@ -276,13 +276,13 @@ impl HttpsSigningMethod {
                 let private_key_der = private_key.to_pkcs8_der().unwrap();
                 let pkey = Zeroizing::new(private_key_der.as_bytes().to_vec());
                 let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
-                Some((key_pair, Some(pkey)))
+                Some((key_pair, pkey))
             }
             Self::EcdsaSha256 => {
                 let keypair = rcgen::KeyPair::generate().ok()?;
                 let pkcs8 = keypair.serialize_der();
                 let pkey = Zeroizing::new(pkcs8);
-                Some((keypair, Some(pkey)))
+                Some((keypair, pkey))
             }
         }
     }

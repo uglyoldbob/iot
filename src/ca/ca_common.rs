@@ -999,10 +999,20 @@ pub enum Keypair {
     /// A keypair contained in the hsm
     Hsm(crate::hsm2::KeyPair),
     /// A keypair not contained in the hsm
-    NotHsm(Vec<u8>),
+    NotHsm(Zeroizing<Vec<u8>>),
 }
 
 impl Keypair {
+    /// Get the private key if possible
+    pub fn private(&self) -> Option<&Zeroizing<Vec<u8>>> {
+        if let Keypair::NotHsm(a) = self {
+            Some(a)
+        } else {
+            None
+        }
+    }
+
+    /// Sign a chunk of data
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
@@ -1027,11 +1037,30 @@ pub struct HttpsCertificate {
 }
 
 impl HttpsCertificate {
+    /// Trye to build a p12 document
+    pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+        self.keypair
+            .as_ref()
+            .map(|kp| {
+                let keypair = kp.private();
+                keypair.map(|kp| {
+                    let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
+                        cert: self.cert.clone(),
+                        pkey: kp.to_owned(),
+                        attributes: self.attributes.clone(),
+                        id,
+                    };
+                    p12.get_pkcs12(password)
+                })
+            })
+            .flatten()
+    }
+
     /// Attempt to get the private key
-    pub fn get_private(&self) -> Option<Vec<u8>> {
+    pub fn get_private(&self) -> Option<&[u8]> {
         self.keypair.as_ref().map(|a| {
             if let Keypair::NotHsm(a) = a {
-                a.to_owned()
+                a.as_ref()
             } else {
                 todo!();
             }
@@ -1218,7 +1247,7 @@ impl CertificateData {
     /// Attempt to build a p12 document
     pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
         match self {
-            Self::Https(c) => None,
+            Self::Https(c) => c.try_p12(id, password),
             Self::Ssh(c) => c.try_p12(id, password),
         }
     }

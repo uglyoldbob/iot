@@ -156,15 +156,13 @@ fn do_csr_work(work: CsrWork) {
                 if let Some(csr) = get_html_input_by_name(&d, "csr") {
                     csr.set_value(&pem_serialized);
                 }
-                if let Some(private) = private {
-                    let data: &[u8] = private.as_ref();
-                    use der::Decode;
-                    let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
-                    let rng = rand::thread_rng();
-                    let protected = private_key.encrypt(rng, &private_key_password).unwrap();
-                    let file = build_file(protected.as_bytes());
-                    let _ = download_file(&d, &file, "testing.bin");
-                }
+                let data: &[u8] = private.as_ref();
+                use der::Decode;
+                let private_key = pkcs8::PrivateKeyInfo::from_der(data).unwrap();
+                let rng = rand::thread_rng();
+                let protected = private_key.encrypt(rng, &private_key_password).unwrap();
+                let file = build_file(protected.as_bytes());
+                let _ = download_file(&d, &file, "testing.bin");
             }
             if let Some(button) = get_html_element_by_name(&d, "submit") {
                 button.click();
