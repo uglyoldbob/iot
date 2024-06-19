@@ -433,21 +433,7 @@ impl Pki {
                     if let Some(mut ca) = ca {
                         if let Some(ca_name) = &ca_name {
                             if ca_name == name {
-                                if let Some(https) = &main_config.https {
-                                    if https.certificate.create_by_ca().is_some() {
-                                        ca.create_https_certificate(
-                                            hsm.clone(),
-                                            https.certificate.pathbuf(),
-                                            main_config
-                                                .public_names
-                                                .iter()
-                                                .map(|a| a.to_string())
-                                                .collect(),
-                                            https.certificate.password(),
-                                        )
-                                        .await;
-                                    }
-                                }
+                                ca.check_https_create(hsm.clone(), main_config).await;
                             }
                         }
                         hm.insert(name.to_owned(), ca);
@@ -484,20 +470,8 @@ impl PkiInstance {
                 let ca = ca_config.get_ca(main_config);
                 let ca = crate::ca::Ca::init(hsm.clone(), &ca, None).await; //TODO Use the proper ca superior object instead of None
                 if let Some(mut ca) = ca {
-                    if let Some(https) = &main_config.https {
-                        if https.certificate.create_by_ca().is_some() {
-                            ca.create_https_certificate(
-                                hsm,
-                                https.certificate.pathbuf(),
-                                main_config
-                                    .public_names
-                                    .iter()
-                                    .map(|a| a.to_string())
-                                    .collect(),
-                                https.certificate.password(),
-                            )
-                            .await;
-                        }
+                    if main_config.https.is_some() {
+                        ca.check_https_create(hsm.clone(), main_config).await;
                     }
                     Self::Ca(ca)
                 } else {
@@ -509,6 +483,31 @@ impl PkiInstance {
 }
 
 impl Ca {
+    /// Check to see if the https certifiate should be created
+    pub async fn check_https_create(
+        &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
+        main_config: &crate::main_config::MainConfiguration,
+    ) {
+        if let Some(https) = &main_config.https {
+            if https.certificate.create_by_ca().is_some() {
+                if let Some(pathbuf) = https.certificate.pathbuf() {
+                    self.create_https_certificate(
+                        hsm.clone(),
+                        pathbuf,
+                        main_config
+                            .public_names
+                            .iter()
+                            .map(|a| a.to_string())
+                            .collect(),
+                        https.certificate.password().unwrap(), //assume that the password is valid if the path is valid
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
     /// Create the required https certificate
     pub async fn create_https_certificate(
         &mut self,
@@ -616,7 +615,7 @@ impl Ca {
                             m,
                             ca.medium.clone(),
                             &cert_der,
-                            key_pair,
+                            Keypair::Hsm(key_pair),
                             "root".to_string(),
                             0,
                         );
@@ -816,7 +815,7 @@ impl Ca {
             algorithm: t,
             medium: self.medium.clone(),
             csr,
-            keypair: Some(keypair),
+            keypair: Some(Keypair::Hsm(keypair)),
             name,
             id,
         }

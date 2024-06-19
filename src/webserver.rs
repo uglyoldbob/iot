@@ -754,18 +754,17 @@ impl std::fmt::Display for ServiceError {
 pub async fn https_webserver(
     hc: Arc<HttpContext>,
     port: u16,
-    tls_config: tls::TlsConfig,
+    https: crate::ca::HttpsCertificate,
     tasks: &mut tokio::task::JoinSet<Result<(), ServiceError>>,
     client_certs: Option<RootCertStore>,
     require_cert: bool,
 ) -> Result<(), ServiceError> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert =
-        tls::load_certificate(&tls_config, client_certs, &hc.pki, require_cert).map_err(|e| {
-            service::log::error!("Error loading https certificate {}", e);
-            ServiceError::Other(e.to_string())
-        })?;
+    let cert = tls::load_certificate(&https, client_certs, &hc.pki, require_cert).map_err(|e| {
+        service::log::error!("Error loading https certificate {}", e);
+        ServiceError::Other(e.to_string())
+    })?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr)

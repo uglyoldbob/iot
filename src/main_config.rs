@@ -1,9 +1,10 @@
 //! Contains code related to the main configuration of the application
 
+use der::Decode;
 use egui_multiwin::egui;
 use zeroize::Zeroizing;
 
-use crate::ca::{ComplexName, ProxyConfig};
+use crate::ca::{ComplexName, HttpsCertificate, ProxyConfig};
 
 #[cfg(target_os = "linux")]
 /// Returns the default config file.
@@ -114,6 +115,8 @@ impl HttpSettings {
     serde::Serialize,
 )]
 pub enum HttpsCertificateLocationAnswers {
+    /// The certificate should be contained in the hsm
+    HsmGenerated,
     /// The path for an existing certificate that should be loaded
     Existing {
         /// The path for the existing certificate
@@ -133,6 +136,8 @@ pub enum HttpsCertificateLocationAnswers {
 /// The location of a https certificate. If it is specified as `New`, it will be created by a specified ca.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum HttpsCertificateLocation {
+    /// The certificate should be contained in the hsm
+    HsmGenerated,
     /// The path for an existing certificate that should be loaded
     Existing {
         /// The path for the existing certificate
@@ -154,6 +159,7 @@ pub enum HttpsCertificateLocation {
 impl From<HttpsCertificateLocationAnswers> for HttpsCertificateLocation {
     fn from(value: HttpsCertificateLocationAnswers) -> Self {
         match value {
+            HttpsCertificateLocationAnswers::HsmGenerated => HttpsCertificateLocation::HsmGenerated,
             HttpsCertificateLocationAnswers::Existing { path, password } => Self::Existing {
                 path: path.to_path_buf(),
                 password: password.to_string(),
@@ -169,6 +175,62 @@ impl From<HttpsCertificateLocationAnswers> for HttpsCertificateLocation {
 }
 
 impl HttpsCertificateLocation {
+    /// Get a usable reference to use the https certificate
+    pub fn get_usable(&self) -> HttpsCertificate {
+        let process_pkcs12 = |pkcs12: Vec<u8>, password: &str| {
+            let pkcs12 =
+                cert_common::pkcs12::Pkcs12::load_from_data(&pkcs12, password.as_bytes(), 0);
+            let cert_der = pkcs12.cert;
+
+            let pkey_der: &Vec<u8> = pkcs12.pkey.as_ref();
+
+            let pkey = rustls_pki_types::PrivatePkcs8KeyDer::from(pkey_der.to_owned());
+            let pkey = rustls_pki_types::PrivateKeyDer::Pkcs8(pkey);
+
+            let c1 = rustls_pki_types::CertificateDer::from(cert_der.to_owned());
+
+            let certs = vec![c1];
+
+            let x509_cert = x509_cert::Certificate::from_der(&cert_der).unwrap();
+
+            HttpsCertificate {
+                algorithm: x509_cert.signature_algorithm.try_into().unwrap(),
+                cert: cert_der,
+                keypair: todo!(),
+                attributes: Vec::new(),
+            }
+        };
+
+        match self {
+            HttpsCertificateLocation::HsmGenerated => {
+                todo!()
+            }
+            HttpsCertificateLocation::Existing { path, password } => {
+                use std::io::Read;
+                let mut certbytes = vec![];
+                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                service::log::info!("Loading https certificate from {}", path.display());
+                certf.read_to_end(&mut certbytes).unwrap();
+                process_pkcs12(certbytes, &password)
+            }
+            HttpsCertificateLocation::New {
+                path,
+                ca_name: _,
+                password,
+            } => {
+                use std::io::Read;
+                let mut certbytes = vec![];
+                service::log::info!(
+                    "Loading generated https certificate from {}",
+                    path.display()
+                );
+                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                certf.read_to_end(&mut certbytes).unwrap();
+                process_pkcs12(certbytes, &password)
+            }
+        }
+    }
+
     /// Construct a temporary file for being able to remove relative file paths
     pub async fn make_dummy(&self) {
         if let HttpsCertificateLocation::New {
@@ -200,14 +262,15 @@ impl HttpsCertificateLocation {
     }
 
     /// Retrieve the password for the certificate
-    pub fn password(&self) -> &str {
+    pub fn password(&self) -> Option<&str> {
         match self {
-            HttpsCertificateLocation::Existing { path: _, password } => password.as_str(),
+            HttpsCertificateLocation::HsmGenerated => None,
+            HttpsCertificateLocation::Existing { path: _, password } => Some(password.as_str()),
             HttpsCertificateLocation::New {
                 path: _,
                 ca_name: _,
                 password,
-            } => password.as_str(),
+            } => Some(password.as_str()),
         }
     }
 }
@@ -232,20 +295,22 @@ impl Default for HttpsCertificateLocation {
 
 impl HttpsCertificateLocation {
     /// Retrieves the path for the certificate, not checking to see if the file actually exists
-    fn path(self) -> std::path::PathBuf {
+    fn path(self) -> Option<std::path::PathBuf> {
         match self {
-            HttpsCertificateLocation::Existing { path, password: _ } => path,
+            HttpsCertificateLocation::HsmGenerated => None,
+            HttpsCertificateLocation::Existing { path, password: _ } => Some(path),
             HttpsCertificateLocation::New {
                 path,
                 ca_name: _,
                 password: _,
-            } => path,
+            } => Some(path),
         }
     }
 
-    /// Returns true if the file exists
+    /// Returns true if the certificate exists
     pub fn exists(&self) -> bool {
         match self {
+            HttpsCertificateLocation::HsmGenerated => false,
             HttpsCertificateLocation::Existing { path, password: _ } => path.exists(),
             HttpsCertificateLocation::New {
                 path,
@@ -255,7 +320,7 @@ impl HttpsCertificateLocation {
         }
     }
 
-    /// Returns Some if the certificate should be create by a ca
+    /// Returns Some if the certificate should be create by a ca as a file
     pub fn create_by_ca(&self) -> Option<String> {
         if let HttpsCertificateLocation::New {
             path: _,
@@ -269,15 +334,16 @@ impl HttpsCertificateLocation {
         }
     }
 
-    /// Get the location
-    pub fn pathbuf(&self) -> std::path::PathBuf {
+    /// Get the location for the file
+    pub fn pathbuf(&self) -> Option<std::path::PathBuf> {
         match self {
-            HttpsCertificateLocation::Existing { path, password: _ } => path.to_path_buf(),
+            HttpsCertificateLocation::HsmGenerated => None,
+            HttpsCertificateLocation::Existing { path, password: _ } => Some(path.to_path_buf()),
             HttpsCertificateLocation::New {
                 path,
                 ca_name: _,
                 password: _,
-            } => path.to_path_buf(),
+            } => Some(path.to_path_buf()),
         }
     }
 }
@@ -463,6 +529,7 @@ impl MainConfiguration {
     pub async fn remove_relative_paths(&mut self) {
         if let Some(https) = &mut self.https {
             match &mut https.certificate {
+                HttpsCertificateLocation::HsmGenerated => {}
                 HttpsCertificateLocation::Existing { path, password: _ } => {
                     if path.is_relative() {
                         *path = path.canonicalize().unwrap();

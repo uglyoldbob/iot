@@ -528,8 +528,7 @@ async fn smain() {
     if let Some(http) = &settings.http {
         service::log::info!("Listening http on port {}", http.port);
 
-        let hc_http = hc.clone();
-        if let Err(e) = http_webserver(hc_http, http.port, &mut tasks).await {
+        if let Err(e) = http_webserver(hc.clone(), http.port, &mut tasks).await {
             service::log::error!("https web server errored {}", e);
         }
     }
@@ -537,41 +536,13 @@ async fn smain() {
     if let Some(https) = &settings.https {
         service::log::info!("Listening https on port {}", https.port);
 
-        let tls_pass = https.certificate.password();
         let tls_cert = https.certificate.to_owned();
-        let cert_contents = match tls_cert {
-            main_config::HttpsCertificateLocation::Existing { path, password: _ } => {
-                use std::io::Read;
-                let mut certbytes = vec![];
-                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
-                service::log::info!("Loading https certificate from {}", path.display());
-                certf.read_to_end(&mut certbytes).unwrap();
-                certbytes
-            }
-            main_config::HttpsCertificateLocation::New {
-                path,
-                ca_name: _,
-                password: _,
-            } => {
-                use std::io::Read;
-                let mut certbytes = vec![];
-                service::log::info!(
-                    "Loading generated https certificate from {}",
-                    path.display()
-                );
-                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
-                certf.read_to_end(&mut certbytes).unwrap();
-                certbytes
-            }
-        };
-        let tls = TlsConfig::new(cert_contents, tls_pass);
-
-        let hc_https = hc.clone();
+        let https_cert = tls_cert.get_usable();
 
         if let Err(e) = https_webserver(
-            hc_https,
+            hc.clone(),
             https.port,
-            tls,
+            https_cert,
             &mut tasks,
             client_certs,
             https.require_certificate,

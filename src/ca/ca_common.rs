@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_sqlite::rusqlite::ToSql;
 use cert_common::oid::*;
@@ -10,6 +11,7 @@ use cert_common::CertificateSigningMethod;
 use cert_common::HttpsSigningMethod;
 use cert_common::SshSigningMethod;
 use der::asn1::UtcTime;
+use rcgen::RemoteKeyPair;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
@@ -854,8 +856,8 @@ pub struct CaCertificateToBeSigned {
     pub medium: CaCertificateStorage,
     /// The certificate signing request parameters
     pub csr: rcgen::CertificateSigningRequestParams,
-    /// The optional key
-    pub keypair: Option<crate::hsm2::KeyPair>,
+    /// The optional key pair
+    pub keypair: Option<Keypair>,
     /// The certificate name to use for storage
     pub name: String,
     /// The id of the certificate to be signed
@@ -991,20 +993,51 @@ impl CaCertificateStorage {
     }
 }
 
+/// A keypair that can be in the hsm or not
+#[derive(Clone, Debug)]
+pub enum Keypair {
+    /// A keypair contained in the hsm
+    Hsm(crate::hsm2::KeyPair),
+    /// A keypair not contained in the hsm
+    NotHsm(Vec<u8>),
+}
+
+impl Keypair {
+    pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
+        match self {
+            Keypair::Hsm(k) => k.sign(data).ok(),
+            Keypair::NotHsm(k) => {
+                todo!();
+            }
+        }
+    }
+}
+
 /// An https certificate
 #[derive(Clone, Debug)]
 pub struct HttpsCertificate {
     /// The algorithm used for the certificate
-    algorithm: HttpsSigningMethod,
+    pub algorithm: HttpsSigningMethod,
     /// The public certificate in der format
-    cert: Vec<u8>,
-    /// The keypair
-    keypair: Option<crate::hsm2::KeyPair>,
+    pub cert: Vec<u8>,
+    /// The keypair or a private key
+    pub keypair: Option<Keypair>,
     /// The extra attributes for the certificate
-    attributes: Vec<cert_common::pkcs12::BagAttribute>,
+    pub attributes: Vec<cert_common::pkcs12::BagAttribute>,
 }
 
 impl HttpsCertificate {
+    /// Attempt to get the private key
+    pub fn get_private(&self) -> Option<Vec<u8>> {
+        self.keypair.as_ref().map(|a| {
+            if let Keypair::NotHsm(a) = a {
+                a.to_owned()
+            } else {
+                todo!();
+            }
+        })
+    }
+
     /// Decode self into an x509_cert Certificate
     pub fn get_cert(&self) -> Option<x509_cert::Certificate> {
         use der::Decode;
@@ -1014,7 +1047,13 @@ impl HttpsCertificate {
     /// Returns the keypair for this certificate
     pub fn keypair(&self) -> Option<rcgen::KeyPair> {
         use crate::hsm2::KeyPairTrait;
-        self.keypair.clone().map(|a| a.keypair())
+        self.keypair.as_ref().map(|a| {
+            if let Keypair::Hsm(a) = a {
+                a.keypair()
+            } else {
+                todo!();
+            }
+        })
     }
 
     /// Retrieve the certificate in the rcgen Certificate format
@@ -1216,7 +1255,7 @@ impl CertificateData {
         match self {
             Self::Https(c) => {
                 use rcgen::RemoteKeyPair;
-                let sig = c.keypair.as_ref().unwrap().sign(data).ok()?;
+                let sig = c.keypair.as_ref().unwrap().sign(data)?;
                 Some(Signature::OidSignature(c.algorithm.oid(), sig))
             }
             Self::Ssh(c) => {
@@ -1290,7 +1329,7 @@ impl CaCertificate {
         algorithm: HttpsSigningMethod,
         medium: CaCertificateStorage,
         der: &[u8],
-        keypair: crate::hsm2::KeyPair,
+        keypair: Keypair,
         name: String,
         id: u64,
     ) -> Self {
