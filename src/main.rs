@@ -25,7 +25,6 @@ use tokio::io::AsyncReadExt;
 use userprompt::Prompting;
 use zeroize::Zeroizing;
 
-use crate::webserver::tls::*;
 use crate::webserver::*;
 
 /// A test function that produces demo content
@@ -408,7 +407,7 @@ async fn smain() {
             .level_filter(),
     );
 
-    let mut hsm: Arc<hsm2::Hsm>;
+    let hsm: Arc<hsm2::Hsm>;
 
     let mut proxy_map = std::collections::HashMap::new();
 
@@ -443,7 +442,6 @@ async fn smain() {
         } else {
             let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
                 settings.hsm_path_override.as_ref().map(|a| a.to_path_buf()),
-                Zeroizing::new(settings.hsm_pin.clone()),
                 Zeroizing::new(settings.hsm_pin2.clone()),
             ) {
                 hsm_t

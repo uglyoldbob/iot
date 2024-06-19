@@ -468,7 +468,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
                 b.text("You are admin").line_break(|a| a);
             }
             match &ca.config.sign_method {
-                CertificateSigningMethod::Https(m) => {
+                CertificateSigningMethod::Https(_m) => {
                     b.anchor(|ab| {
                         ab.text("Download CA certificate as der");
                         ab.href("ca/get_ca.rs?type=der");
@@ -484,7 +484,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
                     });
                     b.line_break(|lb| lb);
                 }
-                CertificateSigningMethod::Ssh(m) => {
+                CertificateSigningMethod::Ssh(_m) => {
                     b.anchor(|ab| {
                         ab.text("Download SSH CA certificate");
                         ab.href("ca/get_ca.rs");

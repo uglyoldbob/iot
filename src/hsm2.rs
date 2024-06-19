@@ -3,8 +3,6 @@
 use std::sync::{Arc, Mutex};
 
 use cert_common::{oid::OID_PKCS1_SHA256_RSA_ENCRYPTION, HttpsSigningMethod};
-use cryptoki::context::Pkcs11;
-use egui_multiwin::enum_dispatch::enum_dispatch;
 use zeroize::Zeroizing;
 
 #[derive(Clone, Debug)]
@@ -52,7 +50,7 @@ impl KeyPair {
                 cryptoki::object::KeyType::RSA => {
                     let pubkey = get_rsa_public_key(&session, public);
                     Some(KeyPair::RsaSha256(RsaSha256Keypair {
-                        public,
+                        _public: public,
                         private,
                         pubkey,
                         label: label.to_string(),
@@ -97,7 +95,7 @@ impl rcgen::RemoteKeyPair for KeyPair {
 
 #[derive(Clone, Debug)]
 pub struct RsaSha256Keypair {
-    public: cryptoki::object::ObjectHandle,
+    _public: cryptoki::object::ObjectHandle,
     private: cryptoki::object::ObjectHandle,
     pubkey: Vec<u8>,
     label: String,
@@ -156,10 +154,6 @@ pub fn hsm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
 
 #[derive(Debug)]
 pub struct Hsm {
-    pkcs11: cryptoki::context::Pkcs11,
-    so_slot: cryptoki::slot::Slot,
-    admin_pin: Zeroizing<String>,
-    user_pin: Zeroizing<String>,
     session: Arc<Mutex<cryptoki::session::Session>>,
 }
 
@@ -251,10 +245,6 @@ impl Hsm {
             .expect("Failed to get user session");
 
         Some(Self {
-            pkcs11,
-            so_slot,
-            admin_pin,
-            user_pin,
             session: Arc::new(Mutex::new(session)),
         })
     }
@@ -282,11 +272,7 @@ impl Hsm {
     }
 
     /// Open the hsm
-    pub fn open(
-        p: Option<std::path::PathBuf>,
-        admin_pin: Zeroizing<String>,
-        user_pin: Zeroizing<String>,
-    ) -> Option<Self> {
+    pub fn open(p: Option<std::path::PathBuf>, user_pin: Zeroizing<String>) -> Option<Self> {
         let path = p
             .or_else(|| Some(std::path::PathBuf::from(hsm2_path())))
             .unwrap();
@@ -309,10 +295,6 @@ impl Hsm {
             .expect("Failed to get user session");
 
         Some(Self {
-            pkcs11,
-            so_slot,
-            admin_pin,
-            user_pin,
             session: Arc::new(Mutex::new(session)),
         })
     }
@@ -375,7 +357,7 @@ impl Hsm {
                 assert_eq!(data, decrypted_data);
 
                 let rkp = RsaSha256Keypair {
-                    public,
+                    _public: public,
                     private,
                     pubkey: pubvec,
                     hsm: self.clone(),

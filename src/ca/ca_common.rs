@@ -899,7 +899,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
                 data: CertificateData::Https(HttpsCertificate {
                     algorithm: algorithm.try_into().unwrap(),
                     cert: cert_der.to_owned(),
-                    keypair: todo!(),
+                    keypair: Some(Keypair::NotHsm(value.pkey)),
                     attributes: value.attributes.clone(),
                 }),
                 name,
@@ -934,7 +934,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, name: &str, ca: &mut Ca, cert: CaCertificate) {
+    pub async fn save_to_medium(&self, ca: &mut Ca, cert: CaCertificate) {
         if let Some(label) = cert.data.hsm_label() {
             match self {
                 CaCertificateStorage::Nowhere => {}
@@ -1483,9 +1483,7 @@ impl CaCertificate {
 
     /// Save this certificate to the storage medium
     pub async fn save_to_medium(&self, ca: &mut Ca) {
-        self.medium
-            .save_to_medium(&self.name, ca, self.to_owned())
-            .await;
+        self.medium.save_to_medium(ca, self.to_owned()).await;
     }
 
     /// Sign a csr with the certificate, if possible

@@ -2,7 +2,6 @@
 
 use der::Decode;
 use egui_multiwin::egui;
-use zeroize::Zeroizing;
 
 use crate::ca::{ComplexName, HttpsCertificate, ProxyConfig};
 

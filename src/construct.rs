@@ -32,12 +32,6 @@ fn send_string(s: &mut interprocess::local_socket::SendHalf, msg: String) {
     }
 }
 
-/// end communications on the pipe by sending empty data
-fn end_ipc(mut s: interprocess::local_socket::SendHalf) {
-    use std::io::Write;
-    s.write_all(&[0, 0, 0, 0]).unwrap();
-}
-
 /// Arguments for creating an iot instance
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -384,6 +378,6 @@ library.reset_on_fork = false
     {
         do_without_tpm2().await
     }
-    service.create_async(service_config).await;
+    service.create_async(service_config).await.unwrap();
     let _ = service.start();
 }
