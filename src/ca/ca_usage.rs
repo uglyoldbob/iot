@@ -363,7 +363,6 @@ impl Ca {
     }
 }
 
-pub use ca_common::*;
 use cert_common::oid::*;
 use cert_common::CertificateSigningMethod;
 use cert_common::HttpsSigningMethod;
@@ -512,7 +511,7 @@ impl Ca {
     /// Create the required https certificate
     pub async fn create_https_certificate(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        _hsm: Arc<crate::hsm2::Hsm>,
         destination: std::path::PathBuf,
         https_names: Vec<String>,
         password: &str,
@@ -658,9 +657,7 @@ impl Ca {
                         todo!("Intermediate certificate authority generation not possible");
                     };
 
-                    rootcert
-                        .save_to_medium(&mut ca, &settings.root_password)
-                        .await;
+                    rootcert.save_to_medium(&mut ca).await;
                     ca.root_cert = Ok(rootcert);
                 }
                 service::log::info!("Generating OCSP responder certificate");
@@ -689,9 +686,7 @@ impl Ca {
                     .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
                     .unwrap();
                 ocsp_cert.medium = ca.medium.clone();
-                ocsp_cert
-                    .save_to_medium(&mut ca, &settings.ocsp_password)
-                    .await;
+                ocsp_cert.save_to_medium(&mut ca).await;
                 ca.ocsp_signer = Ok(ocsp_cert);
 
                 let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
@@ -720,9 +715,7 @@ impl Ca {
                     .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
                     .unwrap();
                 admin_cert.medium = ca.medium.clone();
-                admin_cert
-                    .save_to_medium(&mut ca, &settings.admin_password)
-                    .await;
+                admin_cert.save_to_medium(&mut ca).await;
                 ca.admin = Ok(admin_cert);
             }
             CertificateSigningMethod::Ssh(m) => {
@@ -757,9 +750,9 @@ impl Ca {
                         "root".to_string(),
                         0,
                     );
-                    root.save_to_medium(&mut ca, &settings.root_password).await;
+                    root.save_to_medium(&mut ca).await;
                     ca.root_cert = Ok(root);
-                } else if let Some(superior) = superior {
+                } else if let Some(_superior) = superior {
                     todo!("Intermediate certificate authority generation not implemented");
                 } else {
                     todo!("Intermediate certificate authority generation not possible");

@@ -17,7 +17,6 @@ use clap::Parser;
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use userprompt::Prompting;
-use zeroize::Zeroizing;
 
 use crate::main_config::MainConfigurationAnswers;
 
@@ -91,7 +90,7 @@ impl service::log::Log for LocalLogging {
     fn flush(&self) {
         let mut s = self.s.lock().unwrap();
         use std::io::Write;
-        s.flush();
+        let _ = s.flush();
     }
 }
 

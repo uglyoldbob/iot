@@ -1052,6 +1052,16 @@ impl Keypair {
         }
     }
 
+    /// Erase the private key of the certificate
+    pub fn erase_private(&mut self) {
+        match self {
+            Self::Hsm(_) => {}
+            Self::NotHsm(k) => {
+                *k = Zeroizing::new(Vec::new());
+            }
+        }
+    }
+
     /// Get the hsm keypair, if possible
     pub fn hsm_keypair(&self) -> Option<&crate::hsm2::KeyPair> {
         match self {
@@ -1064,7 +1074,7 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
-            Keypair::NotHsm(k) => {
+            Keypair::NotHsm(_k) => {
                 todo!();
             }
         }
@@ -1198,7 +1208,7 @@ impl SshCertificate {
         let public_contents = self.cert.to_bytes().unwrap();
         if let Some(keypair) = &self.keypair {
             let mut con = Vec::new();
-            keypair.encode(&mut con);
+            keypair.encode(&mut con).ok()?;
             let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
                 cert: public_contents,
                 pkey: Zeroizing::new(con),
@@ -1215,13 +1225,16 @@ impl SshCertificate {
 
 /// Represents a signature of a certificate
 pub enum Signature {
+    /// A signature with an oid
     OidSignature(Oid, Vec<u8>),
+    /// Some other signature
+    Other(Vec<u8>),
 }
 
 impl Signature {
     /// Get the oid, if applicable
     pub fn oid(&self) -> Option<Oid> {
-        if let Signature::OidSignature(a, b) = self {
+        if let Signature::OidSignature(a, _b) = self {
             Some(a.to_owned())
         } else {
             None
@@ -1231,6 +1244,7 @@ impl Signature {
     /// Get the signature value
     pub fn signature(&self) -> Vec<u8> {
         match self {
+            Self::Other(o) => o.clone(),
             Self::OidSignature(_a, sig) => sig.clone(),
         }
     }
@@ -1258,7 +1272,11 @@ impl CertificateData {
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         match self {
-            Self::Https(c) => {}
+            Self::Https(c) => {
+                c.keypair.as_mut().map(|c| {
+                    c.erase_private();
+                });
+            }
             Self::Ssh(c) => {
                 c.keypair.take();
             }
@@ -1304,14 +1322,14 @@ impl CertificateData {
                     id: csr.id,
                 }
             }
-            Self::Ssh(c) => todo!(),
+            Self::Ssh(_c) => todo!(),
         }
     }
 
     pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
         match self {
             Self::Https(c) => c.attributes.clone(),
-            Self::Ssh(c) => todo!(),
+            Self::Ssh(_c) => todo!(),
         }
     }
 
@@ -1354,11 +1372,10 @@ impl CertificateData {
     pub fn sign(&self, data: &[u8]) -> Option<Signature> {
         match self {
             Self::Https(c) => {
-                use rcgen::RemoteKeyPair;
                 let sig = c.keypair.as_ref().unwrap().sign(data)?;
                 Some(Signature::OidSignature(c.algorithm.oid(), sig))
             }
-            Self::Ssh(c) => {
+            Self::Ssh(_c) => {
                 todo!();
             }
         }
@@ -1465,7 +1482,7 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
+    pub async fn save_to_medium(&self, ca: &mut Ca) {
         self.medium
             .save_to_medium(&self.name, ca, self.to_owned())
             .await;
@@ -1490,7 +1507,7 @@ impl CaCertificate {
 
         the_csr.params.not_before = time::OffsetDateTime::now_utc();
         the_csr.params.not_after = the_csr.params.not_before + duration;
-        let (snb, sn) = CaCertificateToBeSigned::calc_sn(id);
+        let (_snb, sn) = CaCertificateToBeSigned::calc_sn(id);
         the_csr.params.serial_number = Some(sn);
 
         println!(
@@ -2123,7 +2140,7 @@ impl Ca {
 
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
-            CertificateSigningMethod::Https(m) => {
+            CertificateSigningMethod::Https(_m) => {
                 let _ = ca
                     .load_ocsp_cert(hsm.clone(), &settings.ocsp_password)
                     .await;
@@ -2132,7 +2149,7 @@ impl Ca {
                     .await;
                 let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
             }
-            CertificateSigningMethod::Ssh(m) => {
+            CertificateSigningMethod::Ssh(_m) => {
                 let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
             }
         }
