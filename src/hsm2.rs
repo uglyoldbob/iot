@@ -13,15 +13,66 @@ pub enum KeyPair {
     RsaSha256(RsaSha256Keypair),
 }
 
-#[enum_dispatch::enum_dispatch]
-pub trait KeyPairTrait {
-    fn keypair(&self) -> rcgen::KeyPair;
+impl KeyPair {
+    pub fn load_with_label(hsm: Arc<Hsm>, label: &str) -> Option<Self> {
+        let hsm2 = hsm.clone();
+        let session = hsm.session.lock().unwrap();
+        let objs = session
+            .find_objects(&[
+                cryptoki::object::Attribute::Label(label.as_bytes().to_vec()),
+                cryptoki::object::Attribute::Class(cryptoki::object::ObjectClass::PUBLIC_KEY),
+            ])
+            .unwrap();
+        service::log::debug!(
+            "There are {} objects in the search for public {}",
+            objs.len(),
+            label
+        );
+        let public = objs[0];
+
+        let objs = session
+            .find_objects(&[
+                cryptoki::object::Attribute::Label(label.as_bytes().to_vec()),
+                cryptoki::object::Attribute::Class(cryptoki::object::ObjectClass::PRIVATE_KEY),
+            ])
+            .unwrap();
+        service::log::debug!(
+            "There are {} objects in the search for private {}",
+            objs.len(),
+            label
+        );
+        let private = objs[0];
+
+        let attr_info = session
+            .get_attributes(public, &[cryptoki::object::AttributeType::KeyType])
+            .unwrap();
+        let ktype = &attr_info[0];
+        if let cryptoki::object::Attribute::KeyType(kt) = ktype {
+            match kt.to_owned() {
+                cryptoki::object::KeyType::RSA => {
+                    let pubkey = get_rsa_public_key(&session, public);
+                    Some(KeyPair::RsaSha256(RsaSha256Keypair {
+                        public,
+                        private,
+                        pubkey,
+                        label: label.to_string(),
+                        hsm: hsm2,
+                    }))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
-impl KeyPairTrait for RsaSha256Keypair {
-    fn keypair(&self) -> rcgen::KeyPair {
-        rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
-    }
+#[enum_dispatch::enum_dispatch]
+pub trait KeyPairTrait {
+    /// Get an rcgen version of the keypair
+    fn keypair(&self) -> rcgen::KeyPair;
+    /// Get the label of the key
+    fn label(&self) -> String;
 }
 
 impl rcgen::RemoteKeyPair for KeyPair {
@@ -46,11 +97,21 @@ impl rcgen::RemoteKeyPair for KeyPair {
 
 #[derive(Clone, Debug)]
 pub struct RsaSha256Keypair {
-    session: Arc<Mutex<cryptoki::session::Session>>,
     public: cryptoki::object::ObjectHandle,
     private: cryptoki::object::ObjectHandle,
     pubkey: Vec<u8>,
+    label: String,
     hsm: Arc<crate::hsm2::Hsm>,
+}
+
+impl KeyPairTrait for RsaSha256Keypair {
+    fn keypair(&self) -> rcgen::KeyPair {
+        rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
+    }
+
+    fn label(&self) -> String {
+        self.label.clone()
+    }
 }
 
 impl rcgen::RemoteKeyPair for RsaSha256Keypair {
@@ -59,7 +120,7 @@ impl rcgen::RemoteKeyPair for RsaSha256Keypair {
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
-        let session = self.session.lock().unwrap();
+        let session = self.hsm.session.lock().unwrap();
         let mut hash = session
             .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
             .map_err(|_| rcgen::Error::RemoteKeyError)?;
@@ -100,6 +161,35 @@ pub struct Hsm {
     admin_pin: Zeroizing<String>,
     user_pin: Zeroizing<String>,
     session: Arc<Mutex<cryptoki::session::Session>>,
+}
+
+fn get_rsa_public_key(
+    session: &cryptoki::session::Session,
+    public: cryptoki::object::ObjectHandle,
+) -> Vec<u8> {
+    let attrs = session
+        .get_attributes(public, &[cryptoki::object::AttributeType::Modulus])
+        .unwrap();
+    let mut rsamod = Vec::new();
+    let rsaexp = rsa::BigUint::new(vec![65537 as u32]);
+    for attr in &attrs {
+        match attr {
+            cryptoki::object::Attribute::Modulus(v) => {
+                rsamod = v.to_owned();
+            }
+            _ => {
+                service::log::error!("Unexpected attribute");
+            }
+        }
+    }
+    let mut rsamod2 = vec![0];
+    rsamod2.append(&mut rsamod);
+    let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod2), rsaexp)
+        .expect("Failed to build public key");
+
+    let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
+        .expect("Faiiled to build public key bytes");
+    pubbytes.as_bytes().to_vec()
 }
 
 impl Hsm {
@@ -235,10 +325,10 @@ impl Hsm {
     /// Generate a keypair for certificate operations
     pub fn generate_https_keypair(
         self: &Arc<Self>,
+        name: &str,
         method: HttpsSigningMethod,
         keysize: usize,
     ) -> Option<KeyPair> {
-        let session2 = self.get_user_session().clone();
         let session = self.get_user_session();
         let session = session.lock().unwrap();
         match method {
@@ -252,37 +342,17 @@ impl Hsm {
                     cryptoki::object::Attribute::PublicExponent(public_exponent),
                     cryptoki::object::Attribute::ModulusBits(bits),
                     cryptoki::object::Attribute::Encrypt(true),
+                    cryptoki::object::Attribute::Label(name.as_bytes().to_vec()),
                 ];
                 let priv_key_template = vec![
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Decrypt(true),
+                    cryptoki::object::Attribute::Label(name.as_bytes().to_vec()),
                 ];
                 let (public, private) = session
                     .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
                     .expect("Failed to generate keypair");
-                let attrs = session
-                    .get_attributes(public, &[cryptoki::object::AttributeType::Modulus])
-                    .unwrap();
-                let mut rsamod = Vec::new();
-                let rsaexp = rsa::BigUint::new(vec![65537 as u32]);
-                for attr in &attrs {
-                    match attr {
-                        cryptoki::object::Attribute::Modulus(v) => {
-                            rsamod = v.to_owned();
-                        }
-                        _ => {
-                            service::log::error!("Unexpected attribute");
-                        }
-                    }
-                }
-                let mut rsamod2 = vec![0];
-                rsamod2.append(&mut rsamod);
-                let pubkey = rsa::RsaPublicKey::new(rsa::BigUint::from_bytes_be(&rsamod2), rsaexp)
-                    .expect("Failed to build public key");
-
-                let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
-                    .expect("Faiiled to build public key bytes");
-                let pubvec = pubbytes.as_bytes().to_vec();
+                let pubvec = get_rsa_public_key(&session, public);
 
                 // data to encrypt
                 let data = vec![0xFF, 0x55, 0xDD];
@@ -305,11 +375,11 @@ impl Hsm {
                 assert_eq!(data, decrypted_data);
 
                 let rkp = RsaSha256Keypair {
-                    session: session2,
                     public,
                     private,
                     pubkey: pubvec,
                     hsm: self.clone(),
+                    label: name.to_string(),
                 };
                 Some(KeyPair::RsaSha256(rkp))
             }

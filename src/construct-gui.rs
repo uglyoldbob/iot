@@ -8,7 +8,7 @@ mod main_config;
 
 pub use main_config::MainConfiguration;
 
-#[path = "ca_construct.rs"]
+#[path = "ca/ca_usage.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;
 mod hsm2;

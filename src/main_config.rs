@@ -196,7 +196,7 @@ impl HttpsCertificateLocation {
             HttpsCertificate {
                 algorithm: x509_cert.signature_algorithm.try_into().unwrap(),
                 cert: cert_der,
-                keypair: todo!(),
+                keypair: Some(crate::ca::Keypair::NotHsm(pkcs12.pkey.clone())),
                 attributes: Vec::new(),
             }
         };

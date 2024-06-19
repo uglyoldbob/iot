@@ -1570,16 +1570,19 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     if let Some(p) = p {
         let token = p.get_first("token").unwrap();
         if token == ca.admin_access.as_str() {
-            let cert_der = ca.get_admin_cert().await;
-            response.headers.append(
-                "Content-Type",
-                HeaderValue::from_static("application/x-pkcs12"),
-            );
-            response.headers.append(
-                "Content-Disposition",
-                HeaderValue::from_static("attachment; filename=admin.p12"),
-            );
-            cert = Some(cert_der);
+            if let Ok(c) = ca.examine_admin_cert() {
+                cert = c.try_p12(&ca.config.admin_password);
+                if cert.is_some() {
+                    response.headers.append(
+                        "Content-Type",
+                        HeaderValue::from_static("application/x-pkcs12"),
+                    );
+                    response.headers.append(
+                        "Content-Disposition",
+                        HeaderValue::from_static("attachment; filename=admin.p12"),
+                    );
+                }
+            }
         }
     }
 

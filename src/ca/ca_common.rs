@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use async_sqlite::rusqlite::ToSql;
 use cert_common::oid::*;
+use cert_common::pkcs12::ProtectedPkcs12;
 use cert_common::CertificateSigningMethod;
 use cert_common::HttpsSigningMethod;
 use cert_common::SshSigningMethod;
@@ -933,60 +934,99 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(
-        &self,
-        name: &str,
-        ca: &mut Ca,
-        cert: CaCertificate,
-        password: &str,
-    ) {
-        if let Some(p12_der) = cert.try_p12(password) {
+    pub async fn save_to_medium(&self, name: &str, ca: &mut Ca, cert: CaCertificate) {
+        if let Some(label) = cert.data.hsm_label() {
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
-                    service::log::info!("Inserting p12 {}", cert.id);
-                    let name = name.to_owned();
+                    service::log::info!("Inserting hsm data for {}", cert.id);
                     p.conn(move |conn| {
                         let mut stmt = conn
-                            .prepare("INSERT INTO p12 (id, name, der) VALUES (?1, ?2, ?3)")
+                            .prepare("INSERT INTO hsm_labels (id, label) VALUES (?1, ?2)")
                             .expect("Failed to build prepared statement");
-                        stmt.execute([
-                            cert.id.to_sql().unwrap(),
-                            name.to_sql().unwrap(),
-                            p12_der.to_sql().unwrap(),
-                        ])
+                        stmt.execute([cert.id.to_sql().unwrap(), label.to_sql().unwrap()])
                     })
                     .await
                     .expect("Failed to insert certificate");
                 }
             }
-        } else {
         }
         ca.save_user_cert(cert.id, &cert.contents(), &cert.get_snb())
             .await;
     }
 
     /// Load a certificate from the storage medium
-    pub async fn load_from_medium(
+    pub async fn load_hsm_from_medium(
         &self,
+        hsm: Arc<crate::hsm2::Hsm>,
         name: &str,
-    ) -> Result<cert_common::pkcs12::ProtectedPkcs12, CertificateLoadingError> {
+    ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
                 let name2 = name.to_owned();
-                let (id, cert): (u64, Vec<u8>) = p
+                let name3 = name.to_owned();
+                let id = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT id,der FROM p12 WHERE name='{}'", name),
+                            &format!("SELECT id FROM hsm_labels WHERE label='{}'", name2),
+                            [],
+                            |r| Ok(r.get(0).unwrap()),
+                        )
+                    })
+                    .await
+                    .expect(&format!("Failed to retrieve cert {}", name3));
+                let cert = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT der FROM certs WHERE id='{}'", id),
+                            [],
+                            |r| Ok(r.get(0).unwrap()),
+                        )
+                    })
+                    .await
+                    .expect(&format!("Failed to retrieve cert {}", name3));
+                let hcert = HttpsCertificate {
+                    algorithm: HttpsSigningMethod::RsaSha256, //TODO fill this out properly
+                    cert,
+                    keypair: Some(Keypair::Hsm(
+                        crate::hsm2::KeyPair::load_with_label(hsm, &name).unwrap(),
+                    )),
+                    attributes: Vec::new(),
+                };
+                let cert = CaCertificate {
+                    medium: self.clone(),
+                    data: CertificateData::Https(hcert),
+                    name: name.to_owned(),
+                    id,
+                };
+                Ok(cert)
+            }
+        }
+    }
+
+    /// Load a certificate from the storage medium
+    pub async fn load_p12_from_medium(
+        &self,
+        name: &str,
+    ) -> Result<ProtectedPkcs12, CertificateLoadingError> {
+        match self {
+            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::Sqlite(p) => {
+                let name = name.to_owned();
+                let name2 = name.to_owned();
+                let (id, key1) = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT id,key1 FROM hsm_handles WHERE name='{}'", name),
                             [],
                             |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())),
                         )
                     })
                     .await
                     .expect(&format!("Failed to retrieve cert {}", name2));
-                let p12 = cert_common::pkcs12::ProtectedPkcs12 { contents: cert, id };
+                let p12 = cert_common::pkcs12::ProtectedPkcs12 { contents: key1, id };
                 Ok(p12)
             }
         }
@@ -1009,6 +1049,14 @@ impl Keypair {
             Some(a)
         } else {
             None
+        }
+    }
+
+    /// Get the hsm keypair, if possible
+    pub fn hsm_keypair(&self) -> Option<&crate::hsm2::KeyPair> {
+        match self {
+            Keypair::Hsm(k) => Some(k),
+            Keypair::NotHsm(_) => None,
         }
     }
 
@@ -1037,7 +1085,21 @@ pub struct HttpsCertificate {
 }
 
 impl HttpsCertificate {
-    /// Trye to build a p12 document
+    /// Try to get the hsm handle for the certificate
+    pub fn hsm_label(&self) -> Option<String> {
+        self.keypair
+            .as_ref()
+            .map(|kp| {
+                let keypair = kp.hsm_keypair();
+                keypair.map(|kp| {
+                    use crate::hsm2::KeyPairTrait;
+                    kp.label()
+                })
+            })
+            .flatten()
+    }
+
+    /// Try to build a p12 document
     pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
         self.keypair
             .as_ref()
@@ -1175,6 +1237,7 @@ impl Signature {
 }
 
 /// The kinds of certificates that can exist
+/// TODO use enum_dispatch here!
 #[derive(Clone, Debug)]
 pub enum CertificateData {
     /// Data required for an https certificate
@@ -1184,6 +1247,14 @@ pub enum CertificateData {
 }
 
 impl CertificateData {
+    /// Try to get the hsm handle for the certificate
+    pub fn hsm_label(&self) -> Option<String> {
+        match self {
+            Self::Https(c) => c.hsm_label(),
+            Self::Ssh(_) => todo!(),
+        }
+    }
+
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         match self {
@@ -1396,7 +1467,7 @@ impl CaCertificate {
     /// Save this certificate to the storage medium
     pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
         self.medium
-            .save_to_medium(&self.name, ca, self.to_owned(), password)
+            .save_to_medium(&self.name, ca, self.to_owned())
             .await;
     }
 
@@ -1738,19 +1809,20 @@ impl Pki {
     /// Load pki stuff
     #[allow(dead_code)]
     pub async fn load(
+        hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
     ) -> Self {
         let mut hm = HashMap::new();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::load(config).await;
+            let ca = crate::ca::Ca::load(hsm.clone(), config).await;
             hm.insert(name.to_owned(), ca);
         }
         let super_admin = if let Some(sa) = &settings.super_admin {
             if let Some(ca) = hm.get_mut(sa) {
                 let p = ca.admin_access.to_string();
-                ca.load_admin_cert(&p).await.ok().cloned()
+                ca.load_admin_cert(hsm.clone(), &p).await.ok().cloned()
             } else {
                 None
             }
@@ -1834,15 +1906,15 @@ pub enum PkiInstance {
 impl PkiInstance {
     /// Load an instance of self from the settings.
     #[allow(dead_code)]
-    pub async fn load(settings: &crate::MainConfiguration) -> Self {
+    pub async fn load(hsm: Arc<crate::hsm2::Hsm>, settings: &crate::MainConfiguration) -> Self {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::load(pki_config, settings).await;
+                let pki = crate::ca::Pki::load(hsm, pki_config, settings).await;
                 Self::Pki(pki)
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca_config = &ca_config.get_ca(settings);
-                let ca = Ca::load(ca_config).await;
+                let ca = Ca::load(hsm, ca_config).await;
                 Self::Ca(ca)
             }
         }
@@ -2019,19 +2091,49 @@ impl Ca {
         }
     }
 
+    /// Attempt to load a certificate by name, first from hsm, then from p12
+    async fn load_cert(
+        &self,
+        hsm: Arc<crate::hsm2::Hsm>,
+        name: &str,
+        password: &str,
+    ) -> Result<CaCertificate, CertificateLoadingError> {
+        if let Ok(cert) = self
+            .medium
+            .load_hsm_from_medium(hsm, &format!("{}-{}", self.config.common_name, name))
+            .await
+        {
+            Ok(cert)
+        } else if let Ok(rc) = self.medium.load_p12_from_medium(name).await {
+            Ok(cert_common::pkcs12::Pkcs12::load_from_data(
+                &rc.contents,
+                password.as_bytes(),
+                rc.id,
+            )
+            .try_into()
+            .unwrap())
+        } else {
+            Err(CertificateLoadingError::DoesNotExist)
+        }
+    }
+
     /// Load ca stuff
-    pub async fn load(settings: &crate::ca::CaConfiguration) -> Self {
+    pub async fn load(hsm: Arc<crate::hsm2::Hsm>, settings: &crate::ca::CaConfiguration) -> Self {
         let mut ca = Self::from_config(settings).await;
 
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(m) => {
-                let _ = ca.load_ocsp_cert(&settings.ocsp_password).await;
-                let _ = ca.load_admin_cert(&settings.admin_password).await;
-                let _ = ca.load_root_ca_cert(&settings.root_password).await;
+                let _ = ca
+                    .load_ocsp_cert(hsm.clone(), &settings.ocsp_password)
+                    .await;
+                let _ = ca
+                    .load_admin_cert(hsm.clone(), &settings.admin_password)
+                    .await;
+                let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
             }
             CertificateSigningMethod::Ssh(m) => {
-                let _ = ca.load_root_ca_cert(&settings.root_password).await;
+                let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
             }
         }
         ca
@@ -2040,43 +2142,43 @@ impl Ca {
     /// Load the root ca cert from the specified storage media, converting to der as required.
     pub async fn load_root_ca_cert(
         &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
-            let rc = self.medium.load_from_medium("root").await.unwrap();
-            self.root_cert = Ok(cert_common::pkcs12::Pkcs12::load_from_data(
-                &rc.contents,
-                password.as_bytes(),
-                rc.id,
-            )
-            .try_into()
-            .unwrap());
+            self.root_cert = self.load_cert(hsm, "root", password).await;
         }
         self.root_cert.as_ref()
     }
 
     /// Get the protected admin certificate
-    pub async fn get_admin_cert(&self) -> Vec<u8> {
-        let p = self.medium.load_from_medium("admin").await.unwrap();
-        p.contents
+    pub async fn get_admin_cert(
+        &self,
+        hsm: Arc<crate::hsm2::Hsm>,
+    ) -> Result<CaCertificate, CertificateLoadingError> {
+        self.load_cert(hsm, "admin", &self.config.admin_password)
+            .await
+    }
+
+    /// Returns the already loaded admin key
+    pub fn examine_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.admin.as_ref()
     }
 
     /// Load the admin signer certificate, loading if required and erasing the private key.
     pub async fn load_admin_cert(
         &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
-            let rc = self.medium.load_from_medium("admin").await.unwrap();
-            let mut cert: CaCertificate = cert_common::pkcs12::Pkcs12::load_from_data(
-                &rc.contents,
-                password.as_bytes(),
-                rc.id,
-            )
-            .try_into()
-            .unwrap();
-            cert.erase_private_key();
-            self.admin = Ok(cert);
+            self.admin = self
+                .load_cert(hsm, "admin", password)
+                .await
+                .and_then(|mut a| {
+                    a.erase_private_key();
+                    Ok(a)
+                });
         }
         self.admin.as_ref()
     }
@@ -2084,17 +2186,11 @@ impl Ca {
     /// Load the ocsp signer certificate, loading if required.
     pub async fn load_ocsp_cert(
         &mut self,
+        hsm: Arc<crate::hsm2::Hsm>,
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
-            let rc = self.medium.load_from_medium("ocsp").await.unwrap();
-            self.ocsp_signer = Ok(cert_common::pkcs12::Pkcs12::load_from_data(
-                &rc.contents,
-                password.as_bytes(),
-                rc.id,
-            )
-            .try_into()
-            .unwrap());
+            self.ocsp_signer = self.load_cert(hsm, "ocsp", password).await;
         }
         self.ocsp_signer.as_ref()
     }

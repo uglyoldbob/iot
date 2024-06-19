@@ -379,6 +379,7 @@ impl CaCertificateStorage {
                 p.conn(move |conn| {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
+                    conn.execute("CREATE TABLE hsm_labels ( id INTEGER PRIMARY KEY, label TEXT)", [])?;
                     match sign_method {
                         CertificateSigningMethod::Https(_) => {
                             conn.execute(
@@ -591,7 +592,9 @@ impl Ca {
                 {
                     service::log::info!("Generating a root certificate for ca operations");
 
-                    let key_pair = hsm.generate_https_keypair(m, 4096).unwrap();
+                    let key_pair = hsm
+                        .generate_https_keypair(&format!("{}-root", settings.common_name), m, 4096)
+                        .unwrap();
 
                     let san: Vec<String> = settings.san.to_owned();
                     let mut certparams = rcgen::CertificateParams::new(san).unwrap();
@@ -633,8 +636,8 @@ impl Ca {
                         let ocsp_csr = superior.generate_hsm_signing_request(
                             hsm.clone(),
                             m,
-                            "root".to_string(),
-                            "Root Certificate".to_string(),
+                            format!("{}-root", ca.config.common_name),
+                            ca.config.common_name.clone(),
                             ca.config.san.clone(),
                             extensions,
                             id,
@@ -673,7 +676,7 @@ impl Ca {
                 let ocsp_csr = ca.generate_hsm_signing_request(
                     hsm.clone(),
                     m,
-                    "ocsp".to_string(),
+                    format!("{}-ocsp", ca.config.common_name),
                     "OCSP Responder".to_string(),
                     ca.ocsp_urls.to_owned(),
                     extensions,
@@ -704,7 +707,7 @@ impl Ca {
                 let admin_csr = ca.generate_hsm_signing_request(
                     hsm.clone(),
                     m,
-                    "admin".to_string(),
+                    format!("{}-admin", ca.config.common_name),
                     format!("{} Administrator", settings.common_name),
                     Vec::new(),
                     extensions,
@@ -786,7 +789,7 @@ impl Ca {
     ) -> CaCertificateToBeSigned {
         let mut extensions = extensions.clone();
         let mut params = rcgen::CertificateParams::new(names).unwrap();
-        let keypair = hsm.generate_https_keypair(t, 4096).unwrap();
+        let keypair = hsm.generate_https_keypair(&name, t, 4096).unwrap();
         params.distinguished_name = rcgen::DistinguishedName::new();
         params
             .distinguished_name
@@ -797,14 +800,8 @@ impl Ca {
 
         use crate::hsm2::KeyPairTrait;
         let rckeypair = keypair.keypair();
-        service::log::debug!(
-            "The rc keypair for {} is {}",
-            name,
-            rckeypair.public_key_pem()
-        );
         let csr = params.serialize_request(&rckeypair).unwrap();
         let csr_der = csr.der();
-        service::log::debug!("The csr is {:02X?}", csr_der);
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
         let mut sn = [0; 20];
@@ -851,14 +848,8 @@ impl Ca {
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
-        service::log::debug!(
-            "The rc keypair for {} is {}",
-            name,
-            keypair.public_key_pem()
-        );
         let csr = params.serialize_request(&keypair).unwrap();
         let csr_der = csr.der();
-        service::log::debug!("The csr is {:02X?}", csr_der);
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
         let mut sn = [0; 20];
