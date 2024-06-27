@@ -372,6 +372,7 @@ impl CaCertificateStorage {
     /// Initialize the storage medium
     pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) {
         let sign_method = settings.sign_method;
+        let admin_cert = settings.admin_cert.clone();
         match self {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::Sqlite(p) => {
@@ -379,6 +380,9 @@ impl CaCertificateStorage {
                     conn.execute("CREATE TABLE id ( id INTEGER PRIMARY KEY )", [])?;
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
                     conn.execute("CREATE TABLE hsm_labels ( id INTEGER PRIMARY KEY, label TEXT)", [])?;
+                    if let CertificateType::Soft(_) = admin_cert {
+                        conn.execute("CREATE TABLE p12 ( id INTEGER PRIMARY KEY, p12 BLOB)", [])?;
+                    }
                     match sign_method {
                         CertificateSigningMethod::Https(_) => {
                             conn.execute(
@@ -657,7 +661,7 @@ impl Ca {
                         todo!("Intermediate certificate authority generation not possible");
                     };
 
-                    rootcert.save_to_medium(&mut ca).await;
+                    rootcert.save_to_medium(&mut ca, "").await;
                     ca.root_cert = Ok(rootcert);
                 }
                 service::log::info!("Generating OCSP responder certificate");
@@ -686,7 +690,7 @@ impl Ca {
                     .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
                     .unwrap();
                 ocsp_cert.medium = ca.medium.clone();
-                ocsp_cert.save_to_medium(&mut ca).await;
+                ocsp_cert.save_to_medium(&mut ca, "").await;
                 ca.ocsp_signer = Ok(ocsp_cert);
 
                 let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
@@ -698,24 +702,51 @@ impl Ca {
                     ];
 
                 service::log::info!("Generating administrator certificate");
-                let id = ca.get_new_request_id().await.unwrap();
-                let admin_csr = ca.generate_hsm_signing_request(
-                    hsm.clone(),
-                    m,
-                    format!("{}-admin", ca.config.common_name),
-                    format!("{} Administrator", settings.common_name),
-                    Vec::new(),
-                    extensions,
-                    id,
-                );
-                let mut admin_cert = ca
-                    .root_cert
-                    .as_ref()
-                    .unwrap()
-                    .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
-                    .unwrap();
-                admin_cert.medium = ca.medium.clone();
-                admin_cert.save_to_medium(&mut ca).await;
+                let admin_cert = match ca.config.admin_cert.clone() {
+                    CertificateType::Soft(p) => {
+                        let id = ca.get_new_request_id().await.unwrap();
+                        let admin_csr = ca.generate_plain_signing_request(
+                            m,
+                            format!("{}-admin", ca.config.common_name),
+                            format!("{} Administrator", settings.common_name),
+                            Vec::new(),
+                            extensions,
+                            id,
+                        );
+                        //TODO set proper duration here
+                        let mut admin_cert = ca
+                            .root_cert
+                            .as_ref()
+                            .unwrap()
+                            .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
+                            .unwrap();
+                        admin_cert.medium = ca.medium.clone();
+                        admin_cert.save_to_medium(&mut ca, &p).await;
+                        admin_cert
+                    }
+                    CertificateType::SmartCard(p) => {
+                        let keypair = crate::card::KeyPair::new();
+                        let admin_csr = ca.smartcard_signing_request(
+                            keypair,
+                            m,
+                            format!("{}-admin", ca.config.common_name),
+                            format!("{} Administrator", settings.common_name),
+                            Vec::new(),
+                            extensions,
+                            id,
+                        );
+                        //TODO set proper duration here
+                        let mut admin_cert = ca
+                            .root_cert
+                            .as_ref()
+                            .unwrap()
+                            .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
+                            .unwrap();
+                        admin_cert.medium = ca.medium.clone();
+                        admin_cert.save_to_medium(&mut ca, &p).await;
+                        admin_cert
+                    }
+                };
                 ca.admin = Ok(admin_cert);
             }
             CertificateSigningMethod::Ssh(m) => {
@@ -750,7 +781,7 @@ impl Ca {
                         "root".to_string(),
                         0,
                     );
-                    root.save_to_medium(&mut ca).await;
+                    root.save_to_medium(&mut ca, "").await;
                     ca.root_cert = Ok(root);
                 } else if let Some(_superior) = superior {
                     todo!("Intermediate certificate authority generation not implemented");
@@ -788,6 +819,7 @@ impl Ca {
             .distinguished_name
             .push(rcgen::DnType::CommonName, common_name);
         params.not_before = time::OffsetDateTime::now_utc();
+        //TODO set a real time here
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
@@ -838,6 +870,7 @@ impl Ca {
             .distinguished_name
             .push(rcgen::DnType::CommonName, common_name);
         params.not_before = time::OffsetDateTime::now_utc();
+        //TODO set a real time here
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
 
@@ -857,6 +890,50 @@ impl Ca {
             medium: self.medium.clone(),
             csr,
             keypair: Some(Keypair::NotHsm(priva)),
+            name,
+            id,
+        }
+    }
+
+    /// Create a signing request with a smartcard-generated keypair
+    ///
+    pub fn smartcard_signing_request(
+        &mut self,
+        keypair: crate::card::KeyPair,
+        t: HttpsSigningMethod,
+        name: String,
+        common_name: String,
+        names: Vec<String>,
+        extensions: Vec<rcgen::CustomExtension>,
+        id: u64,
+    ) -> CaCertificateToBeSigned {
+        let mut extensions = extensions.clone();
+        let mut params = rcgen::CertificateParams::new(names).unwrap();
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, common_name);
+        params.not_before = time::OffsetDateTime::now_utc();
+        //TODO set a real time here
+        params.not_after = params.not_before + time::Duration::days(365);
+        params.custom_extensions.append(&mut extensions);
+        keypair.wait_for_card();
+        let csr = params.serialize_request(&keypair.rcgen()).unwrap();
+        let csr_der = csr.der();
+        let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+
+        let mut sn = [0; 20];
+        for (i, b) in id.to_le_bytes().iter().enumerate() {
+            sn[i] = *b;
+        }
+        let sn = rcgen::SerialNumber::from_slice(&sn);
+        csr.params.serial_number = Some(sn);
+
+        CaCertificateToBeSigned {
+            algorithm: t,
+            medium: self.medium.clone(),
+            csr,
+            keypair: Some(Keypair::SmartCard(keypair)),
             name,
             id,
         }

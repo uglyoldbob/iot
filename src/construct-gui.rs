@@ -11,6 +11,7 @@ pub use main_config::MainConfiguration;
 #[path = "ca/ca_usage.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;
+mod card;
 mod hsm2;
 mod tpm2;
 

@@ -47,7 +47,91 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     ]
 }
 
-/// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
+/// A type that allows the user to enter a smart card pin, twice for verification
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct SmartCardPin2(String, String);
+
+impl userprompt::EguiPrompting for SmartCardPin2 {
+    fn build_gui(&mut self, ui: &mut egui::Ui, name: Option<&str>) -> Result<(), String> {
+        if let Some(n) = name {
+            ui.label(n);
+        }
+        let p: &mut String = &mut self.0;
+        let pe = egui::TextEdit::singleline(p).password(true);
+        ui.add(pe);
+        let p: &mut String = &mut self.1;
+        let pe = egui::TextEdit::singleline(p).password(true);
+        ui.add(pe);
+        if !self.0.is_empty() && self.0 == self.1 {
+            let pinlen = self.0.chars().count();
+            if pinlen < 6 {
+                return Err(format!("{} pin is too short", name.unwrap_or("")));
+            }
+            if pinlen > 8 {
+                return Err(format!("{} pin is too long", name.unwrap_or("")));
+            }
+            for c in self.0.chars() {
+                if !c.is_numeric() {
+                    return Err(format!("{} pin is invalid", name.unwrap_or("")));
+                }
+            }
+            Ok(())
+        } else {
+            Err(format!("{} password does not match", name.unwrap_or("")))
+        }
+    }
+}
+
+impl userprompt::Prompting for SmartCardPin2 {
+    fn prompt(name: Option<&str>) -> Result<Self, userprompt::Error> {
+        use std::io::Write;
+        let mut buffer;
+        'prompt: loop {
+            if let Some(n) = name {
+                print!("{}:Enter pin (6-8 nummbers):", n);
+            } else {
+                print!("Enter pin (6-8 nummbers):");
+            }
+            std::io::stdout().flush().unwrap();
+            buffer = rpassword::read_password().unwrap();
+            for c in buffer.chars() {
+                if !c.is_numeric() {
+                    println!("Not a valid pin");
+                    continue 'prompt;
+                }
+            }
+            let pinlen = buffer.chars().count();
+            if pinlen < 6 {
+                println!("Pin is too short");
+                continue 'prompt;
+            }
+            if pinlen > 8 {
+                println!("Pin is too long");
+                continue 'prompt;
+            }
+            if let Some(n) = name {
+                print!("{}: Enter pin again:", n);
+            } else {
+                print!("Enter pin again: ");
+            }
+            std::io::stdout().flush().unwrap();
+            let buf2 = rpassword::read_password().unwrap();
+            if buffer == buf2 {
+                break;
+            }
+            println!("Pins do not match, try again");
+        }
+        Ok(Self(buffer.clone(), buffer))
+    }
+}
+
+impl From<SmartCardPin2> for String {
+    fn from(value: SmartCardPin2) -> Self {
+        value.0
+    }
+}
+
+/// The kinds of tokens that can exist for certificates generated
 #[derive(
     Clone,
     Debug,
@@ -56,6 +140,39 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     serde::Deserialize,
     serde::Serialize,
 )]
+pub enum CertificateTypeAnswers {
+    /// A certificate represented by a regular protected p12 document, secured by a passwor
+    Soft(userprompt::Password2),
+    /// A certificate stored in a smart card, protected by a pin
+    SmartCard(SmartCardPin2),
+}
+
+impl Default for CertificateTypeAnswers {
+    fn default() -> Self {
+        Self::Soft(userprompt::Password2::default())
+    }
+}
+
+/// The kinds of tokens that can exist for certificates generated
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub enum CertificateType {
+    /// A certificate represented by a regular protected p12 document, secured by a password
+    Soft(String),
+    /// A certificate stored in a smart card, protected by a pin
+    SmartCard(String),
+}
+
+impl From<CertificateTypeAnswers> for CertificateType {
+    fn from(value: CertificateTypeAnswers) -> Self {
+        match value {
+            CertificateTypeAnswers::Soft(a) => Self::Soft(a.to_string()),
+            CertificateTypeAnswers::SmartCard(a) => Self::SmartCard(a.0),
+        }
+    }
+}
+
+/// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct StandaloneCaConfiguration {
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
@@ -71,12 +188,8 @@ pub struct StandaloneCaConfiguration {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: String,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: String,
-    /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: String,
-    /// The password to protect the root p12 certificate document.
-    pub root_password: String,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateType,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The name of the ca instance
@@ -100,9 +213,7 @@ impl From<StandaloneCaConfigurationAnswers> for StandaloneCaConfiguration {
             days: value.days,
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
-            admin_password: value.admin_password.to_string(),
-            ocsp_password: crate::ca::generate_password(32),
-            root_password: crate::ca::generate_password(32),
+            admin_cert: value.admin_cert.into(),
             ocsp_signature: value.ocsp_signature,
             name: value.name.clone(),
         }
@@ -145,9 +256,7 @@ impl StandaloneCaConfiguration {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
-            ocsp_password: self.ocsp_password.clone(),
-            root_password: self.root_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
@@ -181,8 +290,8 @@ pub struct StandaloneCaConfigurationAnswers {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: userprompt::Password2,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateTypeAnswers,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The name of the ca instance
@@ -206,7 +315,7 @@ impl StandaloneCaConfigurationAnswers {
             days: 1,
             chain_length: 0,
             admin_access_password: userprompt::Password2::new("".to_string()),
-            admin_password: userprompt::Password2::new("".to_string()),
+            admin_cert: Default::default(),
             ocsp_signature: false,
             name: String::new(),
         }
@@ -223,7 +332,7 @@ impl StandaloneCaConfigurationAnswers {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
             http_port: None,
             https_port: None,
@@ -267,7 +376,7 @@ impl StandaloneCaConfigurationAnswers {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
@@ -301,8 +410,8 @@ pub struct LocalCaConfigurationAnswers {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: userprompt::Password2,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateTypeAnswers,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
 }
@@ -324,7 +433,7 @@ impl LocalCaConfigurationAnswers {
             days: 1,
             chain_length: 0,
             admin_access_password: userprompt::Password2::new("".to_string()),
-            admin_password: userprompt::Password2::new("".to_string()),
+            admin_cert: Default::default(),
             ocsp_signature: false,
         }
     }
@@ -340,7 +449,7 @@ impl LocalCaConfigurationAnswers {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
             http_port: None,
             https_port: None,
@@ -351,14 +460,7 @@ impl LocalCaConfigurationAnswers {
 }
 
 /// The items used to configure a local certificate authority in a pki configuration
-#[derive(
-    Clone,
-    Debug,
-    userprompt::Prompting,
-    userprompt::EguiPrompting,
-    serde::Deserialize,
-    serde::Serialize,
-)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct LocalCaConfiguration {
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
@@ -374,8 +476,8 @@ pub struct LocalCaConfiguration {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: String,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: String,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateType,
     /// The password to protect the ocsp p12 certificate document.
     pub ocsp_password: String,
     /// The password to protect the root p12 certificate document.
@@ -394,7 +496,7 @@ impl From<LocalCaConfigurationAnswers> for LocalCaConfiguration {
             days: value.days,
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
-            admin_password: value.admin_password.to_string(),
+            admin_cert: value.admin_cert.into(),
             ocsp_password: crate::ca::generate_password(32),
             root_password: crate::ca::generate_password(32),
             ocsp_signature: value.ocsp_signature,
@@ -438,9 +540,7 @@ impl LocalCaConfiguration {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
-            ocsp_password: self.ocsp_password.clone(),
-            root_password: self.root_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
@@ -469,12 +569,8 @@ pub struct CaConfiguration {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: String,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: String,
-    /// The password to protect the ocsp p12 certificate document.
-    pub ocsp_password: String,
-    /// The password to protect the root p12 certificate document.
-    pub root_password: String,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateType,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The externally accessible https port, if accessible by https
@@ -529,8 +625,8 @@ pub struct CaConfigurationAnswers {
     pub chain_length: u8,
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: userprompt::Password2,
-    /// The password to protect the admin p12 certificate document.
-    pub admin_password: userprompt::Password2,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateTypeAnswers,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
     /// The externally accessible https port, if accessible by https
@@ -560,7 +656,7 @@ impl CaConfigurationAnswers {
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
-            admin_password: self.admin_password.clone(),
+            admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
         }
     }
@@ -585,7 +681,7 @@ impl CaConfigurationAnswers {
             days: 1,
             chain_length: 0,
             admin_access_password: userprompt::Password2::new("".to_string()),
-            admin_password: userprompt::Password2::new("".to_string()),
+            admin_cert: Default::default(),
             ocsp_signature: false,
             http_port: None,
             https_port: None,
@@ -934,7 +1030,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, ca: &mut Ca, cert: CaCertificate) {
+    pub async fn save_to_medium(&self, ca: &mut Ca, cert: CaCertificate, password: &str) {
         if let Some(label) = cert.data.hsm_label() {
             match self {
                 CaCertificateStorage::Nowhere => {}
@@ -948,6 +1044,26 @@ impl CaCertificateStorage {
                     })
                     .await
                     .expect("Failed to insert certificate");
+                }
+            }
+        } else {
+            match self {
+                CaCertificateStorage::Nowhere => todo!(),
+                CaCertificateStorage::Sqlite(p) => {
+                    service::log::info!("Inserting p12 data for {}", cert.id);
+                    let p12 = cert.try_p12(password);
+                    if let Some(p12) = p12 {
+                        p.conn(move |conn| {
+                            let mut stmt = conn
+                                .prepare("INSERT INTO p12 (id, pem) VALUES (?1, ?2)")
+                                .expect("Failed to build prepared statement");
+                            stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
+                        })
+                        .await
+                        .expect("Failed to insert p12 certificate");
+                    } else {
+                        service::log::error!("Failed to create p12 for {}", cert.id);
+                    }
                 }
             }
         }
@@ -1038,6 +1154,8 @@ impl CaCertificateStorage {
 pub enum Keypair {
     /// A keypair contained in the hsm
     Hsm(crate::hsm2::KeyPair),
+    /// A keypair contained in a smartcard
+    SmartCard(crate::card::KeyPair),
     /// A keypair not contained in the hsm
     NotHsm(Zeroizing<Vec<u8>>),
 }
@@ -1055,7 +1173,7 @@ impl Keypair {
     /// Erase the private key of the certificate
     pub fn erase_private(&mut self) {
         match self {
-            Self::Hsm(_) => {}
+            Self::SmartCard(_) | Self::Hsm(_) => {}
             Self::NotHsm(k) => {
                 *k = Zeroizing::new(Vec::new());
             }
@@ -1066,7 +1184,7 @@ impl Keypair {
     pub fn hsm_keypair(&self) -> Option<&crate::hsm2::KeyPair> {
         match self {
             Keypair::Hsm(k) => Some(k),
-            Keypair::NotHsm(_) => None,
+            Keypair::SmartCard(_) | Keypair::NotHsm(_) => None,
         }
     }
 
@@ -1074,6 +1192,7 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
+            Keypair::SmartCard(k) => k.sign(data),
             Keypair::NotHsm(_k) => {
                 todo!();
             }
@@ -1482,8 +1601,10 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, ca: &mut Ca) {
-        self.medium.save_to_medium(ca, self.to_owned()).await;
+    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
+        self.medium
+            .save_to_medium(ca, self.to_owned(), password)
+            .await;
     }
 
     /// Sign a csr with the certificate, if possible
@@ -2111,7 +2232,7 @@ impl Ca {
         &self,
         hsm: Arc<crate::hsm2::Hsm>,
         name: &str,
-        password: &str,
+        password: Option<&str>,
     ) -> Result<CaCertificate, CertificateLoadingError> {
         if let Ok(cert) = self
             .medium
@@ -2120,13 +2241,17 @@ impl Ca {
         {
             Ok(cert)
         } else if let Ok(rc) = self.medium.load_p12_from_medium(name).await {
-            Ok(cert_common::pkcs12::Pkcs12::load_from_data(
-                &rc.contents,
-                password.as_bytes(),
-                rc.id,
-            )
-            .try_into()
-            .unwrap())
+            if let Some(password) = password {
+                Ok(cert_common::pkcs12::Pkcs12::load_from_data(
+                    &rc.contents,
+                    password.as_bytes(),
+                    rc.id,
+                )
+                .try_into()
+                .unwrap())
+            } else {
+                Err(CertificateLoadingError::DoesNotExist)
+            }
         } else {
             Err(CertificateLoadingError::DoesNotExist)
         }
@@ -2139,16 +2264,14 @@ impl Ca {
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_m) => {
-                let _ = ca
-                    .load_ocsp_cert(hsm.clone(), &settings.ocsp_password)
-                    .await;
-                let _ = ca
-                    .load_admin_cert(hsm.clone(), &settings.admin_password)
-                    .await;
-                let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
+                let _ = ca.load_ocsp_cert(hsm.clone()).await;
+                if let CertificateType::Soft(p) = &settings.admin_cert {
+                    let _ = ca.load_admin_cert(hsm.clone(), p).await;
+                }
+                let _ = ca.load_root_ca_cert(hsm).await;
             }
             CertificateSigningMethod::Ssh(_m) => {
-                let _ = ca.load_root_ca_cert(hsm, &settings.root_password).await;
+                let _ = ca.load_root_ca_cert(hsm).await;
             }
         }
         ca
@@ -2158,10 +2281,9 @@ impl Ca {
     pub async fn load_root_ca_cert(
         &mut self,
         hsm: Arc<crate::hsm2::Hsm>,
-        password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
-            self.root_cert = self.load_cert(hsm, "root", password).await;
+            self.root_cert = self.load_cert(hsm, "root", None).await;
         }
         self.root_cert.as_ref()
     }
@@ -2171,8 +2293,12 @@ impl Ca {
         &self,
         hsm: Arc<crate::hsm2::Hsm>,
     ) -> Result<CaCertificate, CertificateLoadingError> {
-        self.load_cert(hsm, "admin", &self.config.admin_password)
-            .await
+        if let CertificateType::Soft(p) = &self.config.admin_cert {
+            //TODO: change to load p12 directly
+            self.load_cert(hsm, "admin", Some(p)).await
+        } else {
+            Err(CertificateLoadingError::DoesNotExist)
+        }
     }
 
     /// Returns the already loaded admin key
@@ -2188,7 +2314,7 @@ impl Ca {
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
             self.admin = self
-                .load_cert(hsm, "admin", password)
+                .load_cert(hsm, "admin", Some(password))
                 .await
                 .and_then(|mut a| {
                     a.erase_private_key();
@@ -2202,10 +2328,9 @@ impl Ca {
     pub async fn load_ocsp_cert(
         &mut self,
         hsm: Arc<crate::hsm2::Hsm>,
-        password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
-            self.ocsp_signer = self.load_cert(hsm, "ocsp", password).await;
+            self.ocsp_signer = self.load_cert(hsm, "ocsp", None).await;
         }
         self.ocsp_signer.as_ref()
     }

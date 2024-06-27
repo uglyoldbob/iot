@@ -8,6 +8,7 @@
 #![recursion_limit = "512"]
 
 mod ca;
+mod card;
 mod hsm2;
 mod tpm2;
 
