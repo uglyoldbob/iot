@@ -835,7 +835,7 @@ dependencies = [
 [[package]]
 name = "card"
 version = "0.1.0"
-source = "git+ssh://git2@home.uglyoldbob.com/smartcard-test.git#e5dab20e31cdf88571bf47ab12d8b3fcfe8f85e1"
+source = "git+ssh://git2@home.uglyoldbob.com/smartcard-test.git#350ea735b51cc3b1b2c971fbbd95586aff9fd949"
 dependencies = [
  "des",
  "omnom",

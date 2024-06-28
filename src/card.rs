@@ -99,12 +99,12 @@ impl KeyPair {
     }
 
     pub fn save_cert_to_card(&self, cert: &[u8]) -> Result<(), ()> {
+        service::log::debug!("Saving cert data to card: {} {:02X?}", cert.len(), cert);
         match card::with_piv_and_public_key(
             &self.public_key,
             |reader| {
                 let mut writer = card::PivCardWriter::extend(reader);
-                todo!(); //?
-                writer.maybe_store_x509_cert(cert)
+                writer.maybe_store_x509_cert(card::MANAGEMENT_KEY_DEFAULT, cert)
             },
             std::time::Duration::from_secs(10),
         ) {
