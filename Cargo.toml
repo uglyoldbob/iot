@@ -53,6 +53,9 @@ x509-cert = "0.2.5"
 yasna = "0.5.2"
 zeroize = "1.7.0"
 
+[dependencies.card]
+git = "ssh://git2@home.uglyoldbob.com/smartcard-test.git"
+
 [dependencies.cert-common]
 path = "./cert-common"
 

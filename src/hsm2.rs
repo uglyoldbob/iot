@@ -119,19 +119,19 @@ impl rcgen::RemoteKeyPair for RsaSha256Keypair {
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
         let session = self.hsm.session.lock().unwrap();
-        let mut hash = session
+        let hash = session
             .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
             .map_err(|_| rcgen::Error::RemoteKeyError)?;
-        // pkcs 1.5 with sha256
-        let mut prehash = vec![
-            0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-            0x01, 0x05, 0x00, 0x04, 0x20,
-        ];
-        prehash.append(&mut hash);
+        let hashed = crate::ca::rsa_sha256(&hash);
+        service::log::debug!(
+            "Data to rsa sign is length {} {:02X?}",
+            hashed.len(),
+            hashed
+        );
         let r = session.sign(
             &cryptoki::mechanism::Mechanism::RsaPkcs,
             self.private,
-            &prehash,
+            &hashed,
         );
         r.map_err(|_| rcgen::Error::RemoteKeyError)
     }

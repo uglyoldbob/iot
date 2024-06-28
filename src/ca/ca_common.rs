@@ -19,6 +19,58 @@ use zeroize::Zeroizing;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
 
+/// Hash and apply pkcs1.5 padding
+pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
+    let mut hash = hash.to_vec();
+    let plen = 255 - hash.len() - 22;
+    let mut p = vec![0; plen];
+    for e in &mut p {
+        let v: u8 = loop {
+            let t = rand::random();
+            if t != 0 {
+                break t;
+            }
+        };
+        *e = v;
+    }
+    // convert to der format, indicating sha-256 hash present
+    let mut der_hash = vec![
+        0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
+        0x05, 0x00, 0x04, 0x20,
+    ];
+    der_hash.append(&mut hash);
+    der_hash
+}
+
+/// Hash and apply pkcs1.5 padding
+pub fn pkcs15_sha256(hash: &[u8]) -> Vec<u8> {
+    let mut hash2 = hash.to_vec();
+
+    // convert to der format, indicating sha-256 hash present
+    let mut der_hash = rsa_sha256(hash);
+
+    let plen = 256 - der_hash.len() - 3;
+    let mut p = vec![0xff; plen];
+    if false {
+        for e in &mut p {
+            let v: u8 = loop {
+                let t = rand::random();
+                if t != 0 {
+                    break t;
+                }
+            };
+            *e = v;
+        }
+    }
+
+    let mut total = Vec::new();
+    total.append(&mut vec![0, 1]);
+    total.append(&mut p);
+    total.push(0);
+    total.append(&mut der_hash);
+    total
+}
+
 /// Generate a password of the specified length
 pub fn generate_password(len: usize) -> String {
     use rand::Rng;
@@ -1046,29 +1098,27 @@ impl CaCertificateStorage {
                     .expect("Failed to insert certificate");
                 }
             }
-        } else {
+        } else if let Some(p12) = cert.try_p12(password) {
+            service::log::info!("Inserting p12 data for {}", cert.id);
             match self {
                 CaCertificateStorage::Nowhere => todo!(),
                 CaCertificateStorage::Sqlite(p) => {
-                    service::log::info!("Inserting p12 data for {}", cert.id);
-                    let p12 = cert.try_p12(password);
-                    if let Some(p12) = p12 {
-                        p.conn(move |conn| {
-                            let mut stmt = conn
-                                .prepare("INSERT INTO p12 (id, pem) VALUES (?1, ?2)")
-                                .expect("Failed to build prepared statement");
-                            stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
-                        })
-                        .await
-                        .expect("Failed to insert p12 certificate");
-                    } else {
-                        service::log::error!("Failed to create p12 for {}", cert.id);
-                    }
+                    p.conn(move |conn| {
+                        let mut stmt = conn
+                            .prepare("INSERT INTO p12 (id, pem) VALUES (?1, ?2)")
+                            .expect("Failed to build prepared statement");
+                        stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
+                    })
+                    .await
+                    .expect("Failed to insert p12 certificate");
                 }
             }
         }
-        ca.save_user_cert(cert.id, &cert.contents(), &cert.get_snb())
-            .await;
+        let cert_der = &cert.contents();
+        if let Some(card) = cert.smartcard() {
+            card.save_cert_to_card(cert_der);
+        }
+        ca.save_user_cert(cert.id, cert_der, &cert.get_snb()).await;
     }
 
     /// Load a certificate from the storage medium
@@ -1161,6 +1211,15 @@ pub enum Keypair {
 }
 
 impl Keypair {
+    /// Get the contents of the cert if it is stored in a smart card
+    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+        if let Keypair::SmartCard(sc) = self {
+            Some(sc)
+        } else {
+            None
+        }
+    }
+
     /// Get the private key if possible
     pub fn private(&self) -> Option<&Zeroizing<Vec<u8>>> {
         if let Keypair::NotHsm(a) = self {
@@ -1192,7 +1251,7 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
-            Keypair::SmartCard(k) => k.sign(data),
+            Keypair::SmartCard(k) => k.sign_with_pin(data).ok(), //TODO put in the real pin here
             Keypair::NotHsm(_k) => {
                 todo!();
             }
@@ -1380,6 +1439,14 @@ pub enum CertificateData {
 }
 
 impl CertificateData {
+    /// Get the contents of the cert if it is stored in a smart card
+    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+        match self {
+            Self::Https(c) => c.keypair.as_ref().map(|kp| kp.smartcard()).flatten(),
+            Self::Ssh(_) => todo!(),
+        }
+    }
+
     /// Try to get the hsm handle for the certificate
     pub fn hsm_label(&self) -> Option<String> {
         match self {
@@ -1515,6 +1582,11 @@ pub struct CaCertificate {
 }
 
 impl CaCertificate {
+    /// Get the contents of the cert if it is stored in a smart card
+    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+        self.data.smartcard()
+    }
+
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         self.data.erase_private_key();

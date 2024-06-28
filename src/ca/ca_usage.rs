@@ -702,9 +702,9 @@ impl Ca {
                     ];
 
                 service::log::info!("Generating administrator certificate");
+                let id = ca.get_new_request_id().await.unwrap();
                 let admin_cert = match ca.config.admin_cert.clone() {
                     CertificateType::Soft(p) => {
-                        let id = ca.get_new_request_id().await.unwrap();
                         let admin_csr = ca.generate_plain_signing_request(
                             m,
                             format!("{}-admin", ca.config.common_name),
@@ -725,7 +725,8 @@ impl Ca {
                         admin_cert
                     }
                     CertificateType::SmartCard(p) => {
-                        let keypair = crate::card::KeyPair::new();
+                        let keypair =
+                            crate::card::KeyPair::generate_with_smartcard(p.as_bytes().to_vec())?;
                         let admin_csr = ca.smartcard_signing_request(
                             keypair,
                             m,
@@ -917,9 +918,9 @@ impl Ca {
         //TODO set a real time here
         params.not_after = params.not_before + time::Duration::days(365);
         params.custom_extensions.append(&mut extensions);
-        keypair.wait_for_card();
         let csr = params.serialize_request(&keypair.rcgen()).unwrap();
         let csr_der = csr.der();
+        service::log::debug!("The csr der is {:02X?}", csr_der);
         let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
         let mut sn = [0; 20];
