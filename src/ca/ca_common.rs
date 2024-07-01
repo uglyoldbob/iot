@@ -19,7 +19,7 @@ use zeroize::Zeroizing;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
 
-/// Hash and apply pkcs1.5 padding
+/// Hash and convert to der format
 pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
     let mut hash = hash.to_vec();
     let plen = 255 - hash.len() - 22;
@@ -42,9 +42,9 @@ pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
     der_hash
 }
 
-/// Hash and apply pkcs1.5 padding
+/// apply pkcs1.5 padding to pkcs1 hash
 pub fn pkcs15_sha256(hash: &[u8]) -> Vec<u8> {
-    let mut hash2 = hash.to_vec();
+    let hash2 = hash.to_vec();
 
     // convert to der format, indicating sha-256 hash present
     let mut der_hash = rsa_sha256(hash);
@@ -1273,6 +1273,23 @@ pub struct HttpsCertificate {
 }
 
 impl HttpsCertificate {
+    /// Build a Self from an x509 certificate
+    fn from_x509(x509: x509_cert::Certificate) -> Result<Self, CertificateLoadingError> {
+        use der::Encode;
+        Ok(Self {
+            algorithm: x509
+                .signature_algorithm
+                .clone()
+                .try_into()
+                .map_err(|_e| CertificateLoadingError::InvalidCert)?,
+            cert: x509
+                .to_der()
+                .map_err(|_e| CertificateLoadingError::InvalidCert)?,
+            keypair: None,
+            attributes: Vec::new(),
+        })
+    }
+
     /// Try to get the hsm handle for the certificate
     pub fn hsm_label(&self) -> Option<String> {
         self.keypair
@@ -1439,6 +1456,21 @@ pub enum CertificateData {
 }
 
 impl CertificateData {
+    /// Build a Self from an x509 certificate
+    fn from_x509(
+        method: &CertificateSigningMethod,
+        x509: x509_cert::Certificate,
+    ) -> Result<Self, CertificateLoadingError> {
+        match method {
+            CertificateSigningMethod::Https(_) => {
+                let cert = HttpsCertificate::from_x509(x509)?;
+                let cac = Self::Https(cert);
+                Ok(cac)
+            }
+            CertificateSigningMethod::Ssh(_) => todo!(),
+        }
+    }
+
     /// Get the contents of the cert if it is stored in a smart card
     fn smartcard(&self) -> Option<&crate::card::KeyPair> {
         match self {
@@ -2299,6 +2331,40 @@ impl Ca {
         }
     }
 
+    /// Attempt to load a certificate by id
+    async fn load_user_cert(&self, id: u64) -> Result<CaCertificate, CertificateLoadingError> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::Sqlite(p) => {
+                let cert: Result<Vec<u8>, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(&format!("SELECT der FROM certs WHERE id=?1"), [id], |r| {
+                            r.get(0)
+                        })
+                    })
+                    .await;
+                match cert {
+                    Ok(c) => {
+                        use der::Decode;
+                        let c = x509_cert::Certificate::from_der(&c).unwrap();
+                        let cac = CaCertificate {
+                            medium: self.medium.clone(),
+                            data: CertificateData::from_x509(&self.config.sign_method, c)?,
+                            name: "admin".to_string(),
+                            id,
+                        };
+                        service::log::info!("Found the cert");
+                        Ok(cac)
+                    }
+                    Err(e) => {
+                        service::log::error!("Did not find the cert {:?}", e);
+                        Err(CertificateLoadingError::DoesNotExist)
+                    }
+                }
+            }
+        }
+    }
+
     /// Attempt to load a certificate by name, first from hsm, then from p12
     async fn load_cert(
         &self,
@@ -2337,9 +2403,15 @@ impl Ca {
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_m) => {
                 let _ = ca.load_ocsp_cert(hsm.clone()).await;
-                if let CertificateType::Soft(p) = &settings.admin_cert {
-                    let _ = ca.load_admin_cert(hsm.clone(), p).await;
+                match &settings.admin_cert {
+                    CertificateType::Soft(p) => {
+                        let _ = ca.load_admin_cert(hsm.clone(), p).await;
+                    }
+                    CertificateType::SmartCard(_p) => {
+                        let _ = ca.load_admin_smartcard(hsm.clone()).await;
+                    }
                 }
+
                 let _ = ca.load_root_ca_cert(hsm).await;
             }
             CertificateSigningMethod::Ssh(_m) => {
@@ -2375,6 +2447,17 @@ impl Ca {
 
     /// Returns the already loaded admin key
     pub fn examine_admin_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.admin.as_ref()
+    }
+
+    /// Load the admin certificate as defined by a smartcard certificate
+    pub async fn load_admin_smartcard(
+        &mut self,
+        _hsm: Arc<crate::hsm2::Hsm>,
+    ) -> Result<&CaCertificate, &CertificateLoadingError> {
+        if self.admin.is_err() {
+            self.admin = self.load_user_cert(2).await;
+        }
         self.admin.as_ref()
     }
 

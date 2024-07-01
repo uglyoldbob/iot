@@ -1,10 +1,17 @@
 //! Smartcard related code and definitions
 
+use card::PivCardWriter;
+
 #[derive(Clone, Debug)]
 pub struct KeyPair {
     public_key: Vec<u8>,
     algorithm: card::AuthenticateAlgorithm,
     pin: Vec<u8>,
+}
+
+pub enum Error {
+    CardError(card::Error),
+    Timeout,
 }
 
 impl rcgen::RemoteKeyPair for KeyPair {
@@ -60,17 +67,24 @@ impl KeyPair {
         for (i, v) in hashed.iter().enumerate() {
             service::log::debug!("{}: {}", i, v);
         }
+        println!("Checking for public key {:02X?}", self.public_key);
         let a = card::with_piv_and_public_key(
+            card::Slot::CardAuthentication,
             &self.public_key,
-            |mut reader| reader.sign_data(card::Slot::Authentication, &self.pin, hashed),
+            |mut reader| {
+                let r = reader.sign_data(card::Slot::CardAuthentication, &self.pin, hashed);
+                r
+            },
             std::time::Duration::from_secs(10),
         );
         match a {
-            Ok(Some(a)) => {
-                service::log::debug!("The signature is {:02X?}", a);
+            Ok(Ok(a)) => {
                 Ok(a)
             }
-            _ => Err(rcgen::Error::RemoteKeyError),
+            _ => {
+                println!("Result of sign is {:?}", a);
+                Err(rcgen::Error::RemoteKeyError)
+            }
         }
     }
 
@@ -80,37 +94,35 @@ impl KeyPair {
         service::log::info!("Waiting for the next smartcard to be inserted");
         let pubkey = card::with_next_valid_piv_card(|reader| {
             let mut writer = card::PivCardWriter::extend(reader);
-            writer
-                .generate_keypair_with_management(
-                    &card::MANAGEMENT_KEY_DEFAULT,
-                    algorithm,
-                    card::Slot::Authentication,
-                    card::KeypairPinPolicy::Always,
-                )
-                .ok()?;
-            writer.reader.get_public_key(card::Slot::Authentication)
+            writer.generate_keypair_with_management(
+                &card::MANAGEMENT_KEY_DEFAULT,
+                algorithm,
+                card::Slot::CardAuthentication,
+                card::KeypairPinPolicy::Once,
+            )?;
+            writer.reader.get_public_key(card::Slot::CardAuthentication)
         });
-        service::log::debug!("The pubkey generated is {:02X?}", pubkey);
         Some(Self {
-            public_key: pubkey?.to_der(),
+            public_key: pubkey.ok()?.to_der(),
             algorithm,
             pin,
         })
     }
 
-    pub fn save_cert_to_card(&self, cert: &[u8]) -> Result<(), ()> {
+    pub fn save_cert_to_card(&self, cert: &[u8]) -> Result<(), Error> {
         service::log::debug!("Saving cert data to card: {} {:02X?}", cert.len(), cert);
         match card::with_piv_and_public_key(
+            card::Slot::CardAuthentication,
             &self.public_key,
             |reader| {
                 let mut writer = card::PivCardWriter::extend(reader);
-                writer.maybe_store_x509_cert(card::MANAGEMENT_KEY_DEFAULT, cert)
+                writer.maybe_store_x509_cert(card::MANAGEMENT_KEY_DEFAULT, cert, 1)
             },
             std::time::Duration::from_secs(10),
         ) {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(())) => Err(()),
-            _ => Err(()),
+            Ok(Err(e)) => Err(Error::CardError(e)),
+            _ => Err(Error::Timeout),
         }
     }
 }
