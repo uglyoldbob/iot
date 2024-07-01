@@ -79,7 +79,6 @@ impl KeyPair {
         for (i, v) in hashed.iter().enumerate() {
             service::log::debug!("{}: {}", i, v);
         }
-        println!("Checking for public key {:02X?}", self.public_key);
         let a = card::with_piv_and_public_key(
             card::Slot::Authentication,
             &self.public_key,
@@ -88,10 +87,7 @@ impl KeyPair {
         );
         match a {
             Ok(Ok(a)) => Ok(a),
-            _ => {
-                println!("Result of sign is {:?}", a);
-                Err(rcgen::Error::RemoteKeyError)
-            }
+            _ => Err(rcgen::Error::RemoteKeyError),
         }
     }
 

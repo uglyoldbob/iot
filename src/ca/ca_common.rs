@@ -1257,7 +1257,7 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
-            Keypair::SmartCard(k) => k.sign_with_pin(data).ok(), //TODO put in the real pin here
+            Keypair::SmartCard(k) => k.sign_with_pin(data).ok(),
             Keypair::NotHsm(_k) => {
                 todo!();
             }
