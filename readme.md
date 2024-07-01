@@ -44,6 +44,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Add capability of reading construct response to construct-gui.
 - [x] Allow no tpm2 with the answers data
 - [x] Check for presence of tpm2 asap in construction.
+- [x] Implement HSM for certificate operations with pkcs11 api
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
@@ -55,7 +56,6 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add more database backends, feature gated
 - [ ] Add certificate viewer for users.
 - [ ] Add a method for adding more ca entities after construction has occurred.
-- [ ] Implement HSM for certificate operations with pkcs11 api
 - [ ] Add ssh certificate operations
 - [ ] Implement paging operations for certificate lists
 - [ ] For intermediate authorities, add ability to get full certificate chain
