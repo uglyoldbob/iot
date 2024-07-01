@@ -181,15 +181,6 @@ impl HttpsCertificateLocation {
                 cert_common::pkcs12::Pkcs12::load_from_data(&pkcs12, password.as_bytes(), 0);
             let cert_der = pkcs12.cert;
 
-            let pkey_der: &Vec<u8> = pkcs12.pkey.as_ref();
-
-            let pkey = rustls_pki_types::PrivatePkcs8KeyDer::from(pkey_der.to_owned());
-            let pkey = rustls_pki_types::PrivateKeyDer::Pkcs8(pkey);
-
-            let c1 = rustls_pki_types::CertificateDer::from(cert_der.to_owned());
-
-            let certs = vec![c1];
-
             let x509_cert = x509_cert::Certificate::from_der(&cert_der).unwrap();
 
             HttpsCertificate {
@@ -207,10 +198,10 @@ impl HttpsCertificateLocation {
             HttpsCertificateLocation::Existing { path, password } => {
                 use std::io::Read;
                 let mut certbytes = vec![];
-                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                let mut certf = std::fs::File::open(path).unwrap();
                 service::log::info!("Loading https certificate from {}", path.display());
                 certf.read_to_end(&mut certbytes).unwrap();
-                process_pkcs12(certbytes, &password)
+                process_pkcs12(certbytes, password)
             }
             HttpsCertificateLocation::New {
                 path,
@@ -223,9 +214,9 @@ impl HttpsCertificateLocation {
                     "Loading generated https certificate from {}",
                     path.display()
                 );
-                let mut certf = std::fs::File::open((*path).to_owned()).unwrap();
+                let mut certf = std::fs::File::open(path).unwrap();
                 certf.read_to_end(&mut certbytes).unwrap();
-                process_pkcs12(certbytes, &password)
+                process_pkcs12(certbytes, password)
             }
         }
     }
@@ -566,8 +557,8 @@ impl MainConfiguration {
             debug_level: Some(answers.debug_level.clone()),
             tpm2_required: answers.tpm2_required,
             hsm_path_override: answers.hsm_path_override.clone(),
-            hsm_pin: crate::ca::generate_password(32).into(),
-            hsm_pin2: crate::ca::generate_password(32).into(),
+            hsm_pin: crate::ca::generate_password(32),
+            hsm_pin2: crate::ca::generate_password(32),
         }
     }
 

@@ -412,7 +412,7 @@ async fn handle<'a>(
     let p = WebPageContext {
         https: ec.https,
         domain,
-        page: <std::path::PathBuf as std::str::FromStr>::from_str(&fixed_path).unwrap(),
+        page: <std::path::PathBuf as std::str::FromStr>::from_str(fixed_path).unwrap(),
         post: post_data,
         get: get_map,
         proxy: proxy.clone(),
@@ -431,7 +431,7 @@ async fn handle<'a>(
         // lookup the fixed path, if it exists use it, otherwise use the path from the static map
         // This means that the static map is a fallback
         let fixed_path = if let Some(a) = context.static_map.get(fixed_path) {
-            if std::path::PathBuf::from(context.root.to_owned() + &fixed_path).exists() {
+            if std::path::PathBuf::from(context.root.to_owned() + fixed_path).exists() {
                 fixed_path.to_string()
             } else {
                 a.to_owned()

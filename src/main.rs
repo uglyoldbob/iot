@@ -250,6 +250,7 @@ struct Args {
     config: Option<String>,
 }
 
+/// The main function for the service
 async fn smain() {
     #[cfg(target_family = "windows")]
     {

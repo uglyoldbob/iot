@@ -58,11 +58,14 @@ struct Args {
     name: Option<String>,
 }
 
+/// Used to send log data back to an observing process
 struct LocalLogging {
+    /// The mutex for sending data back to the observing process
     s: std::sync::Mutex<interprocess::local_socket::SendHalf>,
 }
 
 impl LocalLogging {
+    /// Create a new Self
     pub fn new(s: interprocess::local_socket::SendHalf) -> Self {
         Self {
             s: std::sync::Mutex::new(s),
@@ -275,7 +278,7 @@ library.reset_on_fork = false
 
     #[cfg(target_os = "linux")]
     {
-        service_config.config_path = config_path.clone();
+        service_config.config_path.clone_from(&config_path);
     }
     #[cfg(target_family = "windows")]
     {

@@ -74,6 +74,7 @@ pub fn pkcs15_sha256(hash: &[u8]) -> Vec<u8> {
 /// Generate a password of the specified length
 pub fn generate_password(len: usize) -> String {
     use rand::Rng;
+    /// The characters to pick from for a randomly generated password
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                             abcdefghijklmnopqrstuvwxyz\
                             0123456789\
@@ -290,14 +291,12 @@ impl StandaloneCaConfiguration {
         let http_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.http_port)
-            .flatten()
+            .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
         let https_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.https_port)
-            .flatten()
+            .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfiguration {
             sign_method: self.sign_method,
@@ -410,14 +409,12 @@ impl StandaloneCaConfigurationAnswers {
         let http_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.http_port)
-            .flatten()
+            .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
         let https_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.https_port)
-            .flatten()
+            .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfigurationAnswers {
             sign_method: self.sign_method,
@@ -574,14 +571,12 @@ impl LocalCaConfiguration {
         let http_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.http_port)
-            .flatten()
+            .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
         let https_port = settings
             .proxy_config
             .as_ref()
-            .map(|a| a.https_port)
-            .flatten()
+            .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfiguration {
             sign_method: self.sign_method,
@@ -957,7 +952,7 @@ impl CaCertificateStorageBuilder {
                 let mut count = 0;
                 let mut pool;
                 loop {
-                    let p: &std::path::PathBuf = &p;
+                    let p: &std::path::PathBuf = p;
                     let mode = async_sqlite::JournalMode::Wal;
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
@@ -1037,7 +1032,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
             let mut name = "whatever".to_string();
             for a in &value.attributes {
                 if let BagAttribute::FriendlyName(n) = a {
-                    name = n.to_owned();
+                    n.clone_into(&mut name);
                     break;
                 }
             }
@@ -1082,6 +1077,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
+    /// TODO Return a Result with an error
     pub async fn save_to_medium(&self, ca: &mut Ca, cert: CaCertificate, password: &str) {
         if let Some(label) = cert.data.hsm_label() {
             match self {
@@ -1116,7 +1112,7 @@ impl CaCertificateStorage {
         }
         let cert_der = &cert.contents();
         if let Some(card) = cert.smartcard() {
-            card.save_cert_to_card(cert_der);
+            let _ = card.save_cert_to_card(cert_der);
         }
         ca.save_user_cert(cert.id, cert_der, &cert.get_snb()).await;
     }
@@ -1160,7 +1156,7 @@ impl CaCertificateStorage {
                         CertificateLoadingError::DoesNotExist
                     })?;
                 let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
-                let hsm_cert = hsm_cert.map(|c| Keypair::Hsm(c));
+                let hsm_cert = hsm_cert.map(Keypair::Hsm);
                 let kp = hsm_cert.or(None);
                 let hcert = HttpsCertificate {
                     algorithm: HttpsSigningMethod::RsaSha256, //TODO fill this out properly
@@ -1302,38 +1298,32 @@ impl HttpsCertificate {
 
     /// Try to get the hsm handle for the certificate
     pub fn hsm_label(&self) -> Option<String> {
-        self.keypair
-            .as_ref()
-            .map(|kp| {
-                let keypair = kp.hsm_keypair();
-                let label = keypair.map(|kp| {
-                    use crate::hsm2::KeyPairTrait;
-                    kp.label()
-                });
-                let kps = kp.smartcard();
-                let label2 = kps.map(|a| a.label());
-                label.or(label2.or(None))
-            })
-            .flatten()
+        self.keypair.as_ref().and_then(|kp| {
+            let keypair = kp.hsm_keypair();
+            let label = keypair.map(|kp| {
+                use crate::hsm2::KeyPairTrait;
+                kp.label()
+            });
+            let kps = kp.smartcard();
+            let label2 = kps.map(|a| a.label());
+            label.or(label2.or(None))
+        })
     }
 
     /// Try to build a p12 document
     pub fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
-        self.keypair
-            .as_ref()
-            .map(|kp| {
-                let keypair = kp.private();
-                keypair.map(|kp| {
-                    let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
-                        cert: self.cert.clone(),
-                        pkey: kp.to_owned(),
-                        attributes: self.attributes.clone(),
-                        id,
-                    };
-                    p12.get_pkcs12(password)
-                })
+        self.keypair.as_ref().and_then(|kp| {
+            let keypair = kp.private();
+            keypair.map(|kp| {
+                let p12: cert_common::pkcs12::Pkcs12 = cert_common::pkcs12::Pkcs12 {
+                    cert: self.cert.clone(),
+                    pkey: kp.to_owned(),
+                    attributes: self.attributes.clone(),
+                    id,
+                };
+                p12.get_pkcs12(password)
             })
-            .flatten()
+        })
     }
 
     /// Attempt to get the private key
@@ -1487,7 +1477,7 @@ impl CertificateData {
     /// Get the contents of the cert if it is stored in a smart card
     fn smartcard(&self) -> Option<&crate::card::KeyPair> {
         match self {
-            Self::Https(c) => c.keypair.as_ref().map(|kp| kp.smartcard()).flatten(),
+            Self::Https(c) => c.keypair.as_ref().and_then(|kp| kp.smartcard()),
             Self::Ssh(_) => todo!(),
         }
     }
@@ -1504,9 +1494,9 @@ impl CertificateData {
     pub fn erase_private_key(&mut self) {
         match self {
             Self::Https(c) => {
-                c.keypair.as_mut().map(|c| {
+                if let Some(c) = c.keypair.as_mut() {
                     c.erase_private();
-                });
+                }
             }
             Self::Ssh(c) => {
                 c.keypair.take();
@@ -1557,6 +1547,7 @@ impl CertificateData {
         }
     }
 
+    /// Get the list of bag attributes for the certificate data
     pub fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
         match self {
             Self::Https(c) => c.attributes.clone(),
@@ -1855,7 +1846,7 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             .iter()
             .map(|(s, v)| {
                 let v: LocalCaConfiguration = v.to_owned().into();
-                (s.to_owned(), v.to_owned().into())
+                (s.to_owned(), v.to_owned())
             })
             .collect();
         Self {
@@ -2296,7 +2287,7 @@ impl Ca {
             let proxy = if let Some(p) = &settings.proxy { p } else { "" };
 
             let pki = settings.get_pki_name();
-            url.push_str("/");
+            url.push('/');
             url.push_str(proxy);
             url.push_str(pki);
             url.push_str("ca/ocsp");
@@ -2351,9 +2342,7 @@ impl Ca {
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row(&format!("SELECT der FROM certs WHERE id=?1"), [id], |r| {
-                            r.get(0)
-                        })
+                        conn.query_row("SELECT der FROM certs WHERE id=?1", [id], |r| r.get(0))
                     })
                     .await;
                 match cert {
@@ -2471,9 +2460,9 @@ impl Ca {
         hsm: Arc<crate::hsm2::Hsm>,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
-            self.admin = self.load_cert(hsm, "admin", None).await.and_then(|mut a| {
+            self.admin = self.load_cert(hsm, "admin", None).await.map(|mut a| {
                 a.erase_private_key();
-                Ok(a)
+                a
             });
         }
         self.admin.as_ref()
@@ -2489,9 +2478,9 @@ impl Ca {
             self.admin = self
                 .load_cert(hsm, "admin", Some(password))
                 .await
-                .and_then(|mut a| {
+                .map(|mut a| {
                     a.erase_private_key();
-                    Ok(a)
+                    a
                 });
         }
         self.admin.as_ref()
@@ -3024,16 +3013,23 @@ impl From<std::io::Error> for CertificateLoadingError {
 pub enum InternalSignature {
     /// A ring based signature
     Ring {
+        /// The public key
         key: ring::signature::UnparsedPublicKey<Vec<u8>>,
+        /// The message that was signed
         message: Vec<u8>,
+        /// The signature on that message
         sig: Vec<u8>,
     },
     /// an ssh based signature
     Ssh {
+        /// The public key
         key: ssh_key::public::PublicKey,
+        /// The namespace for the signature
         namespace: String,
+        /// The message that was signed
         message: Vec<u8>,
-        sig: ssh_key::SshSig,
+        /// The signature for the message
+        sig: Box<ssh_key::SshSig>,
     },
 }
 

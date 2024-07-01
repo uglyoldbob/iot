@@ -96,7 +96,7 @@ pub async fn verify_request2(
     let b64 = base64::prelude::BASE64_STANDARD.encode(&info);
     println!("BASE64 {}", b64);
 
-    let info2 = [info.clone(), vec![0x80 as u8]].concat();
+    let info2 = [info.clone(), vec![0x80_u8]].concat();
 
     let manual_sha256 = sha256::digest(&info);
     println!("Manual sha256 is {}", manual_sha256);

@@ -421,8 +421,7 @@ impl Pki {
         let ca_name = main_config
             .https
             .as_ref()
-            .map(|h| h.certificate.create_by_ca())
-            .flatten();
+            .and_then(|h| h.certificate.create_by_ca());
         loop {
             let mut done = true;
             for (name, config) in &settings.local_ca {
@@ -431,7 +430,7 @@ impl Pki {
                     let ca = crate::ca::Ca::init(
                         hsm.clone(),
                         config,
-                        config.inferior_to.as_ref().map(|n| hm.get_mut(n)).flatten(),
+                        config.inferior_to.as_ref().and_then(|n| hm.get_mut(n)),
                     )
                     .await;
                     if let Some(mut ca) = ca {
@@ -545,7 +544,7 @@ impl Ca {
             );
             let root_cert = self.root_cert.as_ref().unwrap();
             let mut cert = root_cert
-                .sign_csr(csr, &self, id, time::Duration::days(365))
+                .sign_csr(csr, self, id, time::Duration::days(365))
                 .unwrap();
             cert.medium = self.medium.clone();
             let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
@@ -619,15 +618,14 @@ impl Ca {
                         use crate::hsm2::KeyPairTrait;
                         let cert = certparams.self_signed(&key_pair.keypair()).unwrap();
                         let cert_der = cert.der().to_owned();
-                        let rootcert = CaCertificate::from_existing_https(
+                        CaCertificate::from_existing_https(
                             m,
                             ca.medium.clone(),
                             &cert_der,
                             Keypair::Hsm(key_pair),
                             "root".to_string(),
                             0,
-                        );
-                        rootcert
+                        )
                     } else if let Some(superior) = superior {
                         let id = superior.get_new_request_id().await.unwrap();
                         let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];

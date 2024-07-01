@@ -542,6 +542,7 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
+/// Redirect to the main ca page
 async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
     let pki = ca.config.get_pki_name();
 
@@ -1010,12 +1011,10 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> webserv
             } else if admin {
                 b.text("List all pending requests");
                 b.line_break(|a| a);
-                let mut index_shown = 0;
-                for (csrr, id) in csr_list {
+                for (index_shown, (csrr, id)) in csr_list.into_iter().enumerate() {
                     if index_shown > 0 {
                         b.thematic_break(|a| a);
                     }
-                    index_shown += 1;
                     b.anchor(|ab| {
                         ab.text("View this request");
                         ab.href(format!("{}{}ca/list.rs?id={}", s.proxy, pki, id));

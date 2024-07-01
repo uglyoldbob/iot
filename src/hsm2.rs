@@ -5,13 +5,16 @@ use std::sync::{Arc, Mutex};
 use cert_common::{oid::OID_PKCS1_SHA256_RSA_ENCRYPTION, HttpsSigningMethod};
 use zeroize::Zeroizing;
 
+/// The keypair for a certificate in the hsm module
 #[derive(Clone, Debug)]
 #[enum_dispatch::enum_dispatch(KeyPairTrait)]
 pub enum KeyPair {
+    /// An rsa sha256 keypair
     RsaSha256(RsaSha256Keypair),
 }
 
 impl KeyPair {
+    /// Attempt to load the cert with the specified label from the given hsm.
     pub fn load_with_label(hsm: Arc<Hsm>, label: &str) -> Option<Self> {
         let hsm2 = hsm.clone();
         let session = hsm.session.lock().unwrap();
@@ -26,7 +29,11 @@ impl KeyPair {
             objs.len(),
             label
         );
-        let public = if objs.len() > 0 { Some(objs[0]) } else { None };
+        let public = if !objs.is_empty() {
+            Some(objs[0])
+        } else {
+            None
+        };
         let objs = session
             .find_objects(&[
                 cryptoki::object::Attribute::Label(label.as_bytes().to_vec()),
@@ -38,7 +45,11 @@ impl KeyPair {
             objs.len(),
             label
         );
-        let private = if objs.len() > 0 { Some(objs[0]) } else { None };
+        let private = if !objs.is_empty() {
+            Some(objs[0])
+        } else {
+            None
+        };
 
         let public = public?;
         let private = private?;
@@ -67,6 +78,7 @@ impl KeyPair {
     }
 }
 
+/// A trait used to get rcgen keypairs and labels for keypairs on the hsm
 #[enum_dispatch::enum_dispatch]
 pub trait KeyPairTrait {
     /// Get an rcgen version of the keypair
@@ -95,12 +107,18 @@ impl rcgen::RemoteKeyPair for KeyPair {
     }
 }
 
+/// An rsa 2ha-256 hsm keypair
 #[derive(Clone, Debug)]
 pub struct RsaSha256Keypair {
+    /// The handle for the public key
     _public: cryptoki::object::ObjectHandle,
+    /// The handle for the private key
     private: cryptoki::object::ObjectHandle,
+    /// The actual public key
     pubkey: Vec<u8>,
+    /// The label for the keypair
     label: String,
+    /// The reference hsm to commmunicate with
     hsm: Arc<crate::hsm2::Hsm>,
 }
 
@@ -154,11 +172,14 @@ pub fn hsm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
     "unknown".to_string()
 }
 
+/// A hardware security module, using pkcs11
 #[derive(Debug)]
 pub struct Hsm {
+    /// A session used to communicate with the hardware
     session: Arc<Mutex<cryptoki::session::Session>>,
 }
 
+/// Get the rsa public key from the hsm
 fn get_rsa_public_key(
     session: &cryptoki::session::Session,
     public: cryptoki::object::ObjectHandle,
@@ -167,11 +188,11 @@ fn get_rsa_public_key(
         .get_attributes(public, &[cryptoki::object::AttributeType::Modulus])
         .unwrap();
     let mut rsamod = Vec::new();
-    let rsaexp = rsa::BigUint::new(vec![65537 as u32]);
+    let rsaexp = rsa::BigUint::new(vec![65537_u32]);
     for attr in &attrs {
         match attr {
             cryptoki::object::Attribute::Modulus(v) => {
-                rsamod = v.to_owned();
+                v.clone_into(&mut rsamod);
             }
             _ => {
                 service::log::error!("Unexpected attribute");

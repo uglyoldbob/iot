@@ -45,8 +45,10 @@ pub struct RootWindow {
 impl RootWindow {
     /// Create a request for a new window
     pub fn request() -> NewWindowRequest {
-        let mut answers = MainConfigurationAnswers::default();
-        answers.username = whoami::username();
+        let answers = MainConfigurationAnswers {
+            username: whoami::username(),
+            ..Default::default()
+        };
         NewWindowRequest::new(
             super::MyWindows::Root(RootWindow {
                 answers,

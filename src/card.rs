@@ -1,17 +1,23 @@
 //! Smartcard related code and definitions
 
-use card::PivCardWriter;
-
+/// A keypair for a smartcard
 #[derive(Clone, Debug)]
 pub struct KeyPair {
+    /// The public key for the certificate that contains the private key used to sign
     public_key: Vec<u8>,
+    /// The algorithm to sign with
     algorithm: card::AuthenticateAlgorithm,
+    /// The name of the keypair/certificate
     label: String,
+    /// The pin for the smartcard
     pin: Vec<u8>,
 }
 
+/// The errors that can occur when commmunicating with a smart card
 pub enum Error {
+    /// A specific card error
     CardError(card::Error),
+    /// A timeout waiting for a card to be detected
     Timeout,
 }
 
@@ -77,10 +83,7 @@ impl KeyPair {
         let a = card::with_piv_and_public_key(
             card::Slot::Authentication,
             &self.public_key,
-            |mut reader| {
-                let r = reader.sign_data(card::Slot::Authentication, &self.pin, hashed);
-                r
-            },
+            |mut reader| reader.sign_data(card::Slot::Authentication, &self.pin, hashed),
             std::time::Duration::from_secs(10),
         );
         match a {
@@ -99,7 +102,7 @@ impl KeyPair {
         let pubkey = card::with_next_valid_piv_card(|reader| {
             let mut writer = card::PivCardWriter::extend(reader);
             writer.generate_keypair_with_management(
-                &card::MANAGEMENT_KEY_DEFAULT,
+                card::MANAGEMENT_KEY_DEFAULT,
                 algorithm,
                 card::Slot::Authentication,
                 card::KeypairPinPolicy::Once,
@@ -114,6 +117,8 @@ impl KeyPair {
         })
     }
 
+    /// Save the cert as specified to the card into the authentication slot on the smartcard
+    /// The public key must match before the cert will be stored
     pub fn save_cert_to_card(&self, cert: &[u8]) -> Result<(), Error> {
         service::log::debug!("Saving cert data to card: {} {:02X?}", cert.len(), cert);
         match card::with_piv_and_public_key(
