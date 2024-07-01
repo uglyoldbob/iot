@@ -69,18 +69,16 @@ impl KeyPair {
         }
         println!("Checking for public key {:02X?}", self.public_key);
         let a = card::with_piv_and_public_key(
-            card::Slot::CardAuthentication,
+            card::Slot::Authentication,
             &self.public_key,
             |mut reader| {
-                let r = reader.sign_data(card::Slot::CardAuthentication, &self.pin, hashed);
+                let r = reader.sign_data(card::Slot::Authentication, &self.pin, hashed);
                 r
             },
             std::time::Duration::from_secs(10),
         );
         match a {
-            Ok(Ok(a)) => {
-                Ok(a)
-            }
+            Ok(Ok(a)) => Ok(a),
             _ => {
                 println!("Result of sign is {:?}", a);
                 Err(rcgen::Error::RemoteKeyError)
@@ -97,10 +95,10 @@ impl KeyPair {
             writer.generate_keypair_with_management(
                 &card::MANAGEMENT_KEY_DEFAULT,
                 algorithm,
-                card::Slot::CardAuthentication,
+                card::Slot::Authentication,
                 card::KeypairPinPolicy::Once,
             )?;
-            writer.reader.get_public_key(card::Slot::CardAuthentication)
+            writer.reader.get_public_key(card::Slot::Authentication)
         });
         Some(Self {
             public_key: pubkey.ok()?.to_der(),
@@ -112,11 +110,11 @@ impl KeyPair {
     pub fn save_cert_to_card(&self, cert: &[u8]) -> Result<(), Error> {
         service::log::debug!("Saving cert data to card: {} {:02X?}", cert.len(), cert);
         match card::with_piv_and_public_key(
-            card::Slot::CardAuthentication,
+            card::Slot::Authentication,
             &self.public_key,
             |reader| {
                 let mut writer = card::PivCardWriter::extend(reader);
-                writer.maybe_store_x509_cert(card::MANAGEMENT_KEY_DEFAULT, cert, 1)
+                writer.maybe_store_x509_cert(card::MANAGEMENT_KEY_DEFAULT, cert, 5)
             },
             std::time::Duration::from_secs(10),
         ) {
