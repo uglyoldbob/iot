@@ -6,6 +6,7 @@ use card::PivCardWriter;
 pub struct KeyPair {
     public_key: Vec<u8>,
     algorithm: card::AuthenticateAlgorithm,
+    label: String,
     pin: Vec<u8>,
 }
 
@@ -44,6 +45,11 @@ impl rcgen::RemoteKeyPair for KeyPair {
 }
 
 impl KeyPair {
+    /// Get the label for the keypair
+    pub fn label(&self) -> String {
+        self.label.clone()
+    }
+
     /// Create an rcgen keypair from the smartcard keypair
     pub fn rcgen(&self) -> rcgen::KeyPair {
         rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
@@ -87,7 +93,7 @@ impl KeyPair {
     }
 
     /// Create a new self
-    pub fn generate_with_smartcard(pin: Vec<u8>) -> Option<Self> {
+    pub fn generate_with_smartcard(pin: Vec<u8>, label: &str) -> Option<Self> {
         let algorithm = card::AuthenticateAlgorithm::Rsa2048;
         service::log::info!("Waiting for the next smartcard to be inserted");
         let pubkey = card::with_next_valid_piv_card(|reader| {
@@ -101,6 +107,7 @@ impl KeyPair {
             writer.reader.get_public_key(card::Slot::Authentication)
         });
         Some(Self {
+            label: label.to_string(),
             public_key: pubkey.ok()?.to_der(),
             algorithm,
             pin,

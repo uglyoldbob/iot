@@ -26,8 +26,7 @@ impl KeyPair {
             objs.len(),
             label
         );
-        let public = objs[0];
-
+        let public = if objs.len() > 0 { Some(objs[0]) } else { None };
         let objs = session
             .find_objects(&[
                 cryptoki::object::Attribute::Label(label.as_bytes().to_vec()),
@@ -39,7 +38,10 @@ impl KeyPair {
             objs.len(),
             label
         );
-        let private = objs[0];
+        let private = if objs.len() > 0 { Some(objs[0]) } else { None };
+
+        let public = public?;
+        let private = private?;
 
         let attr_info = session
             .get_attributes(public, &[cryptoki::object::AttributeType::KeyType])

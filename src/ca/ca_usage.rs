@@ -725,12 +725,15 @@ impl Ca {
                         admin_cert
                     }
                     CertificateType::SmartCard(p) => {
-                        let keypair =
-                            crate::card::KeyPair::generate_with_smartcard(p.as_bytes().to_vec())?;
+                        let label = format!("{}-admin", ca.config.common_name);
+                        let keypair = crate::card::KeyPair::generate_with_smartcard(
+                            p.as_bytes().to_vec(),
+                            &label,
+                        )?;
                         let admin_csr = ca.smartcard_signing_request(
                             keypair,
                             m,
-                            format!("{}-admin", ca.config.common_name),
+                            label,
                             format!("{} Administrator", settings.common_name),
                             Vec::new(),
                             extensions,

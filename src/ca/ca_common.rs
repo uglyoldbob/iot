@@ -1142,7 +1142,10 @@ impl CaCertificateStorage {
                         )
                     })
                     .await
-                    .expect(&format!("Failed to retrieve cert {}", name3));
+                    .map_err(|_| {
+                        service::log::debug!("Cannot load cert {}", name);
+                        CertificateLoadingError::DoesNotExist
+                    })?;
                 let cert = p
                     .conn(move |conn| {
                         conn.query_row(
@@ -1152,13 +1155,17 @@ impl CaCertificateStorage {
                         )
                     })
                     .await
-                    .expect(&format!("Failed to retrieve cert {}", name3));
+                    .map_err(|_| {
+                        service::log::debug!("Cannot load cert {}", name);
+                        CertificateLoadingError::DoesNotExist
+                    })?;
+                let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
+                let hsm_cert = hsm_cert.map(|c| Keypair::Hsm(c));
+                let kp = hsm_cert.or(None);
                 let hcert = HttpsCertificate {
                     algorithm: HttpsSigningMethod::RsaSha256, //TODO fill this out properly
                     cert,
-                    keypair: Some(Keypair::Hsm(
-                        crate::hsm2::KeyPair::load_with_label(hsm, &name).unwrap(),
-                    )),
+                    keypair: kp,
                     attributes: Vec::new(),
                 };
                 let cert = CaCertificate {
@@ -1191,7 +1198,10 @@ impl CaCertificateStorage {
                         )
                     })
                     .await
-                    .expect(&format!("Failed to retrieve cert {}", name2));
+                    .map_err(|_| {
+                        service::log::debug!("Cannot load cert {}", name2);
+                        CertificateLoadingError::DoesNotExist
+                    })?;
                 let p12 = cert_common::pkcs12::ProtectedPkcs12 { contents: key1, id };
                 Ok(p12)
             }
@@ -1296,10 +1306,13 @@ impl HttpsCertificate {
             .as_ref()
             .map(|kp| {
                 let keypair = kp.hsm_keypair();
-                keypair.map(|kp| {
+                let label = keypair.map(|kp| {
                     use crate::hsm2::KeyPairTrait;
                     kp.label()
-                })
+                });
+                let kps = kp.smartcard();
+                let label2 = kps.map(|a| a.label());
+                label.or(label2.or(None))
             })
             .flatten()
     }
@@ -2388,9 +2401,11 @@ impl Ca {
                 .try_into()
                 .unwrap())
             } else {
+                service::log::debug!("{} does not exist 1", name);
                 Err(CertificateLoadingError::DoesNotExist)
             }
         } else {
+            service::log::debug!("{} does not exist 2", name);
             Err(CertificateLoadingError::DoesNotExist)
         }
     }
@@ -2453,10 +2468,13 @@ impl Ca {
     /// Load the admin certificate as defined by a smartcard certificate
     pub async fn load_admin_smartcard(
         &mut self,
-        _hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::Hsm>,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
-            self.admin = self.load_user_cert(2).await;
+            self.admin = self.load_cert(hsm, "admin", None).await.and_then(|mut a| {
+                a.erase_private_key();
+                Ok(a)
+            });
         }
         self.admin.as_ref()
     }
