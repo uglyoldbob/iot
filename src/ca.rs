@@ -1569,7 +1569,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     if let Some(p) = p {
         let token = p.get_first("token").unwrap();
         if token == ca.admin_access.as_str() {
-            if let Ok(c) = ca.examine_admin_cert() {
+            if let Ok(c) = ca.get_admin_cert().await {
                 if let CertificateType::Soft(p) = &ca.config.admin_cert {
                     cert = c.try_p12(p);
                     if cert.is_some() {

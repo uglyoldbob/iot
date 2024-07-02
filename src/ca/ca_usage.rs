@@ -533,9 +533,8 @@ impl Ca {
             root_cert.algorithm()
         };
         if let CertificateSigningMethod::Https(m) = algorithm {
-            //TODO Change this to generate_hsm_signing_request when support is there for it
             let https_options = SigningRequestParams {
-                hsm: None,
+                hsm: None, //TODO put in the hsm object when support is there for using an https certificate with external private key
                 smartcard: None,
                 t: m,
                 name: "https".to_string(),
@@ -543,6 +542,7 @@ impl Ca {
                 names: https_names,
                 extensions,
                 id,
+                days_valid: self.config.days, //TODO figure out a method to renew the https certificate automaticcally
             };
             let csr = https_options.generate_request();
             let root_cert = self.root_cert.as_ref().unwrap();
@@ -646,6 +646,7 @@ impl Ca {
                             names: ca.config.san.clone(),
                             extensions,
                             id,
+                            days_valid: ca.config.days,
                         };
                         let root_csr = root_options.generate_request();
                         let mut root_cert = superior
@@ -686,6 +687,7 @@ impl Ca {
                     names: ca.ocsp_urls.to_owned(),
                     extensions,
                     id,
+                    days_valid: ca.config.days,
                 };
                 let ocsp_csr = ocsp_options.generate_request();
                 let mut ocsp_cert = ca
@@ -716,6 +718,7 @@ impl Ca {
                     names: Vec::new(),
                     extensions,
                     id,
+                    days_valid: ca.config.days,
                 };
                 let admin_cert = match ca.config.admin_cert.clone() {
                     CertificateType::Soft(p) => {
@@ -824,36 +827,35 @@ pub struct SigningRequestParams {
     pub extensions: Vec<rcgen::CustomExtension>,
     /// The id for the certificate
     pub id: u64,
+    /// The number of days the certificate should be valid
+    pub days_valid: u32,
 }
 
 impl SigningRequestParams {
     /// Construct a signing request based on what options are present
     pub fn generate_request(&self) -> CaCertificateToBeSigned {
+        let mut extensions = self.extensions.clone();
+        let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, self.common_name.clone());
+        params.not_before = time::OffsetDateTime::now_utc();
+        params.not_after = params.not_before + time::Duration::days(self.days_valid as i64);
+        params.custom_extensions.append(&mut extensions);
+        let mut sn = [0; 20];
+        for (i, b) in self.id.to_le_bytes().iter().enumerate() {
+            sn[i] = *b;
+        }
         if let Some(hsm) = &self.hsm {
-            let mut extensions = self.extensions.clone();
-            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
             let keypair = hsm
                 .generate_https_keypair(&self.name, self.t, 4096)
                 .unwrap();
-            params.distinguished_name = rcgen::DistinguishedName::new();
-            params
-                .distinguished_name
-                .push(rcgen::DnType::CommonName, self.common_name.clone());
-            params.not_before = time::OffsetDateTime::now_utc();
-            //TODO set a real time here
-            params.not_after = params.not_before + time::Duration::days(365);
-            params.custom_extensions.append(&mut extensions);
-
             use crate::hsm2::KeyPairTrait;
             let rckeypair = keypair.keypair();
             let csr = params.serialize_request(&rckeypair).unwrap();
             let csr_der = csr.der();
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-
-            let mut sn = [0; 20];
-            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
-                sn[i] = *b;
-            }
             let sn = rcgen::SerialNumber::from_slice(&sn);
             csr.params.serial_number = Some(sn);
 
@@ -866,25 +868,9 @@ impl SigningRequestParams {
                 id: self.id,
             }
         } else if let Some(keypair) = &self.smartcard {
-            let mut extensions = self.extensions.clone();
-            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
-            params.distinguished_name = rcgen::DistinguishedName::new();
-            params
-                .distinguished_name
-                .push(rcgen::DnType::CommonName, self.common_name.clone());
-            params.not_before = time::OffsetDateTime::now_utc();
-            //TODO set a real time here
-            params.not_after = params.not_before + time::Duration::days(365);
-            params.custom_extensions.append(&mut extensions);
             let csr = params.serialize_request(&keypair.rcgen()).unwrap();
             let csr_der = csr.der();
-            service::log::debug!("The csr der is {:02X?}", csr_der);
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-
-            let mut sn = [0; 20];
-            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
-                sn[i] = *b;
-            }
             let sn = rcgen::SerialNumber::from_slice(&sn);
             csr.params.serial_number = Some(sn);
 
@@ -897,26 +883,10 @@ impl SigningRequestParams {
                 id: self.id,
             }
         } else {
-            let mut extensions = self.extensions.clone();
-            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
             let (keypair, priva) = self.t.generate_keypair(4096).unwrap();
-            params.distinguished_name = rcgen::DistinguishedName::new();
-            params
-                .distinguished_name
-                .push(rcgen::DnType::CommonName, self.common_name.clone());
-            params.not_before = time::OffsetDateTime::now_utc();
-            //TODO set a real time here
-            params.not_after = params.not_before + time::Duration::days(365);
-            params.custom_extensions.append(&mut extensions);
-
             let csr = params.serialize_request(&keypair).unwrap();
             let csr_der = csr.der();
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-
-            let mut sn = [0; 20];
-            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
-                sn[i] = *b;
-            }
             let sn = rcgen::SerialNumber::from_slice(&sn);
             csr.params.serial_number = Some(sn);
 

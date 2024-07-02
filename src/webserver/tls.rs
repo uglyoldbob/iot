@@ -101,7 +101,6 @@ pub fn load_certificate(
         });
     }
 
-    //todo fill out the rcs struct
     let roots = Arc::new(rcs2);
 
     let client_verifier = if !require_cert {
