@@ -301,7 +301,11 @@ impl Hsm {
     }
 
     /// Open the hsm
-    pub fn open(p: Option<std::path::PathBuf>, user_pin: Zeroizing<String>) -> Option<Self> {
+    pub fn open(
+        slot_num: usize,
+        p: Option<std::path::PathBuf>,
+        user_pin: Zeroizing<String>,
+    ) -> Option<Self> {
         let path = p
             .or_else(|| Some(std::path::PathBuf::from(hsm2_path())))
             .unwrap();
@@ -309,7 +313,11 @@ impl Hsm {
         pkcs11
             .initialize(cryptoki::context::CInitializeArgs::OsThreads)
             .unwrap();
-        let so_slot = pkcs11.get_slots_with_token().unwrap().remove(0);
+        let slots = pkcs11.get_slots_with_token().unwrap();
+        if slots.len() < slot_num {
+            return None;
+        }
+        let so_slot = slots[slot_num];
 
         let session = pkcs11
             .open_rw_session(so_slot)

@@ -444,6 +444,7 @@ async fn smain() {
                 .expect("Failed to initialization file update");
         } else {
             let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
+                settings.hsm_slot.unwrap_or(0),
                 settings.hsm_path_override.as_ref().map(|a| a.to_path_buf()),
                 Zeroizing::new(settings.hsm_pin2.clone()),
             ) {

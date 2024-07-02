@@ -455,6 +455,8 @@ pub struct MainConfigurationAnswers {
     pub password: Option<userprompt::Password2>,
     /// Is there a path override for the location of the hsm library?
     pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The slot override for the hsm, default slot is 0
+    pub hsm_slot: Option<usize>,
     /// General settings
     pub general: GeneralSettings,
     /// Admin user settings
@@ -512,6 +514,8 @@ pub struct MainConfiguration {
     pub hsm_pin: String,
     /// The user pin for the hardware security module
     pub hsm_pin2: String,
+    /// The slot override for the hsm
+    pub hsm_slot: Option<usize>,
 }
 
 impl MainConfiguration {
@@ -559,6 +563,7 @@ impl MainConfiguration {
             hsm_path_override: answers.hsm_path_override.clone(),
             hsm_pin: crate::utility::generate_password(32),
             hsm_pin2: crate::utility::generate_password(32),
+            hsm_slot: answers.hsm_slot,
         }
     }
 
