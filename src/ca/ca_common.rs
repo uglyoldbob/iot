@@ -16,6 +16,7 @@ use rcgen::RemoteKeyPair;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
+use crate::hsm2::KeyPairTrait;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
 
@@ -759,6 +760,8 @@ pub enum CertificateLoadingError {
     OtherIo(std::io::Error),
     /// The certificate loaded is invalid
     InvalidCert,
+    /// There is no algorithm detected
+    NoAlgorithm,
 }
 
 use egui_multiwin::egui;
@@ -1089,7 +1092,7 @@ impl CaCertificateStorage {
         } else if let Some(p12) = cert.try_p12(password) {
             service::log::info!("Inserting p12 data for {}", cert.id);
             match self {
-                CaCertificateStorage::Nowhere => todo!(),
+                CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
                         let mut stmt = conn
@@ -1120,7 +1123,6 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
                 let name2 = name.to_owned();
-                let name3 = name.to_owned();
                 let id = p
                     .conn(move |conn| {
                         conn.query_row(
@@ -1148,12 +1150,18 @@ impl CaCertificateStorage {
                         CertificateLoadingError::DoesNotExist
                     })?;
                 let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
+                let kp = hsm_cert
+                    .as_ref()
+                    .ok_or(CertificateLoadingError::NoAlgorithm)?;
+                let alg = kp
+                    .https_algorithm()
+                    .ok_or(CertificateLoadingError::NoAlgorithm)?;
                 let hsm_cert = hsm_cert.map(Keypair::Hsm);
-                let kp = hsm_cert.or(None);
+                //TODO dynamically pick the correct certificate type here
                 let hcert = HttpsCertificate {
-                    algorithm: HttpsSigningMethod::RsaSha256, //TODO fill this out properly
+                    algorithm: alg,
                     cert,
-                    keypair: kp,
+                    keypair: hsm_cert,
                     attributes: Vec::new(),
                 };
                 let cert = CaCertificate {
@@ -1276,7 +1284,16 @@ impl CertificateDataTrait for HttpsCertificate {
     }
 
     fn hsm_label(&self) -> Option<String> {
-        todo!()
+        self.keypair.as_ref().and_then(|kp| {
+            let keypair = kp.hsm_keypair();
+            let label = keypair.map(|kp| {
+                use crate::hsm2::KeyPairTrait;
+                kp.label()
+            });
+            let kps = kp.smartcard();
+            let label2 = kps.map(|a| a.label());
+            label.or(label2.or(None))
+        })
     }
 
     fn erase_private_key(&mut self) {

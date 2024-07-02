@@ -85,6 +85,8 @@ pub trait KeyPairTrait {
     fn keypair(&self) -> rcgen::KeyPair;
     /// Get the label of the key
     fn label(&self) -> String;
+    /// Get the https signing algorithm
+    fn https_algorithm(&self) -> Option<HttpsSigningMethod>;
 }
 
 impl rcgen::RemoteKeyPair for KeyPair {
@@ -129,6 +131,10 @@ impl KeyPairTrait for RsaSha256Keypair {
 
     fn label(&self) -> String {
         self.label.clone()
+    }
+
+    fn https_algorithm(&self) -> Option<HttpsSigningMethod> {
+        Some(HttpsSigningMethod::RsaSha256)
     }
 }
 
