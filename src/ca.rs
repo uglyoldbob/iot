@@ -607,6 +607,13 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
                     CertificateSigningError::FailedToDeleteRequest => {
                         b.text("Unable to delete request").line_break(|a| a);
                     }
+                    CertificateSigningError::UnableToSign => {
+                        b.text("Unable to sign request").line_break(|a| a);
+                    }
+                    CertificateSigningError::UndecipherableX509Generated => {
+                        b.text("The generated certificate was garbage")
+                            .line_break(|a| a);
+                    }
                 },
             }
             b.anchor(|ab| {
@@ -693,9 +700,11 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                                             )
                                             .unwrap();
                                         let der = cert.contents();
-                                        ca.mark_csr_done(id).await;
-                                        ca.save_user_cert(id, &der, &snb).await;
-                                        csr_check = Ok(der);
+                                        if let Ok(der) = der {
+                                            ca.mark_csr_done(id).await;
+                                            ca.save_user_cert(id, &der, &snb).await;
+                                            csr_check = Ok(der);
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -725,6 +734,13 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                     }
                     CertificateSigningError::FailedToDeleteRequest => {
                         b.text("Failed to delete request").line_break(|a| a);
+                    }
+                    CertificateSigningError::UnableToSign => {
+                        b.text("Unable to sign request").line_break(|a| a);
+                    }
+                    CertificateSigningError::UndecipherableX509Generated => {
+                        b.text("The generated certificate was garbage")
+                            .line_break(|a| a);
                     }
                 },
             }
@@ -1215,37 +1231,43 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
                                 e.extn_id.into(),
                                 e.extn_value.to_owned(),
                             );
-                            match ca {
-                                CertAttribute::ExtendedKeyUsage(ek) => {
-                                    for key_use in ek {
-                                        b.text(format!("\tUsage: {:?}", key_use)).line_break(|a| a);
+                            if let Ok(ca) = ca {
+                                match ca {
+                                    CertAttribute::ExtendedKeyUsage(ek) => {
+                                        for key_use in ek {
+                                            b.text(format!("\tUsage: {:?}", key_use))
+                                                .line_break(|a| a);
+                                        }
                                     }
-                                }
-                                CertAttribute::Unrecognized(oid, a) => {
-                                    b.text(format!("\tUnrecognized: {:?} {:02X?}", oid, a))
-                                        .line_break(|a| a);
-                                }
-                                CertAttribute::SubjectAlternativeName(names) => {
-                                    b.text(format!("Alternate names: {}", names.join(",")))
-                                        .line_break(|a| a);
-                                }
-                                CertAttribute::SubjectKeyIdentifier(i) => {
-                                    let p: Vec<String> =
-                                        i.iter().map(|a| format!("{:02X}", a)).collect();
-                                    b.text(format!("Subject key identifer: {}", p.join(":")))
-                                        .line_break(|a| a);
-                                }
-                                CertAttribute::BasicContraints { ca, path_len } => {
-                                    b.text(format!(
-                                        "Basic Contraints: CA:{}, Path length {}",
-                                        ca, path_len
-                                    ))
-                                    .line_break(|a| a);
-                                }
-                                CertAttribute::AuthorityInfoAccess(aias) => {
-                                    for aia in aias {
-                                        b.text(format!("Authority Information Access: {:?}", aia))
+                                    CertAttribute::Unrecognized(oid, a) => {
+                                        b.text(format!("\tUnrecognized: {:?} {:02X?}", oid, a))
                                             .line_break(|a| a);
+                                    }
+                                    CertAttribute::SubjectAlternativeName(names) => {
+                                        b.text(format!("Alternate names: {}", names.join(",")))
+                                            .line_break(|a| a);
+                                    }
+                                    CertAttribute::SubjectKeyIdentifier(i) => {
+                                        let p: Vec<String> =
+                                            i.iter().map(|a| format!("{:02X}", a)).collect();
+                                        b.text(format!("Subject key identifer: {}", p.join(":")))
+                                            .line_break(|a| a);
+                                    }
+                                    CertAttribute::BasicContraints { ca, path_len } => {
+                                        b.text(format!(
+                                            "Basic Contraints: CA:{}, Path length {}",
+                                            ca, path_len
+                                        ))
+                                        .line_break(|a| a);
+                                    }
+                                    CertAttribute::AuthorityInfoAccess(aias) => {
+                                        for aia in aias {
+                                            b.text(format!(
+                                                "Authority Information Access: {:?}",
+                                                aia
+                                            ))
+                                            .line_break(|a| a);
+                                        }
                                     }
                                 }
                             }
@@ -1660,7 +1682,7 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRe
                             "Content-Disposition",
                             HeaderValue::from_static("attachment; filename=ca.cer"),
                         );
-                        cert = Some(cert_der.contents());
+                        cert = cert_der.contents().ok();
                     }
                     "pem" => {
                         response.headers.append(
@@ -1753,14 +1775,18 @@ async fn build_ocsp_response(
     for r in req.tbs_request.request_list {
         service::log::info!("Looking up a certificate");
         let stat = ca.get_cert_status(&root_x509_cert, &r.certid).await;
-        let resp = ocsp::response::OneResp {
-            cid: r.certid,
-            cert_status: stat,
-            this_update: ocsp::common::asn1::GeneralizedTime::now(),
-            next_update: None,
-            one_resp_ext: None,
-        };
-        responses.push(resp);
+        if let Ok(stat) = stat {
+            let resp = ocsp::response::OneResp {
+                cid: r.certid,
+                cert_status: stat,
+                this_update: ocsp::common::asn1::GeneralizedTime::now(),
+                next_update: None,
+                one_resp_ext: None,
+            };
+            responses.push(resp);
+        } else {
+            todo!();
+        }
     }
     if let Some(extensions) = req.tbs_request.request_ext {
         for e in extensions {
@@ -1818,7 +1844,7 @@ async fn build_ocsp_response(
     let data_der = data.to_der().unwrap();
 
     let signature = ocsp_cert.sign(&data_der).await.unwrap();
-    let certs = vec![ocsp_cert.contents(), root_cert.contents()];
+    let certs = vec![ocsp_cert.contents().unwrap(), root_cert.contents().unwrap()]; //TODO remove the unwraps
     let certs = Some(certs);
 
     let bresp = ocsp::response::BasicResponse::new(

@@ -84,7 +84,7 @@ pub fn load_certificate(
                         for ca in pki.get_client_certifiers().await {
                             if let CertificateSigningMethod::Https(_m) = ca.config.sign_method {
                                 let cert = ca.root_ca_cert().unwrap();
-                                let cert_der = cert.contents();
+                                let cert_der = cert.contents().unwrap(); //TODO remove this unwrap
                                 rcs2.add(cert_der.into()).unwrap();
                             }
                         }
@@ -92,7 +92,7 @@ pub fn load_certificate(
                     crate::ca::PkiInstance::Ca(ca) => {
                         if let CertificateSigningMethod::Https(_m) = ca.config.sign_method {
                             let cert = ca.root_ca_cert().unwrap();
-                            let cert_der = cert.contents();
+                            let cert_der = cert.contents().unwrap(); //TODO remove this unwrap
                             rcs2.add(cert_der.into()).unwrap();
                         }
                     }

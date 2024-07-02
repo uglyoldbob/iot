@@ -468,7 +468,7 @@ async fn smain() {
     }
 
     let settings = Arc::new(settings);
-    let pki = ca::PkiInstance::load(hsm, &settings).await;
+    let pki = ca::PkiInstance::load(hsm, &settings).await.unwrap(); //TODO remove this unwrap?
 
     ca::ca_register(&pki, &mut router);
     ca::ca_register_files(&pki, &mut static_map);

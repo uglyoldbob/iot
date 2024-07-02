@@ -491,7 +491,7 @@ impl Ca {
         &mut self,
         hsm: Arc<crate::hsm2::Hsm>,
         main_config: &crate::main_config::MainConfiguration,
-    ) {
+    ) -> Result<(), ()> {
         if let Some(https) = &main_config.https {
             if https.certificate.create_by_ca().is_some() {
                 if let Some(pathbuf) = https.certificate.pathbuf() {
@@ -505,10 +505,11 @@ impl Ca {
                             .collect(),
                         https.certificate.password().unwrap(), //assume that the password is valid if the path is valid
                     )
-                    .await;
+                    .await?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Create the required https certificate
@@ -518,7 +519,7 @@ impl Ca {
         destination: std::path::PathBuf,
         https_names: Vec<String>,
         password: &str,
-    ) {
+    ) -> Result<(), ()> {
         service::log::info!("Generating an https certificate for web operations");
         let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
         let extensions = vec![
@@ -551,20 +552,22 @@ impl Ca {
                 .unwrap();
             cert.medium = self.medium.clone();
             let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
-            self.save_user_cert(id, &cert.contents(), &snb).await;
+            self.save_user_cert(id, &cert.contents().map_err(|_| ())?, &snb)
+                .await;
             let p12 = cert.try_p12(password).unwrap();
             tokio::fs::write(destination, p12).await.unwrap();
         }
+        Ok(())
     }
 
     /// Create a Self from the application configuration
-    pub async fn init_from_config(settings: &crate::ca::CaConfiguration) -> Self {
+    pub async fn init_from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, ()> {
         if settings.path.exists().await {
             panic!("Storage medium {:?} already exists", settings.path);
         }
-        let mut medium = settings.path.build().await;
+        let mut medium = settings.path.build().await?;
         medium.init(settings).await;
-        Self {
+        Ok(Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
@@ -574,7 +577,7 @@ impl Ca {
             config: settings.to_owned(),
             super_admin: None,
             admin_authorities: Vec::new(),
-        }
+        })
     }
 
     /// Initialize a Ca instance with the specified configuration.
@@ -590,7 +593,7 @@ impl Ca {
             return None;
         }
 
-        let mut ca = Self::init_from_config(settings).await;
+        let mut ca = Self::init_from_config(settings).await.ok()?;
 
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
@@ -662,7 +665,7 @@ impl Ca {
                             .unwrap();
                         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                         superior
-                            .save_user_cert(id, &root_cert.contents(), &snb)
+                            .save_user_cert(id, &root_cert.contents().ok()?, &snb)
                             .await;
                         root_cert.medium = ca.medium.clone();
                         root_cert

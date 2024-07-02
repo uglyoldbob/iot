@@ -144,6 +144,13 @@ impl From<SmartCardPin2> for String {
     }
 }
 
+impl SmartCardPin2 {
+    /// Get a string
+    pub fn to_string(&self) -> String {
+        self.0.to_owned()
+    }
+}
+
 /// The kinds of tokens that can exist for certificates generated
 #[derive(
     Clone,
@@ -760,22 +767,21 @@ pub enum CaCertificateStorageBuilder {
 }
 
 impl CaCertificateStorageBuilder {
-    /// Remove relative paths
-    pub async fn remove_relative_paths(&mut self) {
+    /// Remove relative paths, path might need to exist for this to succeed
+    pub async fn remove_relative_paths(&mut self) -> Result<(), ()> {
         match self {
             Self::Nowhere => {}
             Self::Sqlite(p) => {
                 if p.is_relative() {
                     use tokio::io::AsyncWriteExt;
                     let p2: std::path::PathBuf = p.to_path_buf();
-                    let mut f = tokio::fs::File::create(p2).await.unwrap();
-                    f.write_all(" ".as_bytes())
-                        .await
-                        .expect("Failed to write dummy database file");
-                    **p = p.canonicalize().unwrap();
+                    let mut f = tokio::fs::File::create(p2).await.map_err(|_| ())?;
+                    f.write_all(" ".as_bytes()).await.map_err(|_| ())?;
+                    **p = p.canonicalize().map_err(|_| ())?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Returns true if the item already exists
@@ -819,10 +825,10 @@ impl OwnerOptions {
     #[cfg(target_family = "windows")]
     pub fn new(username: &str) -> Self {
         service::log::debug!("Trying to lookup {}", username);
-        let sid = windows_acl::helper::name_to_sid(username, None).unwrap();
+        let sid = windows_acl::helper::name_to_sid(username, None).unwrap(); //TODO remove this unwrap
         service::log::debug!("Lookup returned {:02X?}", sid);
 
-        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap();
+        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap(); //TODO remove this unwrap
         let tp = windows_privilege::TokenPrivileges::enable(luid);
 
         let token =
@@ -831,10 +837,10 @@ impl OwnerOptions {
             t
         } else {
             windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES)
-                .unwrap()
+                .unwrap() //TODO remove this unwrap
         };
         service::log::debug!("Token is obtained");
-        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap();
+        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap(); //TODO remove this unwrap
         service::log::debug!("token privileges obtained");
 
         Self { raw_sid: sid, tpo }
@@ -842,13 +848,16 @@ impl OwnerOptions {
 
     /// Set the owner of a single file
     #[cfg(target_family = "unix")]
-    pub fn set_owner(&self, p: &PathBuf, permissions: u32) {
+    pub fn set_owner(&self, p: &PathBuf, permissions: u32) -> Result<(), ()> {
         if p.exists() {
             service::log::info!("Setting ownership of {}", p.display());
-            std::os::unix::fs::chown(p, Some(self.uid), None).unwrap();
-            let mut perms = std::fs::metadata(p).unwrap().permissions();
+            std::os::unix::fs::chown(p, Some(self.uid), None).map_err(|_| ())?;
+            let mut perms = std::fs::metadata(p).map_err(|_| ())?.permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, permissions);
-            std::fs::set_permissions(p, perms).unwrap();
+            std::fs::set_permissions(p, perms).map_err(|_| ())?;
+            Ok(())
+        } else {
+            Err(())
         }
     }
 
@@ -896,19 +905,19 @@ impl OwnerOptions {
         };
         service::log::debug!("Set named security info returned {}", asdf);
 
-        let mut perms = std::fs::metadata(p).unwrap().permissions();
+        let mut perms = std::fs::metadata(p).unwrap().permissions(); //TODO remove the unwrap here?
         service::log::debug!("Read only {}", !uw);
         perms.set_readonly(!uw);
-        std::fs::set_permissions(p, perms).unwrap();
+        std::fs::set_permissions(p, perms).unwrap(); //TODO remove this unwrap
     }
 }
 
 impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
     /// # Argumments
-    pub async fn build(&self) -> CaCertificateStorage {
+    pub async fn build(&self) -> Result<CaCertificateStorage, ()> {
         match self {
-            CaCertificateStorageBuilder::Nowhere => CaCertificateStorage::Nowhere,
+            CaCertificateStorageBuilder::Nowhere => Ok(CaCertificateStorage::Nowhere),
             CaCertificateStorageBuilder::Sqlite(p) => {
                 service::log::info!("Building sqlite with {}", p.display());
                 let mut count = 0;
@@ -930,7 +939,7 @@ impl CaCertificateStorageBuilder {
                         break;
                     }
                 }
-                CaCertificateStorage::Sqlite(pool.unwrap())
+                Ok(CaCertificateStorage::Sqlite(pool.map_err(|_| ())?))
             }
         }
     }
@@ -989,6 +998,8 @@ pub enum Pkcs12ImportError {
     InvalidSigningMethod,
     /// The certificate type is invalid or not supported
     InvalidCertificate,
+    /// The keypair is invalid
+    InvalidKeypair,
 }
 
 impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
@@ -1025,7 +1036,8 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
         if let Ok(cert) = cert {
             let private = value.pkey;
             let mut pk = private.as_ref();
-            let keypair = ssh_key::private::KeypairData::decode(&mut pk).unwrap();
+            let keypair = ssh_key::private::KeypairData::decode(&mut pk)
+                .map_err(|_| Pkcs12ImportError::InvalidKeypair)?;
             let t = match &keypair {
                 ssh_key::private::KeypairData::Ed25519(_) => SshSigningMethod::Ed25519,
                 ssh_key::private::KeypairData::Rsa(_) => SshSigningMethod::Rsa,
@@ -1049,7 +1061,12 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
     /// TODO Return a Result with an error
-    pub async fn save_to_medium(&self, ca: &mut Ca, cert: CaCertificate, password: &str) {
+    pub async fn save_to_medium(
+        &self,
+        ca: &mut Ca,
+        cert: CaCertificate,
+        password: &str,
+    ) -> Result<(), ()> {
         if let Some(label) = cert.data.hsm_label() {
             match self {
                 CaCertificateStorage::Nowhere => {}
@@ -1081,11 +1098,12 @@ impl CaCertificateStorage {
                 }
             }
         }
-        let cert_der = &cert.contents();
+        let cert_der = &cert.contents()?;
         if let Some(card) = cert.smartcard() {
             let _ = card.save_cert_to_card(cert_der);
         }
-        ca.save_user_cert(cert.id, cert_der, &cert.get_snb()).await;
+        ca.save_user_cert(cert.id, cert_der, &cert.get_snb()?).await;
+        Ok(())
     }
 
     /// Load a certificate from the storage medium
@@ -1292,14 +1310,23 @@ impl CertificateDataTrait for HttpsCertificate {
         doc.to_pem("CERTIFICATE", pkcs8::LineEnding::CRLF).ok()
     }
 
-    fn sign_csr(&self, csr: CaCertificateToBeSigned) -> CaCertificate {
-        let (issuer, issuer_key) = &self.get_rcgen_cert_and_keypair().unwrap();
-        let rc_cert = csr.csr.signed_by(issuer, issuer_key).unwrap();
+    fn sign_csr(
+        &self,
+        csr: CaCertificateToBeSigned,
+    ) -> Result<CaCertificate, CertificateSigningError> {
+        let (issuer, issuer_key) = &self
+            .get_rcgen_cert_and_keypair()
+            .ok_or(CertificateSigningError::UnableToSign)?;
+        let rc_cert = csr
+            .csr
+            .signed_by(issuer, issuer_key)
+            .map_err(|_| CertificateSigningError::UnableToSign)?;
         let der = rc_cert.der().to_vec();
         use der::Decode;
-        let x509 = x509_cert::Certificate::from_der(&der).unwrap();
+        let x509 = x509_cert::Certificate::from_der(&der)
+            .map_err(|_| CertificateSigningError::UndecipherableX509Generated)?;
         let local_key_id = x509.tbs_certificate.serial_number.as_bytes().to_vec();
-        CaCertificate {
+        Ok(CaCertificate {
             medium: CaCertificateStorage::Nowhere,
             data: CertificateData::Https(HttpsCertificate {
                 algorithm: csr.algorithm,
@@ -1312,7 +1339,7 @@ impl CertificateDataTrait for HttpsCertificate {
             }),
             name: csr.name.clone(),
             id: csr.id,
-        }
+        })
     }
 
     fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute> {
@@ -1338,17 +1365,17 @@ impl CertificateDataTrait for HttpsCertificate {
         CertificateSigningMethod::Https(self.algorithm)
     }
 
-    fn get_snb(&self, id: u64) -> Vec<u8> {
-        let x509 = self.x509_cert().unwrap();
-        x509.tbs_certificate.serial_number.as_bytes().to_vec()
+    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()> {
+        let x509 = self.x509_cert().ok_or(())?;
+        Ok(x509.tbs_certificate.serial_number.as_bytes().to_vec())
     }
 
-    fn contents(&self) -> Vec<u8> {
-        self.cert.to_owned()
+    fn contents(&self) -> Result<Vec<u8>, ()> {
+        Ok(self.cert.to_owned())
     }
 
     fn sign(&self, data: &[u8]) -> Option<Signature> {
-        let sig = self.keypair.as_ref().unwrap().sign(data)?;
+        let sig = self.keypair.as_ref()?.sign(data)?;
         Some(Signature::OidSignature(self.algorithm.oid(), sig))
     }
 
@@ -1441,7 +1468,10 @@ impl CertificateDataTrait for SshCertificate {
         self.cert.to_openssh().ok()
     }
 
-    fn sign_csr(&self, csr: CaCertificateToBeSigned) -> CaCertificate {
+    fn sign_csr(
+        &self,
+        csr: CaCertificateToBeSigned,
+    ) -> Result<CaCertificate, CertificateSigningError> {
         todo!()
     }
 
@@ -1472,12 +1502,12 @@ impl CertificateDataTrait for SshCertificate {
         CertificateSigningMethod::Ssh(self.algorithm)
     }
 
-    fn get_snb(&self, id: u64) -> Vec<u8> {
-        u64::to_le_bytes(id).to_vec()
+    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()> {
+        Ok(u64::to_le_bytes(id).to_vec())
     }
 
-    fn contents(&self) -> Vec<u8> {
-        self.cert.to_openssh().unwrap().as_bytes().to_vec()
+    fn contents(&self) -> Result<Vec<u8>, ()> {
+        Ok(self.cert.to_openssh().map_err(|_| ())?.as_bytes().to_vec())
     }
 
     fn sign(&self, data: &[u8]) -> Option<Signature> {
@@ -1543,7 +1573,10 @@ pub trait CertificateDataTrait {
     /// Retrieve the certificate in pem format
     fn public_pem(&self) -> Option<String>;
     ///sign a certificate
-    fn sign_csr(&self, csr: CaCertificateToBeSigned) -> CaCertificate;
+    fn sign_csr(
+        &self,
+        csr: CaCertificateToBeSigned,
+    ) -> Result<CaCertificate, CertificateSigningError>;
     /// Get the list of bag attributes for the certificate data
     fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute>;
     /// Attempt to build a p12 document
@@ -1551,9 +1584,9 @@ pub trait CertificateDataTrait {
     /// Get the algorithm
     fn algorithm(&self) -> CertificateSigningMethod;
     /// Retrieve the serial number as a vector
-    fn get_snb(&self, id: u64) -> Vec<u8>;
+    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()>;
     /// Retrieve the contents of the certificate data in a storable format
-    fn contents(&self) -> Vec<u8>;
+    fn contents(&self) -> Result<Vec<u8>, ()>;
     /// Attempt to sign the specified data
     fn sign(&self, data: &[u8]) -> Option<Signature>;
     /// attempt to get an x509_cert object
@@ -1615,12 +1648,12 @@ impl CaCertificate {
     }
 
     /// Retrieve the certificate serial number
-    pub fn get_snb(&self) -> Vec<u8> {
+    pub fn get_snb(&self) -> Result<Vec<u8>, ()> {
         self.data.get_snb(self.id)
     }
 
     /// Retrieve the contents of the certificate data in a storable format
-    pub fn contents(&self) -> Vec<u8> {
+    pub fn contents(&self) -> Result<Vec<u8>, ()> {
         self.data.contents()
     }
 
@@ -1721,9 +1754,7 @@ impl CaCertificate {
             "Date for csr is {:?} - {:?}",
             the_csr.params.not_before, the_csr.params.not_after
         );
-
-        let cert = self.data.sign_csr(csr);
-        Some(cert)
+        self.data.sign_csr(csr).ok()
     }
 
     /// Sign some data with the certificate, if possible
@@ -2036,11 +2067,11 @@ impl Pki {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
-    ) -> Self {
+    ) -> Result<Self, ()> {
         let mut hm = HashMap::new();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::load(hsm.clone(), config).await;
+            let ca = crate::ca::Ca::load(hsm.clone(), config).await?;
             hm.insert(name.to_owned(), ca);
         }
         let super_admin = if let Some(sa) = &settings.super_admin {
@@ -2106,10 +2137,10 @@ impl Pki {
             }
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
-        Self {
+        Ok(Self {
             roots: hm,
             super_admin,
-        }
+        })
     }
 
     /// Retrieve the certificate authorities associated with verifying client certificates
@@ -2130,16 +2161,19 @@ pub enum PkiInstance {
 impl PkiInstance {
     /// Load an instance of self from the settings.
     #[allow(dead_code)]
-    pub async fn load(hsm: Arc<crate::hsm2::Hsm>, settings: &crate::MainConfiguration) -> Self {
+    pub async fn load(
+        hsm: Arc<crate::hsm2::Hsm>,
+        settings: &crate::MainConfiguration,
+    ) -> Result<Self, ()> {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::load(hsm, pki_config, settings).await;
-                Self::Pki(pki)
+                let pki = crate::ca::Pki::load(hsm, pki_config, settings).await?;
+                Ok(Self::Pki(pki))
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca_config = &ca_config.get_ca(settings);
-                let ca = Ca::load(hsm, ca_config).await;
-                Self::Ca(ca)
+                let ca = Ca::load(hsm, ca_config).await?;
+                Ok(Self::Ca(ca))
             }
         }
     }
@@ -2180,10 +2214,10 @@ impl Ca {
 
                     Some(x509_cert::time::Validity {
                         not_before: x509_cert::time::Time::UtcTime(
-                            UtcTime::from_system_time(after).unwrap(),
+                            UtcTime::from_system_time(after).ok()?,
                         ),
                         not_after: x509_cert::time::Time::UtcTime(
-                            UtcTime::from_system_time(before).unwrap(),
+                            UtcTime::from_system_time(before).ok()?,
                         ),
                     })
                 }
@@ -2194,7 +2228,7 @@ impl Ca {
     }
 
     /// Marks the specified csr as done
-    pub async fn mark_csr_done(&mut self, id: u64) {
+    pub async fn mark_csr_done(&mut self, id: u64) -> Result<(), ()> {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::Sqlite(p) => {
@@ -2202,9 +2236,10 @@ impl Ca {
                     conn.execute(&format!("UPDATE csr SET done=1 WHERE id='{}'", id), [])
                 })
                 .await
-                .expect("Failed to mark csr as done");
+                .map_err(|_| ())?;
             }
         }
+        Ok(())
     }
 
     /// Save the user cert of the specified index to storage
@@ -2302,9 +2337,14 @@ impl Ca {
                 match cert {
                     Ok(c) => {
                         use der::Decode;
-                        let c = x509_cert::Certificate::from_der(&c).unwrap();
-                        service::log::info!("Found the cert");
-                        MaybeError::Ok(c)
+                        let c = x509_cert::Certificate::from_der(&c);
+                        match c {
+                            Ok(c) => {
+                                service::log::info!("Found the cert");
+                                MaybeError::Ok(c)
+                            }
+                            Err(_e) => MaybeError::None,
+                        }
                     }
                     Err(e) => {
                         service::log::error!("Did not find the cert {:?}", e);
@@ -2328,11 +2368,12 @@ impl Ca {
                 match cert {
                     Ok(c) => {
                         use der::Decode;
-                        let c = x509_cert::Certificate::from_der(&c).unwrap();
+                        let c = x509_cert::Certificate::from_der(&c)
+                            .map_err(|_| CertificateLoadingError::InvalidCert)?;
                         let cac = CaCertificate {
                             medium: self.medium.clone(),
                             data: CertificateData::from_x509(c)?,
-                            name: "admin".to_string(),
+                            name: "".to_string(), //TODO fill this in with data from the certificate subject name
                             id,
                         };
                         service::log::info!("Found the cert");
@@ -2365,7 +2406,7 @@ impl Ca {
                     rc.id,
                 )
                 .try_into()
-                .unwrap())
+                .map_err(|_| CertificateLoadingError::InvalidCert)?)
             } else {
                 use der::Decode;
                 let x509 = x509_cert::Certificate::from_der(&rc.contents)
@@ -2386,8 +2427,11 @@ impl Ca {
     }
 
     /// Load ca stuff
-    pub async fn load(hsm: Arc<crate::hsm2::Hsm>, settings: &crate::ca::CaConfiguration) -> Self {
-        let mut ca = Self::from_config(settings).await;
+    pub async fn load(
+        hsm: Arc<crate::hsm2::Hsm>,
+        settings: &crate::ca::CaConfiguration,
+    ) -> Result<Self, ()> {
+        let mut ca = Self::from_config(settings).await?;
 
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
@@ -2408,7 +2452,7 @@ impl Ca {
                 let _ = ca.load_root_ca_cert(hsm).await;
             }
         }
-        ca
+        Ok(ca)
     }
 
     /// Load the root ca cert from the specified storage media, converting to der as required.
@@ -2429,7 +2473,7 @@ impl Ca {
                 Ok(
                     cert_common::pkcs12::Pkcs12::load_from_data(&rc.contents, p.as_bytes(), rc.id)
                         .try_into()
-                        .unwrap(),
+                        .map_err(|_| CertificateLoadingError::InvalidCert)?,
                 )
             } else {
                 Err(CertificateLoadingError::DoesNotExist)
@@ -2505,9 +2549,9 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Self {
-        let medium = settings.path.build().await;
-        Self {
+    pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, ()> {
+        let medium = settings.path.build().await.map_err(|_| ())?;
+        Ok(Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
@@ -2517,23 +2561,21 @@ impl Ca {
             config: settings.to_owned(),
             super_admin: None,
             admin_authorities: Vec::new(),
-        }
+        })
     }
 
     /// Get a new request id, if possible
     pub async fn get_new_request_id(&mut self) -> Option<u64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::Sqlite(p) => {
-                let id = p
-                    .conn(|conn| {
-                        conn.execute("INSERT INTO id VALUES (NULL)", [])?;
-                        Ok(conn.last_insert_rowid())
-                    })
-                    .await
-                    .expect("Failed to insert id into table");
-                Some(id as u64)
-            }
+            CaCertificateStorage::Sqlite(p) => p
+                .conn(|conn| {
+                    conn.execute("INSERT INTO id VALUES (NULL)", [])?;
+                    Ok(conn.last_insert_rowid())
+                })
+                .await
+                .ok()
+                .map(|v| v as u64),
         }
     }
 
@@ -2545,9 +2587,9 @@ impl Ca {
         &self,
         root_cert: &x509_cert::Certificate,
         certid: &ocsp::common::asn1::CertId,
-    ) -> ocsp::response::CertStatus {
-        let oid_der = certid.hash_algo.to_der_raw().unwrap();
-        let oid: yasna::models::ObjectIdentifier = yasna::decode_der(&oid_der).unwrap();
+    ) -> Result<ocsp::response::CertStatus, ()> {
+        let oid_der = certid.hash_algo.to_der_raw().map_err(|_| ())?;
+        let oid: yasna::models::ObjectIdentifier = yasna::decode_der(&oid_der).map_err(|_| ())?;
 
         let mut revoke_reason = None;
         let mut status = ocsp::response::CertStatusCode::Unknown;
@@ -2562,9 +2604,9 @@ impl Ca {
 
         let dn = {
             use der::Encode;
-            root_cert.tbs_certificate.subject.to_der().unwrap()
+            root_cert.tbs_certificate.subject.to_der().map_err(|_| ())?
         };
-        let dnhash = hash.hash(&dn).unwrap();
+        let dnhash = hash.hash(&dn).ok_or(())?;
 
         if dnhash == certid.issuer_name_hash {
             let key2 = root_cert
@@ -2572,7 +2614,7 @@ impl Ca {
                 .subject_public_key_info
                 .subject_public_key
                 .raw_bytes();
-            let keyhash = hash.hash(key2).unwrap();
+            let keyhash = hash.hash(key2).ok_or(())?;
             if keyhash == certid.issuer_key_hash {
                 let cert = self.get_cert_by_serial(&certid.serial_num).await;
                 match cert {
@@ -2595,7 +2637,7 @@ impl Ca {
             }
         }
 
-        ocsp::response::CertStatus::new(status, revoke_reason)
+        Ok(ocsp::response::CertStatus::new(status, revoke_reason))
     }
 }
 
@@ -2606,6 +2648,10 @@ pub enum CertificateSigningError {
     CsrDoesNotExist,
     /// Unable to delete the request after processing
     FailedToDeleteRequest,
+    /// The issuer is unable to sign
+    UnableToSign,
+    /// The generated x509 cert is unusable for some reason
+    UndecipherableX509Generated,
 }
 
 /// The types of methods that can be specified by authority info access
@@ -2642,7 +2688,7 @@ impl TryFrom<&AccessDescription> for AuthorityInfoAccess {
                 s.to_string()
             }
             x509_cert::ext::pkix::name::GeneralName::IpAddress(a) => {
-                String::from_utf8(a.as_bytes().to_vec()).unwrap()
+                String::from_utf8(a.as_bytes().to_vec()).map_err(|_| ())?
             }
             x509_cert::ext::pkix::name::GeneralName::RegisteredId(_a) => {
                 return Err(());
@@ -2681,29 +2727,30 @@ pub enum CertAttribute {
 impl CertAttribute {
     #[allow(dead_code)]
     /// Build a cert attribute from an oid and octetstring
-    pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Self {
+    pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Result<Self, ()> {
         if oid == *OID_CERT_EXTENDED_KEY_USAGE {
             let oids: Vec<yasna::models::ObjectIdentifier> =
                 yasna::parse_der(data.as_bytes(), |r| r.collect_sequence_of(|r| r.read_oid()))
-                    .unwrap();
+                    .map_err(|_| ())?;
             let eku = oids
                 .iter()
                 .map(|o| Oid::from_yasna(o.clone()).into())
                 .collect();
-            Self::ExtendedKeyUsage(eku)
+            Ok(Self::ExtendedKeyUsage(eku))
         } else if oid == *OID_CERT_ALTERNATIVE_NAME {
             let names: Vec<String> = yasna::parse_der(data.as_bytes(), |r| {
                 r.collect_sequence_of(|r| {
                     let der = r.read_tagged_der()?;
-                    let string = String::from_utf8(der.value().to_vec()).unwrap();
+                    let string = String::from_utf8(der.value().to_vec())
+                        .map_err(|_| yasna::ASN1Error::new(yasna::ASN1ErrorKind::Invalid))?;
                     Ok(string)
                 })
             })
-            .unwrap();
-            Self::SubjectAlternativeName(names)
+            .map_err(|_| ())?;
+            Ok(Self::SubjectAlternativeName(names))
         } else if oid == *OID_CERT_SUBJECT_KEY_IDENTIFIER {
-            let data: Vec<u8> = yasna::decode_der(data.as_bytes()).unwrap();
-            Self::SubjectKeyIdentifier(data)
+            let data: Vec<u8> = yasna::decode_der(data.as_bytes()).map_err(|_| ())?;
+            Ok(Self::SubjectKeyIdentifier(data))
         } else if oid == *OID_CERT_BASIC_CONSTRAINTS {
             let (ca, len) = yasna::parse_der(data.as_bytes(), |r| {
                 r.read_sequence(|r| {
@@ -2712,17 +2759,20 @@ impl CertAttribute {
                     Ok((ca, len))
                 })
             })
-            .unwrap();
-            Self::BasicContraints { ca, path_len: len }
+            .map_err(|_| ())?;
+            Ok(Self::BasicContraints { ca, path_len: len })
         } else if oid == *OID_PKIX_AUTHORITY_INFO_ACCESS {
             use der::Decode;
-            let aia =
-                x509_cert::ext::pkix::AuthorityInfoAccessSyntax::from_der(data.as_bytes()).unwrap();
-            let aias: Vec<AuthorityInfoAccess> =
-                aia.0.iter().map(|a| a.try_into().unwrap()).collect();
-            Self::AuthorityInfoAccess(aias)
+            let aia = x509_cert::ext::pkix::AuthorityInfoAccessSyntax::from_der(data.as_bytes())
+                .map_err(|_| ())?;
+            let aias: Vec<AuthorityInfoAccess> = aia
+                .0
+                .iter()
+                .map(|a| a.try_into().map_err(|_| ()).unwrap()) //TODO remove this unwrap
+                .collect();
+            Ok(Self::AuthorityInfoAccess(aias))
         } else {
-            Self::Unrecognized(oid, data)
+            Ok(Self::Unrecognized(oid, data))
         }
     }
 }
@@ -2805,6 +2855,7 @@ impl<'a> DbEntry<'a> {
     }
 }
 
+/// TODO: Convert to tryfrom
 impl<'a> From<DbEntry<'a>> for CsrRequest {
     fn from(val: DbEntry<'a>) -> Self {
         Self {
@@ -2817,6 +2868,7 @@ impl<'a> From<DbEntry<'a>> for CsrRequest {
     }
 }
 
+/// TODO: Convert to tryfrom
 impl<'a> From<DbEntry<'a>> for SshRequest {
     fn from(val: DbEntry<'a>) -> Self {
         let p: String = val.row_data.get(5).unwrap();
@@ -2833,6 +2885,7 @@ impl<'a> From<DbEntry<'a>> for SshRequest {
     }
 }
 
+/// TODO: Convert to tryfrom
 impl<'a> From<DbEntry<'a>> for CsrRejection {
     fn from(val: DbEntry<'a>) -> Self {
         Self {
@@ -2846,6 +2899,7 @@ impl<'a> From<DbEntry<'a>> for CsrRejection {
     }
 }
 
+/// TODO: Convert to tryfrom
 impl<'a> From<DbEntry<'a>> for SshRejection {
     fn from(val: DbEntry<'a>) -> Self {
         let p: String = val.row_data.get(5).unwrap();
@@ -2901,14 +2955,17 @@ impl RawCsrRequest {
             use der::Decode;
             use der::Encode;
             use yasna::parse_der;
-            let cinfo = x509_cert::request::CertReqInfo::from_der(&info).unwrap();
+            let cinfo = x509_cert::request::CertReqInfo::from_der(&info)
+                .map_err(|_| SignatureVerifyError::InvalidCsr)?;
             let pubkey = cinfo.public_key.subject_public_key;
-            let pder = pubkey.to_der().unwrap();
+            let pder = pubkey
+                .to_der()
+                .map_err(|_| SignatureVerifyError::InvalidCsr)?;
             let pkey = parse_der(&pder, |r| {
                 let (data, _size) = r.read_bitvec_bytes()?;
                 Ok(data)
             })
-            .unwrap();
+            .map_err(|_| SignatureVerifyError::InvalidCsr)?;
 
             let signature = if let Ok(alg) = alg.try_into() {
                 InternalSignature::make_ring(alg, pkey, info, sig)

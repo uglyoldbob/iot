@@ -41,7 +41,7 @@ async fn test_tpm2() {
             *e = rand::random();
         }
 
-        let mut password = utility::generate_password(32);
+        let password = utility::generate_password(32);
 
         let config: Vec<u8>;
         let tpm_data: tpm2::TpmBlob;
