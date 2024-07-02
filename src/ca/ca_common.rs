@@ -71,23 +71,6 @@ pub fn pkcs15_sha256(hash: &[u8]) -> Vec<u8> {
     total
 }
 
-/// Generate a password of the specified length
-pub fn generate_password(len: usize) -> String {
-    use rand::Rng;
-    /// The characters to pick from for a randomly generated password
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
-                            abcdefghijklmnopqrstuvwxyz\
-                            0123456789\
-                            `~!@#$%^&*()-_=+[]{}\\|;:'\",<.>/?";
-    let mut rng = rand::thread_rng();
-    (0..len)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
-}
-
 /// Get the list of sqlite files from the base filename for a sqlite database
 pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
     let name = p.file_name().unwrap().to_owned();
@@ -546,8 +529,8 @@ impl From<LocalCaConfigurationAnswers> for LocalCaConfiguration {
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
             admin_cert: value.admin_cert.into(),
-            ocsp_password: crate::ca::generate_password(32),
-            root_password: crate::ca::generate_password(32),
+            ocsp_password: crate::utility::generate_password(32),
+            root_password: crate::utility::generate_password(32),
             ocsp_signature: value.ocsp_signature,
         }
     }

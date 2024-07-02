@@ -534,14 +534,17 @@ impl Ca {
         };
         if let CertificateSigningMethod::Https(m) = algorithm {
             //TODO Change this to generate_hsm_signing_request when support is there for it
-            let csr = self.generate_plain_signing_request(
-                m,
-                "https".to_string(),
-                "HTTPS Server".to_string(),
-                https_names,
+            let https_options = SigningRequestParams {
+                hsm: None,
+                smartcard: None,
+                t: m,
+                name: "https".to_string(),
+                common_name: "HTTPS Server".to_string(),
+                names: https_names,
                 extensions,
                 id,
-            );
+            };
+            let csr = https_options.generate_request();
             let root_cert = self.root_cert.as_ref().unwrap();
             let mut cert = root_cert
                 .sign_csr(csr, self, id, time::Duration::days(365))
@@ -634,20 +637,22 @@ impl Ca {
                         )
                         .to_custom_extension()
                         .unwrap()];
-                        let ocsp_csr = superior.generate_hsm_signing_request(
-                            hsm.clone(),
-                            m,
-                            format!("{}-root", ca.config.common_name),
-                            ca.config.common_name.clone(),
-                            ca.config.san.clone(),
+                        let root_options = SigningRequestParams {
+                            hsm: Some(hsm.clone()),
+                            smartcard: None,
+                            t: m,
+                            name: format!("{}-root", ca.config.common_name),
+                            common_name: ca.config.common_name.clone(),
+                            names: ca.config.san.clone(),
                             extensions,
                             id,
-                        );
+                        };
+                        let root_csr = root_options.generate_request();
                         let mut root_cert = superior
                             .root_cert
                             .as_ref()
                             .unwrap()
-                            .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
+                            .sign_csr(root_csr, &ca, id, time::Duration::days(365))
                             .unwrap();
                         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                         superior
@@ -672,15 +677,17 @@ impl Ca {
                     ];
 
                 let id = ca.get_new_request_id().await.unwrap();
-                let ocsp_csr = ca.generate_hsm_signing_request(
-                    hsm.clone(),
-                    m,
-                    format!("{}-ocsp", ca.config.common_name),
-                    "OCSP Responder".to_string(),
-                    ca.ocsp_urls.to_owned(),
+                let ocsp_options = SigningRequestParams {
+                    hsm: Some(hsm.clone()),
+                    smartcard: None,
+                    t: m,
+                    name: format!("{}-ocsp", ca.config.common_name),
+                    common_name: "OCSP Responder".to_string(),
+                    names: ca.ocsp_urls.to_owned(),
                     extensions,
                     id,
-                );
+                };
+                let ocsp_csr = ocsp_options.generate_request();
                 let mut ocsp_cert = ca
                     .root_cert
                     .as_ref()
@@ -698,25 +705,31 @@ impl Ca {
                             .to_custom_extension()
                             .unwrap(),
                     ];
-
                 service::log::info!("Generating administrator certificate");
                 let id = ca.get_new_request_id().await.unwrap();
+                let mut options = SigningRequestParams {
+                    hsm: None,
+                    smartcard: None,
+                    t: m,
+                    name: format!("{}-admin", ca.config.common_name),
+                    common_name: format!("{} Administrator", settings.common_name),
+                    names: Vec::new(),
+                    extensions,
+                    id,
+                };
                 let admin_cert = match ca.config.admin_cert.clone() {
                     CertificateType::Soft(p) => {
-                        let admin_csr = ca.generate_plain_signing_request(
-                            m,
-                            format!("{}-admin", ca.config.common_name),
-                            format!("{} Administrator", settings.common_name),
-                            Vec::new(),
-                            extensions,
-                            id,
-                        );
-                        //TODO set proper duration here
+                        let admin_csr = options.generate_request();
                         let mut admin_cert = ca
                             .root_cert
                             .as_ref()
                             .unwrap()
-                            .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
+                            .sign_csr(
+                                admin_csr,
+                                &ca,
+                                id,
+                                time::Duration::days(ca.config.days as i64),
+                            )
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
                         admin_cert.save_to_medium(&mut ca, &p).await;
@@ -728,21 +741,18 @@ impl Ca {
                             p.as_bytes().to_vec(),
                             &label,
                         )?;
-                        let admin_csr = ca.smartcard_signing_request(
-                            keypair,
-                            m,
-                            label,
-                            format!("{} Administrator", settings.common_name),
-                            Vec::new(),
-                            extensions,
-                            id,
-                        );
-                        //TODO set proper duration here
+                        options.smartcard = Some(keypair);
+                        let admin_csr = options.generate_request();
                         let mut admin_cert = ca
                             .root_cert
                             .as_ref()
                             .unwrap()
-                            .sign_csr(admin_csr, &ca, id, time::Duration::days(365))
+                            .sign_csr(
+                                admin_csr,
+                                &ca,
+                                id,
+                                time::Duration::days(ca.config.days as i64),
+                            )
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
                         admin_cert.save_to_medium(&mut ca, &p).await;
@@ -794,150 +804,130 @@ impl Ca {
         }
         Some(ca)
     }
+}
 
-    /// Generate a signing request, backed by the hsm
-    /// # Arguments
-    /// * hsm - The hsm object to generate the keypair with
-    /// * t - The signing method for the certificate that will eventually be created
-    /// * name - The storage name of the certificate
-    /// * common_name - The commonName field for the subject of the certificate
-    /// * names - Subject alternate names for the certificate
-    /// * extension - The list of extensions to use for the certificate
-    pub fn generate_hsm_signing_request(
-        &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
-        t: HttpsSigningMethod,
-        name: String,
-        common_name: String,
-        names: Vec<String>,
-        extensions: Vec<rcgen::CustomExtension>,
-        id: u64,
-    ) -> CaCertificateToBeSigned {
-        let mut extensions = extensions.clone();
-        let mut params = rcgen::CertificateParams::new(names).unwrap();
-        let keypair = hsm.generate_https_keypair(&name, t, 4096).unwrap();
-        params.distinguished_name = rcgen::DistinguishedName::new();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, common_name);
-        params.not_before = time::OffsetDateTime::now_utc();
-        //TODO set a real time here
-        params.not_after = params.not_before + time::Duration::days(365);
-        params.custom_extensions.append(&mut extensions);
+/// The options required to build a signing request for a certificate
+pub struct SigningRequestParams {
+    /// The hsm to used when using the hsm to generate a certificate
+    pub hsm: Option<Arc<crate::hsm2::Hsm>>,
+    /// The smartcard keypair to use when using a certifcate for a smartcard
+    pub smartcard: Option<crate::card::KeyPair>,
+    /// The signing method
+    pub t: HttpsSigningMethod,
+    /// The name of the certificate
+    pub name: String,
+    /// The common name for the certificate
+    pub common_name: String,
+    /// The subject alternative names
+    pub names: Vec<String>,
+    /// Extensions for the certificate
+    pub extensions: Vec<rcgen::CustomExtension>,
+    /// The id for the certificate
+    pub id: u64,
+}
 
-        use crate::hsm2::KeyPairTrait;
-        let rckeypair = keypair.keypair();
-        let csr = params.serialize_request(&rckeypair).unwrap();
-        let csr_der = csr.der();
-        let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+impl SigningRequestParams {
+    /// Construct a signing request based on what options are present
+    pub fn generate_request(&self) -> CaCertificateToBeSigned {
+        if let Some(hsm) = &self.hsm {
+            let mut extensions = self.extensions.clone();
+            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
+            let keypair = hsm
+                .generate_https_keypair(&self.name, self.t, 4096)
+                .unwrap();
+            params.distinguished_name = rcgen::DistinguishedName::new();
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, self.common_name.clone());
+            params.not_before = time::OffsetDateTime::now_utc();
+            //TODO set a real time here
+            params.not_after = params.not_before + time::Duration::days(365);
+            params.custom_extensions.append(&mut extensions);
 
-        let mut sn = [0; 20];
-        for (i, b) in id.to_le_bytes().iter().enumerate() {
-            sn[i] = *b;
-        }
-        let sn = rcgen::SerialNumber::from_slice(&sn);
-        csr.params.serial_number = Some(sn);
+            use crate::hsm2::KeyPairTrait;
+            let rckeypair = keypair.keypair();
+            let csr = params.serialize_request(&rckeypair).unwrap();
+            let csr_der = csr.der();
+            let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
-        CaCertificateToBeSigned {
-            algorithm: t,
-            medium: self.medium.clone(),
-            csr,
-            keypair: Some(Keypair::Hsm(keypair)),
-            name,
-            id,
-        }
-    }
+            let mut sn = [0; 20];
+            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
+                sn[i] = *b;
+            }
+            let sn = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(sn);
 
-    /// Generate a signing request
-    /// # Arguments
-    /// * t - The signing method for the certificate that will eventually be created
-    /// * name - The storage name of the certificate
-    /// * common_name - The commonName field for the subject of the certificate
-    /// * names - Subject alternate names for the certificate
-    /// * extension - The list of extensions to use for the certificate
-    pub fn generate_plain_signing_request(
-        &mut self,
-        t: HttpsSigningMethod,
-        name: String,
-        common_name: String,
-        names: Vec<String>,
-        extensions: Vec<rcgen::CustomExtension>,
-        id: u64,
-    ) -> CaCertificateToBeSigned {
-        let mut extensions = extensions.clone();
-        let mut params = rcgen::CertificateParams::new(names).unwrap();
-        let (keypair, priva) = t.generate_keypair(4096).unwrap();
-        params.distinguished_name = rcgen::DistinguishedName::new();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, common_name);
-        params.not_before = time::OffsetDateTime::now_utc();
-        //TODO set a real time here
-        params.not_after = params.not_before + time::Duration::days(365);
-        params.custom_extensions.append(&mut extensions);
+            CaCertificateToBeSigned {
+                algorithm: self.t,
+                medium: CaCertificateStorage::Nowhere,
+                csr,
+                keypair: Some(Keypair::Hsm(keypair)),
+                name: self.name.clone(),
+                id: self.id,
+            }
+        } else if let Some(keypair) = &self.smartcard {
+            let mut extensions = self.extensions.clone();
+            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
+            params.distinguished_name = rcgen::DistinguishedName::new();
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, self.common_name.clone());
+            params.not_before = time::OffsetDateTime::now_utc();
+            //TODO set a real time here
+            params.not_after = params.not_before + time::Duration::days(365);
+            params.custom_extensions.append(&mut extensions);
+            let csr = params.serialize_request(&keypair.rcgen()).unwrap();
+            let csr_der = csr.der();
+            service::log::debug!("The csr der is {:02X?}", csr_der);
+            let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
-        let csr = params.serialize_request(&keypair).unwrap();
-        let csr_der = csr.der();
-        let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+            let mut sn = [0; 20];
+            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
+                sn[i] = *b;
+            }
+            let sn = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(sn);
 
-        let mut sn = [0; 20];
-        for (i, b) in id.to_le_bytes().iter().enumerate() {
-            sn[i] = *b;
-        }
-        let sn = rcgen::SerialNumber::from_slice(&sn);
-        csr.params.serial_number = Some(sn);
+            CaCertificateToBeSigned {
+                algorithm: self.t,
+                medium: CaCertificateStorage::Nowhere,
+                csr,
+                keypair: Some(Keypair::SmartCard(keypair.clone())),
+                name: self.name.clone(),
+                id: self.id,
+            }
+        } else {
+            let mut extensions = self.extensions.clone();
+            let mut params = rcgen::CertificateParams::new(self.names.clone()).unwrap();
+            let (keypair, priva) = self.t.generate_keypair(4096).unwrap();
+            params.distinguished_name = rcgen::DistinguishedName::new();
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, self.common_name.clone());
+            params.not_before = time::OffsetDateTime::now_utc();
+            //TODO set a real time here
+            params.not_after = params.not_before + time::Duration::days(365);
+            params.custom_extensions.append(&mut extensions);
 
-        CaCertificateToBeSigned {
-            algorithm: t,
-            medium: self.medium.clone(),
-            csr,
-            keypair: Some(Keypair::NotHsm(priva)),
-            name,
-            id,
-        }
-    }
+            let csr = params.serialize_request(&keypair).unwrap();
+            let csr_der = csr.der();
+            let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
 
-    /// Create a signing request with a smartcard-generated keypair
-    ///
-    pub fn smartcard_signing_request(
-        &mut self,
-        keypair: crate::card::KeyPair,
-        t: HttpsSigningMethod,
-        name: String,
-        common_name: String,
-        names: Vec<String>,
-        extensions: Vec<rcgen::CustomExtension>,
-        id: u64,
-    ) -> CaCertificateToBeSigned {
-        let mut extensions = extensions.clone();
-        let mut params = rcgen::CertificateParams::new(names).unwrap();
-        params.distinguished_name = rcgen::DistinguishedName::new();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, common_name);
-        params.not_before = time::OffsetDateTime::now_utc();
-        //TODO set a real time here
-        params.not_after = params.not_before + time::Duration::days(365);
-        params.custom_extensions.append(&mut extensions);
-        let csr = params.serialize_request(&keypair.rcgen()).unwrap();
-        let csr_der = csr.der();
-        service::log::debug!("The csr der is {:02X?}", csr_der);
-        let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
+            let mut sn = [0; 20];
+            for (i, b) in self.id.to_le_bytes().iter().enumerate() {
+                sn[i] = *b;
+            }
+            let sn = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(sn);
 
-        let mut sn = [0; 20];
-        for (i, b) in id.to_le_bytes().iter().enumerate() {
-            sn[i] = *b;
-        }
-        let sn = rcgen::SerialNumber::from_slice(&sn);
-        csr.params.serial_number = Some(sn);
-
-        CaCertificateToBeSigned {
-            algorithm: t,
-            medium: self.medium.clone(),
-            csr,
-            keypair: Some(Keypair::SmartCard(keypair)),
-            name,
-            id,
+            CaCertificateToBeSigned {
+                algorithm: self.t,
+                medium: CaCertificateStorage::Nowhere,
+                csr,
+                keypair: Some(Keypair::NotHsm(priva)),
+                name: self.name.clone(),
+                id: self.id,
+            }
         }
     }
 }

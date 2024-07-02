@@ -14,6 +14,7 @@ mod ca;
 mod card;
 mod hsm2;
 mod tpm2;
+mod utility;
 
 use egui_multiwin_dynamic::multi_window::{MultiWindow, NewWindowRequest};
 

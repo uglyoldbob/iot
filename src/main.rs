@@ -11,6 +11,7 @@ mod ca;
 mod card;
 mod hsm2;
 mod tpm2;
+mod utility;
 
 use std::io::Write;
 use std::sync::Arc;

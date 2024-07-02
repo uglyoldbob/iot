@@ -164,10 +164,3 @@ path = "src/construct-gui.rs"
 name = "rust-iot-destroy"
 path = "src/destroy.rs"
 
-[[bin]]
-name = "test"
-path = "src/test.rs"
-
-[[bin]]
-name = "test2"
-path = "src/test2.rs"

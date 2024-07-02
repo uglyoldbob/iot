@@ -11,6 +11,7 @@ mod card;
 mod hsm2;
 mod main_config;
 mod tpm2;
+mod utility;
 
 pub use main_config::MainConfiguration;
 

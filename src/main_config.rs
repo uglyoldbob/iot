@@ -167,7 +167,7 @@ impl From<HttpsCertificateLocationAnswers> for HttpsCertificateLocation {
             HttpsCertificateLocationAnswers::New { path, ca_name } => Self::New {
                 path: path.to_path_buf(),
                 ca_name,
-                password: crate::ca::generate_password(32),
+                password: crate::utility::generate_password(32),
             },
         }
     }
@@ -557,8 +557,8 @@ impl MainConfiguration {
             debug_level: Some(answers.debug_level.clone()),
             tpm2_required: answers.tpm2_required,
             hsm_path_override: answers.hsm_path_override.clone(),
-            hsm_pin: crate::ca::generate_password(32),
-            hsm_pin2: crate::ca::generate_password(32),
+            hsm_pin: crate::utility::generate_password(32),
+            hsm_pin2: crate::utility::generate_password(32),
         }
     }
 

@@ -1,6 +1,8 @@
-use userprompt::Prompting;
-
+#[path = "../src/tpm2.rs"]
 mod tpm2;
+
+#[path = "../src/utility.rs"]
+mod utility;
 
 #[allow(dead_code)]
 #[derive(Debug, userprompt::Prompting)]
@@ -28,8 +30,8 @@ struct TestMe2 {
     number: Option<u8>,
 }
 
-#[tokio::main]
-async fn main() {
+#[tokio::test]
+async fn test_tpm2() {
     println!("Running test program");
 
     #[cfg(feature = "tpm2")]
@@ -39,14 +41,7 @@ async fn main() {
             *e = rand::random();
         }
 
-        let mut password: String;
-        loop {
-            println!("Please enter a password:");
-            password = String::prompt(None).unwrap();
-            if !password.is_empty() {
-                break;
-            }
-        }
+        let mut password = utility::generate_password(32);
 
         let config: Vec<u8>;
         let tpm_data: tpm2::TpmBlob;
