@@ -61,6 +61,21 @@ impl KeyPair {
         rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
     }
 
+    fn keysize_bytes(&self) -> usize {
+        match &self.algorithm {
+            card::AuthenticateAlgorithm::TripleDes => todo!(),
+            card::AuthenticateAlgorithm::Rsa1024 => 128,
+            card::AuthenticateAlgorithm::Rsa2048 => 256,
+            card::AuthenticateAlgorithm::Aes128 => todo!(),
+            card::AuthenticateAlgorithm::Aes192 => todo!(),
+            card::AuthenticateAlgorithm::EccP256 => todo!(),
+            card::AuthenticateAlgorithm::Aes256 => todo!(),
+            card::AuthenticateAlgorithm::EccP384 => todo!(),
+            card::AuthenticateAlgorithm::CipherSuite2 => todo!(),
+            card::AuthenticateAlgorithm::CipherSuite7 => todo!(),
+        }
+    }
+
     /// Sign data
     pub fn sign_with_pin(&self, data: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
         use sha2::Digest;
@@ -68,7 +83,7 @@ impl KeyPair {
         let mut hasher = sha2::Sha256::new();
         hasher.update(data);
         let hash = hasher.finalize();
-        let hashed = crate::ca::pkcs15_sha256(&hash);
+        let hashed = crate::ca::pkcs15_sha256(self.keysize_bytes(), &hash);
 
         service::log::debug!(
             "Signing hdata len {} with pin {:02X?} {:02X?}",

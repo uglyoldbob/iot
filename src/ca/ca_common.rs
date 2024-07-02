@@ -23,17 +23,6 @@ use cert_common::pkcs12::BagAttribute;
 /// Hash and convert to der format
 pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
     let mut hash = hash.to_vec();
-    let plen = 255 - hash.len() - 22;
-    let mut p = vec![0; plen];
-    for e in &mut p {
-        let v: u8 = loop {
-            let t = rand::random();
-            if t != 0 {
-                break t;
-            }
-        };
-        *e = v;
-    }
     // convert to der format, indicating sha-256 hash present
     let mut der_hash = vec![
         0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
@@ -43,26 +32,13 @@ pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
     der_hash
 }
 
-/// apply pkcs1.5 padding to pkcs1 hash
-pub fn pkcs15_sha256(hash: &[u8]) -> Vec<u8> {
-    let hash2 = hash.to_vec();
-
+/// apply pkcs1.5 padding to pkcs1 hash, suitable for signing
+pub fn pkcs15_sha256(total_size: usize, hash: &[u8]) -> Vec<u8> {
     // convert to der format, indicating sha-256 hash present
     let mut der_hash = rsa_sha256(hash);
 
-    let plen = 256 - der_hash.len() - 3;
+    let plen = total_size - der_hash.len() - 3;
     let mut p = vec![0xff; plen];
-    if false {
-        for e in &mut p {
-            let v: u8 = loop {
-                let t = rand::random();
-                if t != 0 {
-                    break t;
-                }
-            };
-            *e = v;
-        }
-    }
 
     let mut total = Vec::new();
     total.append(&mut vec![0, 1]);
@@ -1178,27 +1154,35 @@ impl CaCertificateStorage {
     /// Load a certificate from the storage medium
     pub async fn load_p12_from_medium(
         &self,
-        name: &str,
+        label: &str,
     ) -> Result<ProtectedPkcs12, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
             CaCertificateStorage::Sqlite(p) => {
-                let name = name.to_owned();
-                let name2 = name.to_owned();
-                let (id, key1) = p
+                let label = label.to_owned();
+                let label2 = label.to_owned();
+                let id = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT id,key1 FROM hsm_handles WHERE name='{}'", name),
+                            &format!("SELECT id FROM hsm_labels WHERE label='{}'", label),
                             [],
-                            |r| Ok((r.get(0).unwrap(), r.get(1).unwrap())),
+                            |r| Ok(r.get(0).unwrap()),
                         )
                     })
                     .await
-                    .map_err(|_| {
-                        service::log::debug!("Cannot load cert {}", name2);
+                    .map_err(|e| {
+                        service::log::debug!("Cannot load cert {} - {:?}", label2, e);
                         CertificateLoadingError::DoesNotExist
                     })?;
-                let p12 = cert_common::pkcs12::ProtectedPkcs12 { contents: key1, id };
+                let cert: Result<Vec<u8>, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row("SELECT der FROM certs WHERE id=?1", [id], |r| r.get(0))
+                    })
+                    .await;
+                let p12 = cert_common::pkcs12::ProtectedPkcs12 {
+                    contents: cert.map_err(|_e| CertificateLoadingError::DoesNotExist)?,
+                    id,
+                };
                 Ok(p12)
             }
         }
@@ -2377,13 +2361,10 @@ impl Ca {
         name: &str,
         password: Option<&str>,
     ) -> Result<CaCertificate, CertificateLoadingError> {
-        if let Ok(cert) = self
-            .medium
-            .load_hsm_from_medium(hsm, &format!("{}-{}", self.config.common_name, name))
-            .await
-        {
+        let hsm_name = format!("{}-{}", self.config.common_name, name);
+        if let Ok(cert) = self.medium.load_hsm_from_medium(hsm, &hsm_name).await {
             Ok(cert)
-        } else if let Ok(rc) = self.medium.load_p12_from_medium(name).await {
+        } else if let Ok(rc) = self.medium.load_p12_from_medium(&hsm_name).await {
             if let Some(password) = password {
                 Ok(cert_common::pkcs12::Pkcs12::load_from_data(
                     &rc.contents,
@@ -2393,8 +2374,20 @@ impl Ca {
                 .try_into()
                 .unwrap())
             } else {
-                service::log::debug!("{} does not exist 1", name);
-                Err(CertificateLoadingError::DoesNotExist)
+                use der::Decode;
+                let x509 = x509_cert::Certificate::from_der(&rc.contents)
+                    .map_err(|_| CertificateLoadingError::InvalidCert)?;
+                let cert = CaCertificate {
+                    medium: self.medium.clone(),
+                    data: CertificateData::from_x509(
+                        &CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
+                        x509,
+                    )
+                    .map_err(|_| CertificateLoadingError::InvalidCert)?,
+                    name: hsm_name.clone(),
+                    id: rc.id,
+                };
+                Ok(cert)
             }
         } else {
             service::log::debug!("{} does not exist 2", name);
