@@ -1572,18 +1572,11 @@ pub enum CertificateData {
 
 impl CertificateData {
     /// Build a Self from an x509 certificate
-    pub fn from_x509(
-        method: &CertificateSigningMethod,
-        x509: x509_cert::Certificate,
-    ) -> Result<Self, CertificateLoadingError> {
-        match method {
-            CertificateSigningMethod::Https(_) => {
-                let cert = HttpsCertificate::from_x509(x509)?;
-                let cac = Self::Https(cert);
-                Ok(cac)
-            }
-            CertificateSigningMethod::Ssh(_) => todo!(),
-        }
+    pub fn from_x509(x509: x509_cert::Certificate) -> Result<Self, CertificateLoadingError> {
+        //TODO handle ssh certificates somehow
+        let cert = HttpsCertificate::from_x509(x509)?;
+        let cac = Self::Https(cert);
+        Ok(cac)
     }
 }
 
@@ -2338,7 +2331,7 @@ impl Ca {
                         let c = x509_cert::Certificate::from_der(&c).unwrap();
                         let cac = CaCertificate {
                             medium: self.medium.clone(),
-                            data: CertificateData::from_x509(&self.config.sign_method, c)?,
+                            data: CertificateData::from_x509(c)?,
                             name: "admin".to_string(),
                             id,
                         };
@@ -2379,11 +2372,8 @@ impl Ca {
                     .map_err(|_| CertificateLoadingError::InvalidCert)?;
                 let cert = CaCertificate {
                     medium: self.medium.clone(),
-                    data: CertificateData::from_x509(
-                        &CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-                        x509,
-                    )
-                    .map_err(|_| CertificateLoadingError::InvalidCert)?,
+                    data: CertificateData::from_x509(x509)
+                        .map_err(|_| CertificateLoadingError::InvalidCert)?,
                     name: hsm_name.clone(),
                     id: rc.id,
                 };

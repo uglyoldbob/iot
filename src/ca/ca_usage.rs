@@ -547,7 +547,7 @@ impl Ca {
             let csr = https_options.generate_request();
             let root_cert = self.root_cert.as_ref().unwrap();
             let mut cert = root_cert
-                .sign_csr(csr, self, id, time::Duration::days(365))
+                .sign_csr(csr, self, id, time::Duration::days(self.config.days as i64))
                 .unwrap();
             cert.medium = self.medium.clone();
             let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
@@ -653,7 +653,12 @@ impl Ca {
                             .root_cert
                             .as_ref()
                             .unwrap()
-                            .sign_csr(root_csr, &ca, id, time::Duration::days(365))
+                            .sign_csr(
+                                root_csr,
+                                &ca,
+                                id,
+                                time::Duration::days(ca.config.days as i64),
+                            )
                             .unwrap();
                         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                         superior
@@ -694,7 +699,12 @@ impl Ca {
                     .root_cert
                     .as_ref()
                     .unwrap()
-                    .sign_csr(ocsp_csr, &ca, id, time::Duration::days(365))
+                    .sign_csr(
+                        ocsp_csr,
+                        &ca,
+                        id,
+                        time::Duration::days(ca.config.days as i64),
+                    )
                     .unwrap();
                 ocsp_cert.medium = ca.medium.clone();
                 ocsp_cert.save_to_medium(&mut ca, "").await;
@@ -772,7 +782,7 @@ impl Ca {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
-                    let valid_before = valid_after + (365 * 86400); // e.g. 1 year
+                    let valid_before = valid_after + (ca.config.days as u64 * 86400); // e.g. 1 year
 
                     let mut cert_builder = ssh_key::certificate::Builder::new_with_random_nonce(
                         &mut rand::thread_rng(),
