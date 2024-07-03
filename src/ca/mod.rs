@@ -2,7 +2,7 @@
 
 use hyper::header::HeaderValue;
 
-use crate::{webserver, WebPageContext, WebRouter};
+use crate::webserver::{WebPageContext, WebResponse, WebRouter};
 
 use cert_common::{oid::*, CertificateSigningMethod, HttpsSigningMethod};
 
@@ -11,7 +11,7 @@ pub mod ca_usage;
 pub use ca_usage::*;
 
 /// Handle a request submission for a certificate authority
-async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut valid_csr = false;
     let mut mycsr_pem = None;
     let mut id = None;
@@ -99,14 +99,14 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// The page that allows users to submit a signing request.
-async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_submit_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -122,7 +122,7 @@ async fn ca_submit_request(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Page for a user to generate a request for a certificate authority
-async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
     let mut html = html::root::Html::builder();
     html.head(|h| {
@@ -344,14 +344,14 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRes
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// The page that allows a user to generate a signing request.
-async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -367,7 +367,7 @@ async fn ca_request(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// The main landing page for a pki object
-async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
+async fn pki_main_page(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     service::log::debug!("Proxy is \"{}\"", s.proxy);
     if let PkiInstance::Pki(pki) = std::ops::DerefMut::deref_mut(&mut pki) {
@@ -433,14 +433,14 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
         let response = hyper::Response::new("dummy");
         let (response, _dummybody) = response.into_parts();
         let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-        webserver::WebResponse {
+        WebResponse {
             response: hyper::http::Response::from_parts(response, body),
             cookie: s.logincookie,
         }
     } else {
         let response = hyper::Response::new("dummy");
         let (response, body) = response.into_parts();
-        webserver::WebResponse {
+        WebResponse {
             response: hyper::http::Response::from_parts(response, body.into()),
             cookie: s.logincookie,
         }
@@ -448,7 +448,7 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
 }
 
 ///The page that redirects to the pki main page without a trailing /
-async fn pki_main_page2(s: WebPageContext) -> webserver::WebResponse {
+async fn pki_main_page2(s: WebPageContext) -> WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -460,14 +460,14 @@ async fn pki_main_page2(s: WebPageContext) -> webserver::WebResponse {
         .insert("Location", HeaderValue::from_str(&url).unwrap());
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie,
     }
 }
 
 /// The main page for a certificate authority
-async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -536,14 +536,14 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 ///The main landing page for the certificate authority
-async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_main_page(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -558,7 +558,7 @@ async fn ca_main_page(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Redirect to the main ca page
-async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
 
     let response = hyper::Response::new("dummy");
@@ -573,14 +573,14 @@ async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> webserver::Web
         .insert("Location", HeaderValue::from_str(&url).unwrap());
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from("I am GRooT?"));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 ///The page that redirects to the ca main page without a trailing /
-async fn ca_main_page2(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_main_page2(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -595,7 +595,7 @@ async fn ca_main_page2(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Reject a specified request for a certificate authority
-async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if let Some(id) = s.get.get("id") {
@@ -644,14 +644,14 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> webserver:
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Reject a csr with a specified reason
-async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_reject_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -667,7 +667,7 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Sign a specified request for a certificate authority
-async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -772,14 +772,14 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// A page to sign a single request.
-async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_sign_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -795,7 +795,7 @@ async fn ca_sign_request(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get the pending signing requests for a certificate authority
-async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -945,14 +945,14 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> webse
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// A page for listing all https requests in the system. It also can enumerate a single request.
-async fn ca_list_https_requests(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_list_https_requests(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -968,7 +968,7 @@ async fn ca_list_https_requests(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get the pending signing requests for a certificate authority
-async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
@@ -1069,14 +1069,14 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> webserv
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// A page for listing all https requests in the system. It also can enumerate a single request.
-async fn ca_list_ssh_requests(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_list_ssh_requests(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1092,7 +1092,7 @@ async fn ca_list_ssh_requests(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// View all certificates for a certificate authority
-async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -1146,14 +1146,14 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> webserver:
     let html = html.build();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
 
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// A page for viewing all certificates in the certificate authority
-async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_view_all_certs(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1169,7 +1169,7 @@ async fn ca_view_all_certs(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// View a user certificate for a certificate authority
-async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
@@ -1373,14 +1373,14 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
     let html = html.build();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
 
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_view_user_https_cert(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_view_user_https_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1396,7 +1396,7 @@ async fn ca_view_user_https_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// View a user certificate for a certificate authority
-async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
@@ -1513,14 +1513,14 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webser
     let html = html.build();
     let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
 
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_view_user_ssh_cert(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_view_user_ssh_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1536,7 +1536,7 @@ async fn ca_view_user_ssh_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get a user certificate for a certificate authority
-async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1591,14 +1591,14 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::
     } else {
         http_body_util::Full::new(hyper::body::Bytes::from("missing"))
     };
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_get_user_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1614,7 +1614,7 @@ async fn ca_get_user_cert(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get the admin certificate for a certificate authority
-async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1667,14 +1667,14 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> webserver::WebR
             });
         http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()))
     };
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
-async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_get_admin(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1690,7 +1690,7 @@ async fn ca_get_admin(s: WebPageContext) -> webserver::WebResponse {
 }
 
 /// Get a ca cert for a certificate authrity
-async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
@@ -1753,14 +1753,14 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> webserver::WebRe
     } else {
         http_body_util::Full::new(hyper::body::Bytes::from("missing"))
     };
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
-async fn ca_get_cert(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_get_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1916,7 +1916,7 @@ async fn build_ocsp_response(
 }
 
 /// Run an ocsp response for a ca
-async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
+async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let ocsp_request = s.post.ocsp();
 
     let mut ocsp_requirements = OcspRequirements::new();
@@ -1967,14 +1967,14 @@ async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver:
     );
 
     let body = http_body_util::Full::new(hyper::body::Bytes::from(der));
-    webserver::WebResponse {
+    WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
     }
 }
 
 /// Run the ocsp responder
-async fn ca_ocsp_responder(s: WebPageContext) -> webserver::WebResponse {
+async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {

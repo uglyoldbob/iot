@@ -31,7 +31,24 @@ struct TestMe2 {
 }
 
 #[tokio::test]
-async fn test_tpm2() {
+async fn non_tpm2() {
+    #[cfg(feature = "tpm2")]
+    {
+        let mut data: Vec<u8> = vec![0; 1024];
+        for e in data.iter_mut() {
+            *e = rand::random();
+        }
+
+        let pw = utility::generate_password(32);
+
+        let a = tpm2::encrypt(&data, pw.as_bytes());
+        let plain = tpm2::decrypt(a, pw.as_bytes());
+        assert_eq!(plain, data);
+    }
+}
+
+#[tokio::test]
+async fn tpm2() {
     println!("Running test program");
 
     #[cfg(feature = "tpm2")]
@@ -42,33 +59,34 @@ async fn test_tpm2() {
         }
 
         let password = utility::generate_password(32);
-
         let config: Vec<u8>;
         let tpm_data: tpm2::TpmBlob;
         {
             let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path()).expect("TPM2 hardware not found");
-
             let password2: [u8; 32] = rand::random();
-
             let protected_password =
                 tpm2::Password::build(&password2, std::num::NonZeroU32::new(2048).unwrap());
-
             let password_combined = [password.as_bytes(), protected_password.password()].concat();
-
             config = tpm2::encrypt(&data, &password_combined);
-
             let epdata = protected_password.data();
             tpm_data = tpm2.encrypt(&epdata).unwrap();
+        }
+        {
+            let d = tpm_data.data();
+            let e = tpm2::TpmBlob::rebuild(&d);
+            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path()).expect("TPM2 hardware not found");
+            let epdata = tpm2.decrypt(e).unwrap();
+            let protected_password = tpm2::Password::rebuild(&epdata);
+            let password_combined = [password.as_bytes(), protected_password.password()].concat();
+            let pconfig = tpm2::decrypt(config.clone(), &password_combined);
+            assert_eq!(pconfig, data);
         }
         {
             let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path()).expect("TPM2 hardware not found");
             let epdata = tpm2.decrypt(tpm_data).unwrap();
             let protected_password = tpm2::Password::rebuild(&epdata);
-
             let password_combined = [password.as_bytes(), protected_password.password()].concat();
-
             let pconfig = tpm2::decrypt(config, &password_combined);
-
             assert_eq!(pconfig, data);
             println!("TPM2 testing passed");
         }

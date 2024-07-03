@@ -123,20 +123,6 @@ impl Password {
     }
 
     #[allow(dead_code)]
-    /// Verify the given password
-    pub fn verify(&self, password: &[u8]) -> bool {
-        let salt = &self.salt;
-        ring::pbkdf2::verify(
-            ring::pbkdf2::PBKDF2_HMAC_SHA256,
-            self.iterations,
-            salt,
-            password,
-            &self.data,
-        )
-        .is_ok()
-    }
-
-    #[allow(dead_code)]
     /// Serialize self into data.
     pub fn data(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()

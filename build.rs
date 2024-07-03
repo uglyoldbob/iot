@@ -6,18 +6,21 @@ fn main() {
         std::path::PathBuf::from(std::env::var("OUT_DIR").expect("No output directory given"));
 
     std::env::set_var("CARGO_TARGET_DIR", out_path.clone());
-    let wasm_build = std::process::Command::new("wasm-pack")
-        .arg("build")
-        .arg("--release")
-        .arg("--target")
-        .arg("no-modules")
-        .current_dir("./certgen")
-        .output()
-        .unwrap();
-    if !wasm_build.status.success() {
-        println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
-        eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
-        panic!("build failed");
+    #[cfg(not(coverage))]
+    {
+        let wasm_build = std::process::Command::new("wasm-pack")
+            .arg("build")
+            .arg("--release")
+            .arg("--target")
+            .arg("no-modules")
+            .current_dir("./certgen")
+            .output()
+            .unwrap();
+        if !wasm_build.status.success() {
+            println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
+            eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
+            panic!("build failed");
+        }
     }
 
     // false - run npm out of the source directory
