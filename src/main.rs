@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 use hyper::header::HeaderValue;
 
-mod user;
 mod webserver;
 
 mod main_config;
@@ -76,134 +75,13 @@ async fn test_func(s: WebPageContext) -> webserver::WebResponse {
     }
 }
 
-/// The page for /main.rs
-async fn main_page<'a>(mut s: WebPageContext) -> webserver::WebResponse {
-    let mut c: String = "".to_string();
-    let logincookie = s.logincookie;
-
-    let mut logged_in = false;
-    let mut username: String = "".to_string();
-    if let Some(cookie) = &logincookie {
-        //lookup login cookie
-        let value = cookie.parse::<u64>();
-        if let Ok(value) = value {
-            let user = s
-                .pool
-                .as_mut()
-                .and_then(|f| user::check_login_entry(f, value));
-            if let Some(user) = user {
-                logged_in = true;
-                username = user;
-            }
-        }
-    }
-
-    /*user::try_user_hash(&mut s.pool,
-    s.session.user.to_owned(),
-    s.session.passhash.to_owned());*/
-    if !logged_in {
-        c.push_str(
-            "
-Welcome to the login page!
-<form>
-    Username: 
-    <input type=\"text\" id=\"username\" name=\"username\"><br>
-    Password: 
-    <input type=\"password\" id=\"password\" name=\"password\"><br>
-    <input type=\"submit\" value=\"Login\" formmethod=\"post\"><br>
-    </form>
-</HTML>",
-        );
-    } else {
-        c.push_str(
-            "
-<table id=\"main-table\" border=\"0\" cellspacing=\"0\">
- <tbody>
-  <tr>
-   <td id=\"header\" colspan=\"3\">
-    <!--[IF IE 7]>
-	<style>
-		div#header-div div.right-links{
-			position:absolute;
-		}
-	</style>
-    <![endif]-->
-    <div id=\"header-div\">
-     <div class=\"right-logo\">Management Console</div>
-    </div>
-   </td>
-  </tr>
- </tbody>
-</table>
-You are logged in
-</HTML>",
-        )
-    }
-    //    s.ourcookie = None;
-    let response = hyper::Response::new("dummy");
-    let (response, _dummybody) = response.into_parts();
-    let body = http_body_util::Full::new(hyper::body::Bytes::from(c));
-    hyper::http::Response::from_parts(response, body);
-
-    let mut html = html::root::Html::builder();
-    html.head(|h| {
-        h.title(|t| t.text("Rust IOT Management Console"));
-        h.meta(|h| {
-            h.http_equiv("Content-Type")
-                .content("text/html;charset=utf-8")
-        });
-        h.link(|h| {
-            h.href(format!("{}css/main.css", s.proxy))
-                .rel("stylesheet")
-                .media("all")
-        });
-        h
-    })
-    .body(|b| {
-        let certs = s.user_certs.all_certs();
-        if !certs.is_empty() {
-            b.text("You have a certificate");
-            b.line_break(|fb| fb);
-            for c in certs {
-                b.text(c.tbs_certificate.subject.to_string());
-                b.line_break(|fb| fb);
-                b.text(c.tbs_certificate.issuer.to_string());
-                b.line_break(|fb| fb);
-            }
-        }
-
-        if !logged_in {
-            b.form(|fb| {
-                fb.text("Username ")
-                    .input(|ib| ib.type_("text").id("username").name("username"))
-                    .line_break(|fb| fb)
-                    .text("Password ")
-                    .input(|ib| ib.type_("password").id("password").name("password"))
-                    .line_break(|fb| fb)
-                    .input(|ib| ib.type_("submit").value("Login").formmethod("post"))
-                    .line_break(|fb| fb)
-            });
-        }
-        b
-    });
-    let html = html.build();
-
-    let response = hyper::Response::new("dummy");
-    let (response, _dummybody) = response.into_parts();
-    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    webserver::WebResponse {
-        response: hyper::http::Response::from_parts(response, body),
-        cookie: logincookie,
-    }
-}
-
 ///The page that redirects to /main.rs
 async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = format!("{}main.rs", s.proxy);
+    let url = format!("{}pki", s.proxy);
     response
         .headers
         .insert("Location", HeaderValue::from_str(&url).unwrap());
@@ -285,7 +163,6 @@ async fn smain() {
     router.register("/groot2", test_func3);
     router.register("", main_redirect);
     router.register("/", main_redirect);
-    router.register("/main.rs", main_page);
 
     let mut settings_con = Vec::new();
     let mut f = tokio::fs::File::open(config_path.join(format!("{}-config.toml", name)))
@@ -489,7 +366,7 @@ async fn smain() {
     }
     let mut mysql_pool = mysql_temp.ok();
 
-    let mut mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
+    let _mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 
@@ -503,12 +380,6 @@ async fn smain() {
         settings: settings.clone(),
         pki,
     };
-
-    if let Some(mysql_conn_s) = &mut mysql_conn_s {
-        user::check_user_table(mysql_conn_s);
-        user::check_login_table(mysql_conn_s);
-        user::set_admin_login(mysql_conn_s, &settings);
-    }
 
     hc.cookiename = format!("/{}", settings.general.cookie);
 

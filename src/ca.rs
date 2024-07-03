@@ -393,11 +393,26 @@ async fn pki_main_page(s: WebPageContext) -> webserver::WebResponse {
                 b.thematic_break(|a| a);
                 let validity = ca.get_validity();
                 if let Some(valid) = validity {
-                    b.text(format!(
-                        "{}: Valid from {} to {}",
-                        name, valid.not_before, valid.not_after
-                    ))
-                    .line_break(|a| a);
+                    if let Ok(duration) = valid
+                        .not_after
+                        .to_system_time()
+                        .duration_since(valid.not_before.to_system_time())
+                    {
+                        b.text(format!(
+                            "{}: Valid for {} days from {} to {}",
+                            name,
+                            duration.as_secs() / 86400,
+                            valid.not_before,
+                            valid.not_after
+                        ))
+                        .line_break(|a| a);
+                    } else {
+                        b.text(format!(
+                            "{}: Valid for ??? days from {} to {}",
+                            name, valid.not_before, valid.not_after
+                        ))
+                        .line_break(|a| a);
+                    }
                 }
                 if let Ok(cert) = ca.root_ca_cert() {
                     b.text(format!("CERT TYPE {:?}", cert.algorithm()))
@@ -1218,12 +1233,30 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> webs
                     let t = csr_names.join(", ");
                     b.text(t).line_break(|a| a);
                     if admin {
-                        b.text(format!(
-                            "Valid from {} to {}",
-                            cert.tbs_certificate.validity.not_before,
-                            cert.tbs_certificate.validity.not_after
-                        ))
-                        .line_break(|a| a);
+                        if let Ok(duration) = cert
+                            .tbs_certificate
+                            .validity
+                            .not_after
+                            .to_system_time()
+                            .duration_since(
+                                cert.tbs_certificate.validity.not_before.to_system_time(),
+                            )
+                        {
+                            b.text(format!(
+                                "Valid for {} days from {} to {}",
+                                duration.as_secs() / 86400,
+                                cert.tbs_certificate.validity.not_before,
+                                cert.tbs_certificate.validity.not_after
+                            ))
+                            .line_break(|a| a);
+                        } else {
+                            b.text(format!(
+                                "Valid for ??? days from {} to {}",
+                                cert.tbs_certificate.validity.not_before,
+                                cert.tbs_certificate.validity.not_after
+                            ))
+                            .line_break(|a| a);
+                        }
                     }
                     if let Some(extensions) = &cert.tbs_certificate.extensions {
                         for e in extensions {
