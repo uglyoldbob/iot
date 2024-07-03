@@ -10,6 +10,7 @@ mod main_config;
 use ca::{CertificateType, SmartCardPin2};
 pub use main_config::MainConfiguration;
 use userprompt::Password2;
+use x509_cert::ext::pkix::ExtendedKeyUsage;
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -80,4 +81,54 @@ fn from_certificate_type_answers() {
     } else {
         panic!("Wrong type returned");
     }
+}
+
+#[test]
+fn common_oid() {
+    let oid1: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone();
+    let eku1: cert_common::ExtendedKeyUsage = oid1.clone().into();
+    assert_eq!(cert_common::ExtendedKeyUsage::ClientIdentification, eku1);
+    assert_eq!(eku1.to_oid(), oid1);
+
+    let oid2: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_SERVER_AUTH.clone();
+    let eku2: cert_common::ExtendedKeyUsage = oid2.clone().into();
+    assert_eq!(cert_common::ExtendedKeyUsage::ServerIdentification, eku2);
+    assert_eq!(eku2.to_oid(), oid2);
+
+    let oid3: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_CODE_SIGNING.clone();
+    let eku3: cert_common::ExtendedKeyUsage = oid3.clone().into();
+    assert_eq!(cert_common::ExtendedKeyUsage::CodeSigning, eku3);
+    assert_eq!(eku3.to_oid(), oid3);
+
+    let oid4: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.clone();
+    let eku4: cert_common::ExtendedKeyUsage = oid4.clone().into();
+    assert_eq!(cert_common::ExtendedKeyUsage::OcspSigning, eku4);
+    assert_eq!(eku4.to_oid(), oid4);
+
+    let ekus = vec![eku1, eku2, eku3, eku4];
+    cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone())
+        .to_custom_attribute()
+        .unwrap();
+    cert_common::CsrAttribute::ChallengePassword("whatever".to_string())
+        .to_custom_attribute()
+        .unwrap();
+    cert_common::CsrAttribute::UnstructuredName("whatever2".to_string())
+        .to_custom_attribute()
+        .unwrap();
+
+    cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone())
+        .to_custom_extension()
+        .unwrap();
+    cert_common::CsrAttribute::ChallengePassword("whatever".to_string())
+        .to_custom_extension()
+        .unwrap();
+    cert_common::CsrAttribute::UnstructuredName("whatever2".to_string())
+        .to_custom_extension()
+        .unwrap();
+
+    let ekus2 = cert_common::CsrAttribute::build_extended_key_usage(vec![oid1, oid2, oid3, oid4]);
+    assert_eq!(
+        cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone()),
+        ekus2
+    );
 }

@@ -6,7 +6,7 @@ use oid::*;
 use zeroize::Zeroizing;
 
 /// The ways in which a certificate can be used, the extended form
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExtendedKeyUsage {
     /// The certificate is used to identify a client
     ClientIdentification,
@@ -38,7 +38,7 @@ impl From<Oid> for ExtendedKeyUsage {
 
 impl ExtendedKeyUsage {
     /// Convert Self to an Oid
-    fn to_oid(&self) -> Oid {
+    pub fn to_oid(&self) -> Oid {
         match self {
             ExtendedKeyUsage::ClientIdentification => OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone(),
             ExtendedKeyUsage::ServerIdentification => OID_EXTENDED_KEY_USAGE_SERVER_AUTH.clone(),
@@ -50,6 +50,7 @@ impl ExtendedKeyUsage {
 }
 
 /// The types of attributes that can be present in a csr
+#[derive(Debug, PartialEq)]
 pub enum CsrAttribute {
     /// What the certificate can be used for
     ExtendedKeyUsage(Vec<ExtendedKeyUsage>),
