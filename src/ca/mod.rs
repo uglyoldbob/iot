@@ -7,8 +7,8 @@ use crate::webserver::{WebPageContext, WebResponse, WebRouter};
 use cert_common::{oid::*, CertificateSigningMethod, HttpsSigningMethod};
 
 /// The module for using a certificate authority
-pub mod ca_usage;
-pub use ca_usage::*;
+pub mod ca_common;
+pub use ca_common::*;
 
 /// Handle a request submission for a certificate authority
 async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {

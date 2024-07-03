@@ -4,7 +4,7 @@
 
 //! This binary is used to construct the elements necessary to operate an iot instance.
 
-#[path = "ca/ca_usage.rs"]
+#[path = "ca/ca_common.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;
 mod card;
@@ -13,7 +13,7 @@ mod main_config;
 mod tpm2;
 mod utility;
 
-pub use main_config::MainConfiguration;
+use main_config::MainConfiguration;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -93,8 +93,9 @@ impl service::log::Log for LocalLogging {
     }
 }
 
+/// The main entry function for the construct program
 #[tokio::main]
-async fn main() {
+pub async fn main() {
     let args = Args::parse();
 
     if args.ipc.is_none() {

@@ -144,6 +144,10 @@ tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch =
 winapi = {version = "0.3.9", features = ["aclapi", "impl-default", "winsvc"]}
 windows-acl = "0.3.0"
 
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+
 [features]
 default = ["tpm2"]
 tpm2 = [ "dep:tss-esapi" ]

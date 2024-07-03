@@ -4,7 +4,7 @@
 
 //! This binary is used to destroy the elements necessary to operate an iot instance.
 
-#[path = "ca/ca_usage.rs"]
+#[path = "ca/ca_common.rs"]
 /// The ca module, with code used to destroy a ca
 mod ca;
 mod card;

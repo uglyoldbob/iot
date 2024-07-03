@@ -26,7 +26,7 @@ use tokio::io::AsyncReadExt;
 use userprompt::Prompting;
 use zeroize::Zeroizing;
 
-use crate::webserver::*;
+use webserver::*;
 
 /// A test function that produces demo content
 async fn test_func2(s: WebPageContext) -> webserver::WebResponse {

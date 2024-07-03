@@ -10,7 +10,6 @@ mod main_config;
 use ca::{CertificateType, SmartCardPin2};
 pub use main_config::MainConfiguration;
 use userprompt::Password2;
-use x509_cert::ext::pkix::ExtendedKeyUsage;
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -131,4 +130,16 @@ fn common_oid() {
         cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone()),
         ekus2
     );
+}
+
+#[tokio::test]
+async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+    use assert_cmd::prelude::*;
+    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    construct
+        .arg("whatever")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Failed to construct"));
+    Ok(())
 }
