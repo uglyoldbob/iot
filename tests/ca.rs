@@ -9,6 +9,7 @@ mod main_config;
 
 use ca::{CertificateType, SmartCardPin2};
 pub use main_config::MainConfiguration;
+use serde::Serialize;
 use userprompt::Password2;
 
 #[path = "../src/utility.rs"]
@@ -134,10 +135,22 @@ fn common_oid() {
 
 #[tokio::test]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+    use std::str::FromStr;
+    use tokio::io::AsyncWriteExt;
+
+    let mut args = main_config::MainConfigurationAnswers::default();
+
+    let c = toml::to_string(&args).unwrap();
+    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    f.write_all(c.as_bytes())
+        .await
+        .expect("Failed to write answers file");
+
     use assert_cmd::prelude::*;
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
-        .arg("whatever")
+        .arg("--answers=./answers1.toml")
         .assert()
         .failure()
         .stderr(predicates::str::contains("Failed to construct"));
