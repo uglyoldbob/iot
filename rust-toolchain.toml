@@ -1,0 +1,3 @@
+[toolchain]
+channel = "nightly"
+#required to do code coverage because of the wayland-rs crate
