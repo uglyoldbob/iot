@@ -653,7 +653,6 @@ async fn ca_reject_request(s: WebPageContext) -> webserver::WebResponse {
 
 /// Sign a specified request for a certificate authority
 async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::WebResponse {
-    let pki = ca.config.get_pki_name().to_owned();
     let mut admin = false;
     let cs = s.user_certs.all_certs();
     for cert in cs {
@@ -701,9 +700,10 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> webserver::W
                                             .unwrap();
                                         let der = cert.contents();
                                         if let Ok(der) = der {
-                                            ca.mark_csr_done(id).await;
-                                            ca.save_user_cert(id, &der, &snb).await;
-                                            csr_check = Ok(der);
+                                            if ca.mark_csr_done(id).await.is_ok() {
+                                                ca.save_user_cert(id, &der, &snb).await;
+                                                csr_check = Ok(der);
+                                            }
                                         }
                                     }
                                 }
@@ -1411,7 +1411,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> webser
                 .text("}\n")
                 .text("run();\n")
         });
-        if let Some(cert) = cert {
+        if cert.is_some() {
             if admin {
                 b.text(format!("Valid from {} to {}", 42, 43))
                     .line_break(|a| a);

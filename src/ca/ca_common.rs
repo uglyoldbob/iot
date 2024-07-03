@@ -2107,6 +2107,8 @@ pub enum CaLoadError {
     FailedToSaveCertificate(String),
     /// Failed to create a needed keypair
     FailedToCreateKeypair(String),
+    /// Failed to build ocsp responder url
+    FailedToBuildOcspUrl,
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -2339,7 +2341,7 @@ impl Ca {
     }
 
     /// Returns the ocsp url, based on the application settings, preferring https over http
-    pub fn get_ocsp_urls(settings: &crate::ca::CaConfiguration) -> Vec<String> {
+    pub fn get_ocsp_urls(settings: &crate::ca::CaConfiguration) -> Result<Vec<String>, ()> {
         let mut urls = Vec::new();
 
         for san in &settings.san {
@@ -2360,7 +2362,7 @@ impl Ca {
                 }
                 url.push_str("http://");
             } else {
-                panic!("Cannot build ocsp responder url"); //TODO remove this panic
+                return Err(());
             }
 
             url.push_str(san);
@@ -2378,7 +2380,7 @@ impl Ca {
             urls.push(url);
         }
 
-        urls
+        Ok(urls)
     }
 
     /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
@@ -2637,7 +2639,8 @@ impl Ca {
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
-            ocsp_urls: Self::get_ocsp_urls(settings),
+            ocsp_urls: Self::get_ocsp_urls(settings)
+                .map_err(|_| CaLoadError::FailedToBuildOcspUrl)?,
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
             super_admin: None,

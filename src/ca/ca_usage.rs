@@ -609,7 +609,8 @@ impl Ca {
             root_cert: Err(CertificateLoadingError::DoesNotExist),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
             admin: Err(CertificateLoadingError::DoesNotExist),
-            ocsp_urls: Self::get_ocsp_urls(settings),
+            ocsp_urls: Self::get_ocsp_urls(settings)
+                .map_err(|_| CaLoadError::FailedToBuildOcspUrl)?,
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
             config: settings.to_owned(),
             super_admin: None,
