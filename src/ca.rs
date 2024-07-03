@@ -1759,18 +1759,26 @@ impl OcspRequirements {
 async fn build_ocsp_response(
     ca: &mut Ca,
     req: ocsp::request::OcspRequest,
-) -> ocsp::response::OcspResponse {
+) -> Result<ocsp::response::OcspResponse, ocsp::response::OcspRespStatus> {
     let mut nonce = None;
     let mut crl = None;
 
     let mut responses = Vec::new();
     let mut extensions = Vec::new();
 
-    let ocsp_cert = ca.ocsp_ca_cert().unwrap();
-    let root_cert = ca.root_ca_cert().unwrap();
+    let ocsp_cert = ca
+        .ocsp_ca_cert()
+        .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?;
+    let root_cert = ca
+        .root_ca_cert()
+        .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?;
 
-    let root_x509_cert = root_cert.x509_cert().unwrap();
-    let ocsp_x509_cert = ocsp_cert.x509_cert().unwrap();
+    let root_x509_cert = root_cert
+        .x509_cert()
+        .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?;
+    let ocsp_x509_cert = ocsp_cert
+        .x509_cert()
+        .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?;
 
     for r in req.tbs_request.request_list {
         service::log::info!("Looking up a certificate");
@@ -1807,7 +1815,7 @@ async fn build_ocsp_response(
                 .subject_public_key
                 .raw_bytes(),
         )
-        .unwrap();
+        .ok_or(ocsp::response::OcspRespStatus::InternalError)?;
     let id = ocsp::response::ResponderId::new_key_hash(&hash);
 
     if let Some(ndata) = nonce {
@@ -1820,7 +1828,8 @@ async fn build_ocsp_response(
                 w.next().write_der(&data);
             });
         });
-        let mut exts = ocsp::common::ocsp::OcspExtI::parse(&datas).unwrap();
+        let mut exts = ocsp::common::ocsp::OcspExtI::parse(&datas)
+            .map_err(|_| ocsp::response::OcspRespStatus::MalformedReq)?;
         extensions.append(&mut exts);
     }
 
@@ -1841,10 +1850,25 @@ async fn build_ocsp_response(
         extensions,
     );
 
-    let data_der = data.to_der().unwrap();
+    let data_der = data
+        .to_der()
+        .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?;
 
-    let signature = ocsp_cert.sign(&data_der).await.unwrap();
-    let certs = vec![ocsp_cert.contents().unwrap(), root_cert.contents().unwrap()]; //TODO remove the unwraps
+    let signature = ocsp_cert
+        .sign(&data_der)
+        .await
+        .ok_or(ocsp::response::OcspRespStatus::InternalError)?;
+    let mut certs = Vec::new();
+    certs.push(
+        ocsp_cert
+            .contents()
+            .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?,
+    );
+    certs.push(
+        root_cert
+            .contents()
+            .map_err(|_| ocsp::response::OcspRespStatus::InternalError)?,
+    );
     let certs = Some(certs);
 
     let bresp = ocsp::response::BasicResponse::new(
@@ -1855,7 +1879,7 @@ async fn build_ocsp_response(
     );
     let bytes =
         ocsp::response::ResponseBytes::new_basic(OID_OCSP_RESPONSE_BASIC.to_ocsp(), bresp).unwrap();
-    ocsp::response::OcspResponse::new_success(bytes)
+    Ok(ocsp::response::OcspResponse::new_success(bytes))
 }
 
 /// Run an ocsp response for a ca
@@ -1869,10 +1893,10 @@ async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver:
 
         if ocsp_requirements.signature {
             match ocsp.optional_signature {
-                None => ocsp::response::OcspResponse::new_non_success(
+                None => Ok(ocsp::response::OcspResponse::new_non_success(
                     ocsp::response::OcspRespStatus::SigRequired,
                 )
-                .unwrap(),
+                .unwrap()),
                 Some(s) => {
                     service::log::info!("Signature is {:?}", s);
                     todo!("Verify signature");
@@ -1884,11 +1908,22 @@ async fn handle_ca_ocsp_responder(ca: &mut Ca, s: &WebPageContext) -> webserver:
         }
     } else {
         service::log::error!("Did not parse ocsp request");
-        ocsp::response::OcspResponse::new_non_success(ocsp::response::OcspRespStatus::MalformedReq)
-            .unwrap()
+        Ok(ocsp::response::OcspResponse::new_non_success(
+            ocsp::response::OcspRespStatus::MalformedReq,
+        )
+        .unwrap())
     };
 
-    let der = ocsp_response.to_der().unwrap();
+    let der = match ocsp_response {
+        Ok(ocsp_response) => {
+            let der = ocsp_response.to_der().unwrap();
+            der
+        }
+        Err(s) => {
+            let resp = ocsp::response::OcspResponse::new_non_success(s).unwrap();
+            resp.to_der().unwrap()
+        }
+    };
 
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
