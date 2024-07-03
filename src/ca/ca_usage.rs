@@ -19,9 +19,11 @@ impl Ca {
 
     /// Returns true if the provided certificate is an admin certificate
     pub async fn is_admin(&self, cert: &x509_cert::Certificate) -> bool {
+        let mut any_admin = false;
         if let Some(admin) = &self.super_admin {
+            any_admin = true;
             let admin_x509_cert = admin.x509_cert();
-            if let Some(admin_x509_cert) = admin_x509_cert {
+            if let Ok(admin_x509_cert) = admin_x509_cert {
                 if cert.tbs_certificate.serial_number
                     == admin_x509_cert.tbs_certificate.serial_number
                     && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
@@ -32,8 +34,9 @@ impl Ca {
             }
         }
         if let Ok(admin) = &self.admin {
+            any_admin = true;
             let admin_x509_cert = admin.x509_cert();
-            if let Some(admin_x509_cert) = admin_x509_cert {
+            if let Ok(admin_x509_cert) = admin_x509_cert {
                 if cert.tbs_certificate.serial_number
                     == admin_x509_cert.tbs_certificate.serial_number
                     && cert.tbs_certificate.subject == admin_x509_cert.tbs_certificate.subject
@@ -42,6 +45,9 @@ impl Ca {
                     return true;
                 }
             }
+        }
+        if !any_admin {
+            service::log::error!("No admin certificate for admin operations available");
         }
         false
     }
@@ -370,7 +376,7 @@ use zeroize::Zeroizing;
 
 impl CaCertificateStorage {
     /// Initialize the storage medium
-    pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) {
+    pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) -> Result<(), ()> {
         let sign_method = settings.sign_method;
         let admin_cert = settings.admin_cert.clone();
         match self {
@@ -402,10 +408,10 @@ impl CaCertificateStorage {
                         [],
                     )
                 })
-                .await
-                .expect("Failed to create table");
+                .await.map_err(|_|())?;
             }
         }
+        Ok(())
     }
 }
 
@@ -416,7 +422,7 @@ impl Pki {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
-    ) -> Self {
+    ) -> Result<Self, PkiLoadError> {
         let mut hm = std::collections::HashMap::new();
         let ca_name = main_config
             .https
@@ -433,15 +439,30 @@ impl Pki {
                         config.inferior_to.as_ref().and_then(|n| hm.get_mut(n)),
                     )
                     .await;
-                    if let Some(mut ca) = ca {
-                        if let Some(ca_name) = &ca_name {
-                            if ca_name == name {
-                                ca.check_https_create(hsm.clone(), main_config).await;
+                    match ca {
+                        Ok(mut ca) => {
+                            if let Some(ca_name) = &ca_name {
+                                if ca_name == name {
+                                    ca.check_https_create(hsm.clone(), main_config)
+                                        .await
+                                        .map_err(|_| {
+                                            PkiLoadError::FailedToLoadCa(
+                                                name.to_owned(),
+                                                CaLoadError::FailedToInitHttps,
+                                            )
+                                        })?;
+                                }
                             }
+                            hm.insert(name.to_owned(), ca);
                         }
-                        hm.insert(name.to_owned(), ca);
-                    } else {
-                        done = false;
+                        Err(e) => match e {
+                            CaLoadError::SuperiorCaMissing => {
+                                done = false;
+                            }
+                            _ => {
+                                return Err(PkiLoadError::FailedToLoadCa(name.to_owned(), e));
+                            }
+                        },
                     }
                 }
             }
@@ -449,10 +470,10 @@ impl Pki {
                 break;
             }
         }
-        Self {
+        Ok(Self {
             roots: hm,
             super_admin: None,
-        }
+        })
     }
 }
 
@@ -463,23 +484,28 @@ impl PkiInstance {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfigurationEnum,
         main_config: &crate::main_config::MainConfiguration,
-    ) -> Self {
+    ) -> Result<Self, PkiLoadError> {
         match settings {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::init(hsm, pki_config, main_config).await;
-                Self::Pki(pki)
+                let pki = crate::ca::Pki::init(hsm, pki_config, main_config).await?;
+                Ok(Self::Pki(pki))
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
-                let ca = crate::ca::Ca::init(hsm.clone(), &ca, None).await; //TODO Use the proper ca superior object instead of None
-                if let Some(mut ca) = ca {
-                    if main_config.https.is_some() {
-                        ca.check_https_create(hsm.clone(), main_config).await;
-                    }
-                    Self::Ca(ca)
-                } else {
-                    panic!("Failed to make a ca");
+                let mut ca = crate::ca::Ca::init(hsm.clone(), &ca, None)
+                    .await
+                    .map_err(|e| PkiLoadError::FailedToLoadCa("ca".to_string(), e))?; //TODO Use the proper ca superior object instead of None
+                if main_config.https.is_some() {
+                    ca.check_https_create(hsm.clone(), main_config)
+                        .await
+                        .map_err(|_| {
+                            PkiLoadError::FailedToLoadCa(
+                                "ca".to_string(),
+                                CaLoadError::FailedToInitHttps,
+                            )
+                        })?;
                 }
+                Ok(Self::Ca(ca))
             }
         }
     }
@@ -561,12 +587,23 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    pub async fn init_from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, ()> {
+    pub async fn init_from_config(
+        settings: &crate::ca::CaConfiguration,
+    ) -> Result<Self, CaLoadError> {
         if settings.path.exists().await {
-            panic!("Storage medium {:?} already exists", settings.path);
+            return Err(CaLoadError::StorageError(
+                StorageBuilderError::AlreadyExists,
+            ));
         }
-        let mut medium = settings.path.build().await?;
-        medium.init(settings).await;
+        let mut medium = settings
+            .path
+            .build()
+            .await
+            .map_err(|e| CaLoadError::StorageError(e))?;
+        medium
+            .init(settings)
+            .await
+            .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
@@ -586,14 +623,14 @@ impl Ca {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::CaConfiguration,
         superior: Option<&mut Self>,
-    ) -> Option<Self> {
+    ) -> Result<Self, CaLoadError> {
         service::log::info!("Attempting init for {}", settings.common_name);
         // Unable to to gnerate an intermediate instance without the superior ca reference
         if settings.inferior_to.is_some() && superior.is_none() {
-            return None;
+            return Err(CaLoadError::SuperiorCaMissing);
         }
 
-        let mut ca = Self::init_from_config(settings).await.ok()?;
+        let mut ca = Self::init_from_config(settings).await?;
 
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
@@ -665,7 +702,13 @@ impl Ca {
                             .unwrap();
                         let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                         superior
-                            .save_user_cert(id, &root_cert.contents().ok()?, &snb)
+                            .save_user_cert(
+                                id,
+                                &root_cert.contents().map_err(|_| {
+                                    CaLoadError::FailedToSaveCertificate("root".to_string())
+                                })?,
+                                &snb,
+                            )
                             .await;
                         root_cert.medium = ca.medium.clone();
                         root_cert
@@ -756,7 +799,8 @@ impl Ca {
                         let keypair = crate::card::KeyPair::generate_with_smartcard(
                             p.as_bytes().to_vec(),
                             &label,
-                        )?;
+                        )
+                        .ok_or(CaLoadError::FailedToCreateKeypair("admin".to_string()))?;
                         options.smartcard = Some(keypair);
                         let admin_csr = options.generate_request();
                         let mut admin_cert = ca
@@ -818,7 +862,7 @@ impl Ca {
                 }
             }
         }
-        Some(ca)
+        Ok(ca)
     }
 }
 

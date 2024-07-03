@@ -733,14 +733,14 @@ impl PkixAuthorityInfoAccess {
 }
 
 /// Errors that can occur when attempting to load a certificate
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CertificateLoadingError {
     /// The certificate does not exist
     DoesNotExist,
     /// Cannot open the certificate
     CantOpen,
     /// Other io error
-    OtherIo(std::io::Error),
+    OtherIo(String),
     /// The certificate loaded is invalid
     InvalidCert,
     /// There is no algorithm detected
@@ -768,16 +768,16 @@ pub enum CaCertificateStorageBuilder {
 
 impl CaCertificateStorageBuilder {
     /// Remove relative paths, path might need to exist for this to succeed
-    pub async fn remove_relative_paths(&mut self) -> Result<(), ()> {
+    pub async fn remove_relative_paths(&mut self) -> Result<(), std::io::Error> {
         match self {
             Self::Nowhere => {}
             Self::Sqlite(p) => {
                 if p.is_relative() {
                     use tokio::io::AsyncWriteExt;
                     let p2: std::path::PathBuf = p.to_path_buf();
-                    let mut f = tokio::fs::File::create(p2).await.map_err(|_| ())?;
-                    f.write_all(" ".as_bytes()).await.map_err(|_| ())?;
-                    **p = p.canonicalize().map_err(|_| ())?;
+                    let mut f = tokio::fs::File::create(p2).await?;
+                    f.write_all(" ".as_bytes()).await?;
+                    **p = p.canonicalize()?;
                 }
             }
         }
@@ -848,16 +848,16 @@ impl OwnerOptions {
 
     /// Set the owner of a single file
     #[cfg(target_family = "unix")]
-    pub fn set_owner(&self, p: &PathBuf, permissions: u32) -> Result<(), ()> {
+    pub fn set_owner(&self, p: &PathBuf, permissions: u32) -> Result<(), std::io::Error> {
         if p.exists() {
             service::log::info!("Setting ownership of {}", p.display());
-            std::os::unix::fs::chown(p, Some(self.uid), None).map_err(|_| ())?;
-            let mut perms = std::fs::metadata(p).map_err(|_| ())?.permissions();
+            std::os::unix::fs::chown(p, Some(self.uid), None)?;
+            let mut perms = std::fs::metadata(p)?.permissions();
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, permissions);
-            std::fs::set_permissions(p, perms).map_err(|_| ())?;
+            std::fs::set_permissions(p, perms)?;
             Ok(())
         } else {
-            Err(())
+            Err(std::io::Error::from(std::io::ErrorKind::NotFound))
         }
     }
 
@@ -912,10 +912,21 @@ impl OwnerOptions {
     }
 }
 
+/// Errors that can occur building a certificate storage
+#[derive(Debug)]
+pub enum StorageBuilderError {
+    /// Unable to create the storage
+    FailedToCreateStorage,
+    /// Unable to initialize the storage
+    FailedToInitStorage,
+    /// The storage already exists
+    AlreadyExists,
+}
+
 impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
-    /// # Argumments
-    pub async fn build(&self) -> Result<CaCertificateStorage, ()> {
+    /// # Arguments
+    pub async fn build(&self) -> Result<CaCertificateStorage, StorageBuilderError> {
         match self {
             CaCertificateStorageBuilder::Nowhere => Ok(CaCertificateStorage::Nowhere),
             CaCertificateStorageBuilder::Sqlite(p) => {
@@ -933,13 +944,15 @@ impl CaCertificateStorageBuilder {
                     if pool.is_err() {
                         count += 1;
                         if count > 10 {
-                            panic!("Failed to create database {}", p.display());
+                            return Err(StorageBuilderError::FailedToCreateStorage);
                         }
                     } else {
                         break;
                     }
                 }
-                Ok(CaCertificateStorage::Sqlite(pool.map_err(|_| ())?))
+                Ok(CaCertificateStorage::Sqlite(
+                    pool.map_err(|_| StorageBuilderError::FailedToCreateStorage)?,
+                ))
             }
         }
     }
@@ -1058,6 +1071,11 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
     }
 }
 
+pub enum CertificateSaveError {
+    FailedToSave,
+    FailedToParseCertificate,
+}
+
 impl CaCertificateStorage {
     /// Save this certificate to the storage medium
     /// TODO Return a Result with an error
@@ -1066,7 +1084,21 @@ impl CaCertificateStorage {
         ca: &mut Ca,
         cert: CaCertificate,
         password: &str,
-    ) -> Result<(), ()> {
+    ) -> Result<(), CertificateSaveError> {
+        let cert_der = &cert
+            .contents()
+            .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
+        if let Some(card) = cert.smartcard() {
+            let _ = card.save_cert_to_card(cert_der);
+        }
+        ca.save_user_cert(
+            cert.id,
+            cert_der,
+            &cert
+                .get_snb()
+                .map_err(|_| CertificateSaveError::FailedToParseCertificate)?,
+        )
+        .await;
         if let Some(label) = cert.data.hsm_label() {
             match self {
                 CaCertificateStorage::Nowhere => {}
@@ -1079,7 +1111,7 @@ impl CaCertificateStorage {
                         stmt.execute([cert.id.to_sql().unwrap(), label.to_sql().unwrap()])
                     })
                     .await
-                    .expect("Failed to insert certificate");
+                    .map_err(|_| CertificateSaveError::FailedToSave)?;
                 }
             }
         } else if let Some(p12) = cert.try_p12(password) {
@@ -1094,15 +1126,10 @@ impl CaCertificateStorage {
                         stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
                     })
                     .await
-                    .expect("Failed to insert p12 certificate");
+                    .map_err(|_| CertificateSaveError::FailedToSave)?;
                 }
             }
         }
-        let cert_der = &cert.contents()?;
-        if let Some(card) = cert.smartcard() {
-            let _ = card.save_cert_to_card(cert_der);
-        }
-        ca.save_user_cert(cert.id, cert_der, &cert.get_snb()?).await;
         Ok(())
     }
 
@@ -1365,8 +1392,8 @@ impl CertificateDataTrait for HttpsCertificate {
         CertificateSigningMethod::Https(self.algorithm)
     }
 
-    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()> {
-        let x509 = self.x509_cert().ok_or(())?;
+    fn get_snb(&self, _id: u64) -> Result<Vec<u8>, der::Error> {
+        let x509 = self.x509_cert()?;
         Ok(x509.tbs_certificate.serial_number.as_bytes().to_vec())
     }
 
@@ -1379,9 +1406,9 @@ impl CertificateDataTrait for HttpsCertificate {
         Some(Signature::OidSignature(self.algorithm.oid(), sig))
     }
 
-    fn x509_cert(&self) -> Option<x509_cert::Certificate> {
+    fn x509_cert(&self) -> Result<x509_cert::Certificate, der::Error> {
         use der::Decode;
-        x509_cert::Certificate::from_der(&self.cert).ok()
+        x509_cert::Certificate::from_der(&self.cert)
     }
 }
 
@@ -1502,7 +1529,7 @@ impl CertificateDataTrait for SshCertificate {
         CertificateSigningMethod::Ssh(self.algorithm)
     }
 
-    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()> {
+    fn get_snb(&self, id: u64) -> Result<Vec<u8>, der::Error> {
         Ok(u64::to_le_bytes(id).to_vec())
     }
 
@@ -1514,8 +1541,8 @@ impl CertificateDataTrait for SshCertificate {
         todo!()
     }
 
-    fn x509_cert(&self) -> Option<x509_cert::Certificate> {
-        None
+    fn x509_cert(&self) -> Result<x509_cert::Certificate, der::Error> {
+        todo!()
     }
 }
 
@@ -1584,13 +1611,13 @@ pub trait CertificateDataTrait {
     /// Get the algorithm
     fn algorithm(&self) -> CertificateSigningMethod;
     /// Retrieve the serial number as a vector
-    fn get_snb(&self, id: u64) -> Result<Vec<u8>, ()>;
+    fn get_snb(&self, id: u64) -> Result<Vec<u8>, der::Error>;
     /// Retrieve the contents of the certificate data in a storable format
     fn contents(&self) -> Result<Vec<u8>, ()>;
     /// Attempt to sign the specified data
     fn sign(&self, data: &[u8]) -> Option<Signature>;
     /// attempt to get an x509_cert object
-    fn x509_cert(&self) -> Option<x509_cert::Certificate>;
+    fn x509_cert(&self) -> Result<x509_cert::Certificate, der::Error>;
 }
 
 /// The kinds of certificates that can exist
@@ -1638,7 +1665,7 @@ impl CaCertificate {
     }
 
     /// Try to get an x509 certificate
-    pub fn x509_cert(&self) -> Option<x509_cert::Certificate> {
+    pub fn x509_cert(&self) -> Result<x509_cert::Certificate, der::Error> {
         self.data.x509_cert()
     }
 
@@ -1648,7 +1675,7 @@ impl CaCertificate {
     }
 
     /// Retrieve the certificate serial number
-    pub fn get_snb(&self) -> Result<Vec<u8>, ()> {
+    pub fn get_snb(&self) -> Result<Vec<u8>, der::Error> {
         self.data.get_snb(self.id)
     }
 
@@ -1750,10 +1777,6 @@ impl CaCertificate {
         let (_snb, sn) = CaCertificateToBeSigned::calc_sn(id);
         the_csr.params.serial_number = Some(sn);
 
-        println!(
-            "Date for csr is {:?} - {:?}",
-            the_csr.params.not_before, the_csr.params.not_after
-        );
         self.data.sign_csr(csr).ok()
     }
 
@@ -2060,6 +2083,38 @@ pub struct Pki {
     pub super_admin: Option<CaCertificate>,
 }
 
+/// Potential errors when loading a pki object
+#[derive(Debug)]
+pub enum PkiLoadError {
+    /// An individual ca failed to load with the config data specified
+    FailedToLoadCa(String, CaLoadError),
+    /// A ca cannot be superior to itself
+    CannotBeOwnSuperior(String),
+}
+
+/// Potential errors when loading a specific ca object
+#[derive(Debug)]
+pub enum CaLoadError {
+    /// Error building the storage for the ca
+    StorageError(StorageBuilderError),
+    /// Error when loading certificates for the ca
+    CertificateLoadingError(CertificateLoadingError),
+    /// Superior ca is missing and is required
+    SuperiorCaMissing,
+    /// Failed to initialize the https certificate
+    FailedToInitHttps,
+    /// Failed to save a certificate
+    FailedToSaveCertificate(String),
+    /// Failed to create a needed keypair
+    FailedToCreateKeypair(String),
+}
+
+impl From<&CertificateLoadingError> for CaLoadError {
+    fn from(value: &CertificateLoadingError) -> Self {
+        Self::CertificateLoadingError(value.to_owned())
+    }
+}
+
 impl Pki {
     /// Load pki stuff
     #[allow(dead_code)]
@@ -2067,17 +2122,29 @@ impl Pki {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, PkiLoadError> {
         let mut hm = HashMap::new();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
-            let ca = crate::ca::Ca::load(hsm.clone(), config).await?;
+            let ca = crate::ca::Ca::load(hsm.clone(), config)
+                .await
+                .map_err(|e| PkiLoadError::FailedToLoadCa(name.to_owned(), e))?;
             hm.insert(name.to_owned(), ca);
         }
-        let super_admin = if let Some(sa) = &settings.super_admin {
+        let super_admin: Option<CaCertificate> = if let Some(sa) = &settings.super_admin {
             if let Some(ca) = hm.get_mut(sa) {
                 let p = ca.admin_access.to_string();
-                ca.load_admin_cert(hsm.clone(), &p).await.ok().cloned()
+                Some(
+                    ca.load_admin_cert(hsm.clone(), &p)
+                        .await
+                        .map(|a| a.to_owned())
+                        .map_err(|e| {
+                            PkiLoadError::FailedToLoadCa(
+                                sa.to_owned(),
+                                CaLoadError::CertificateLoadingError(e.to_owned()),
+                            )
+                        })?,
+                )
             } else {
                 None
             }
@@ -2107,7 +2174,7 @@ impl Pki {
                 if let Some(superior) = &a.inferior_to {
                     if superior == name {
                         service::log::error!("An authority cannot be superior to itself");
-                        panic!("An authority cannot be superior to itself");
+                        return Err(PkiLoadError::CannotBeOwnSuperior(name.to_owned()));
                     }
                     if s.contains(superior) {
                         let mut superiors = Vec::new();
@@ -2164,7 +2231,7 @@ impl PkiInstance {
     pub async fn load(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::MainConfiguration,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, PkiLoadError> {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {
                 let pki = crate::ca::Pki::load(hsm, pki_config, settings).await?;
@@ -2172,7 +2239,9 @@ impl PkiInstance {
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca_config = &ca_config.get_ca(settings);
-                let ca = Ca::load(hsm, ca_config).await?;
+                let ca = Ca::load(hsm, ca_config)
+                    .await
+                    .map_err(|e| PkiLoadError::FailedToLoadCa("ca".to_string(), e))?;
                 Ok(Self::Ca(ca))
             }
         }
@@ -2207,7 +2276,7 @@ impl Ca {
     pub fn get_validity(&self) -> Option<x509_cert::time::Validity> {
         if let Ok(root) = &self.root_cert {
             match &root.data {
-                CertificateData::Https(m) => m.x509_cert().map(|c| c.tbs_certificate.validity),
+                CertificateData::Https(m) => m.x509_cert().map(|c| c.tbs_certificate.validity).ok(),
                 CertificateData::Ssh(m) => {
                     let after = m.cert.valid_after_time();
                     let before = m.cert.valid_before_time();
@@ -2291,7 +2360,7 @@ impl Ca {
                 }
                 url.push_str("http://");
             } else {
-                panic!("Cannot build ocsp responder url");
+                panic!("Cannot build ocsp responder url"); //TODO remove this panic
             }
 
             url.push_str(san);
@@ -2430,26 +2499,34 @@ impl Ca {
     pub async fn load(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::CaConfiguration,
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, CaLoadError> {
         let mut ca = Self::from_config(settings).await?;
 
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_m) => {
-                let _ = ca.load_ocsp_cert(hsm.clone()).await;
+                ca.load_ocsp_cert(hsm.clone()).await?;
                 match &settings.admin_cert {
                     CertificateType::Soft(p) => {
-                        let _ = ca.load_admin_cert(hsm.clone(), p).await;
+                        ca.load_admin_cert(hsm.clone(), p)
+                            .await
+                            .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
                     }
                     CertificateType::SmartCard(_p) => {
-                        let _ = ca.load_admin_smartcard(hsm.clone()).await;
+                        ca.load_admin_smartcard(hsm.clone())
+                            .await
+                            .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
                     }
                 }
 
-                let _ = ca.load_root_ca_cert(hsm).await;
+                ca.load_root_ca_cert(hsm)
+                    .await
+                    .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
             }
             CertificateSigningMethod::Ssh(_m) => {
-                let _ = ca.load_root_ca_cert(hsm).await;
+                ca.load_root_ca_cert(hsm)
+                    .await
+                    .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
             }
         }
         Ok(ca)
@@ -2549,8 +2626,12 @@ impl Ca {
     }
 
     /// Create a Self from the application configuration
-    pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, ()> {
-        let medium = settings.path.build().await.map_err(|_| ())?;
+    pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, CaLoadError> {
+        let medium = settings
+            .path
+            .build()
+            .await
+            .map_err(|e| CaLoadError::StorageError(e))?;
         Ok(Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist),
@@ -3057,7 +3138,7 @@ impl From<std::io::Error> for CertificateLoadingError {
         match value.kind() {
             std::io::ErrorKind::NotFound => CertificateLoadingError::DoesNotExist,
             std::io::ErrorKind::PermissionDenied => CertificateLoadingError::CantOpen,
-            _ => CertificateLoadingError::OtherIo(value),
+            _ => CertificateLoadingError::OtherIo(value.to_string()),
         }
     }
 }
