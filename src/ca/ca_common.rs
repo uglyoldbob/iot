@@ -741,15 +741,15 @@ impl PkixAuthorityInfoAccess {
 #[derive(Clone, Debug)]
 pub enum CertificateLoadingError {
     /// The certificate does not exist
-    DoesNotExist,
+    DoesNotExist(String),
     /// Cannot open the certificate
-    CantOpen,
+    CantOpen(String),
     /// Other io error
-    OtherIo(String),
+    OtherIo(String, String),
     /// The certificate loaded is invalid
-    InvalidCert,
+    InvalidCert(String),
     /// There is no algorithm detected
-    NoAlgorithm,
+    NoAlgorithm(String),
 }
 
 use egui_multiwin::egui;
@@ -1097,7 +1097,7 @@ impl CaCertificateStorage {
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
                     conn.execute("CREATE TABLE hsm_labels ( id INTEGER PRIMARY KEY, label TEXT)", [])?;
                     if let CertificateType::Soft(_) = admin_cert {
-                        conn.execute("CREATE TABLE p12 ( id INTEGER PRIMARY KEY, p12 BLOB)", [])?;
+                        conn.execute("CREATE TABLE p12 ( id INTEGER PRIMARY KEY, pem BLOB)", [])?;
                     }
                     match sign_method {
                         CertificateSigningMethod::Https(_) => {
@@ -1187,7 +1187,9 @@ impl CaCertificateStorage {
         name: &str,
     ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
-            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::Nowhere => {
+                Err(CertificateLoadingError::DoesNotExist(name.to_string()))
+            }
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
                 let name2 = name.to_owned();
@@ -1202,7 +1204,7 @@ impl CaCertificateStorage {
                     .await
                     .map_err(|_| {
                         service::log::debug!("Cannot load cert {}", name);
-                        CertificateLoadingError::DoesNotExist
+                        CertificateLoadingError::DoesNotExist(name.to_string())
                     })?;
                 let cert = p
                     .conn(move |conn| {
@@ -1215,15 +1217,15 @@ impl CaCertificateStorage {
                     .await
                     .map_err(|_| {
                         service::log::debug!("Cannot load cert {}", name);
-                        CertificateLoadingError::DoesNotExist
+                        CertificateLoadingError::DoesNotExist(name.to_string())
                     })?;
                 let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
                 let kp = hsm_cert
                     .as_ref()
-                    .ok_or(CertificateLoadingError::NoAlgorithm)?;
+                    .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()))?;
                 let alg = kp
                     .https_algorithm()
-                    .ok_or(CertificateLoadingError::NoAlgorithm)?;
+                    .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()))?;
                 let hsm_cert = hsm_cert.map(Keypair::Hsm);
                 //TODO dynamically pick the correct certificate type here
                 let hcert = HttpsCertificate {
@@ -1249,7 +1251,9 @@ impl CaCertificateStorage {
         label: &str,
     ) -> Result<ProtectedPkcs12, CertificateLoadingError> {
         match self {
-            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::Nowhere => {
+                Err(CertificateLoadingError::DoesNotExist(label.to_string()))
+            }
             CaCertificateStorage::Sqlite(p) => {
                 let label = label.to_owned();
                 let label2 = label.to_owned();
@@ -1264,7 +1268,7 @@ impl CaCertificateStorage {
                     .await
                     .map_err(|e| {
                         service::log::debug!("Cannot load cert {} - {:?}", label2, e);
-                        CertificateLoadingError::DoesNotExist
+                        CertificateLoadingError::DoesNotExist(label2.clone())
                     })?;
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -1272,7 +1276,10 @@ impl CaCertificateStorage {
                     })
                     .await;
                 let p12 = cert_common::pkcs12::ProtectedPkcs12 {
-                    contents: cert.map_err(|_e| CertificateLoadingError::DoesNotExist)?,
+                    contents: cert.map_err(|_e| {
+                        service::log::debug!("Failed to parse open pkcs12 of {}", label2);
+                        CertificateLoadingError::DoesNotExist(label2)
+                    })?,
                     id,
                 };
                 Ok(p12)
@@ -1464,14 +1471,12 @@ impl HttpsCertificate {
     fn from_x509(x509: x509_cert::Certificate) -> Result<Self, CertificateLoadingError> {
         use der::Encode;
         Ok(Self {
-            algorithm: x509
-                .signature_algorithm
-                .clone()
-                .try_into()
-                .map_err(|_e| CertificateLoadingError::InvalidCert)?,
-            cert: x509
-                .to_der()
-                .map_err(|_e| CertificateLoadingError::InvalidCert)?,
+            algorithm: x509.signature_algorithm.clone().try_into().map_err(|_e| {
+                CertificateLoadingError::InvalidCert(x509.tbs_certificate.subject.to_string())
+            })?,
+            cert: x509.to_der().map_err(|_e| {
+                CertificateLoadingError::InvalidCert(x509.tbs_certificate.subject.to_string())
+            })?,
             keypair: None,
             attributes: Vec::new(),
         })
@@ -2507,9 +2512,9 @@ impl Ca {
             .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
             medium,
-            root_cert: Err(CertificateLoadingError::DoesNotExist),
-            ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
-            admin: Err(CertificateLoadingError::DoesNotExist),
+            root_cert: Err(CertificateLoadingError::DoesNotExist("root".to_string())),
+            ocsp_signer: Err(CertificateLoadingError::DoesNotExist("ocsp".to_string())),
+            admin: Err(CertificateLoadingError::DoesNotExist("admin".to_string())),
             ocsp_urls: Self::get_ocsp_urls(settings)
                 .map_err(|_| CaLoadError::FailedToBuildOcspUrl)?,
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
@@ -3283,7 +3288,9 @@ impl Ca {
     /// Attempt to load a certificate by id
     async fn load_user_cert(&self, id: u64) -> Result<CaCertificate, CertificateLoadingError> {
         match &self.medium {
-            CaCertificateStorage::Nowhere => Err(CertificateLoadingError::DoesNotExist),
+            CaCertificateStorage::Nowhere => {
+                Err(CertificateLoadingError::DoesNotExist(format!("ID: {}", id)))
+            }
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
@@ -3293,8 +3300,9 @@ impl Ca {
                 match cert {
                     Ok(c) => {
                         use der::Decode;
-                        let c = x509_cert::Certificate::from_der(&c)
-                            .map_err(|_| CertificateLoadingError::InvalidCert)?;
+                        let c = x509_cert::Certificate::from_der(&c).map_err(|_| {
+                            CertificateLoadingError::InvalidCert(format!("ID: {}", id))
+                        })?;
                         let cac = CaCertificate {
                             medium: self.medium.clone(),
                             data: CertificateData::from_x509(c)?,
@@ -3306,7 +3314,7 @@ impl Ca {
                     }
                     Err(e) => {
                         service::log::error!("Did not find the cert {:?}", e);
-                        Err(CertificateLoadingError::DoesNotExist)
+                        Err(CertificateLoadingError::DoesNotExist(format!("ID: {}", id)))
                     }
                 }
             }
@@ -3331,15 +3339,15 @@ impl Ca {
                     rc.id,
                 )
                 .try_into()
-                .map_err(|_| CertificateLoadingError::InvalidCert)?)
+                .map_err(|_| CertificateLoadingError::InvalidCert(name.to_string()))?)
             } else {
                 use der::Decode;
                 let x509 = x509_cert::Certificate::from_der(&rc.contents)
-                    .map_err(|_| CertificateLoadingError::InvalidCert)?;
+                    .map_err(|_| CertificateLoadingError::InvalidCert(name.to_string()))?;
                 let cert = CaCertificate {
                     medium: self.medium.clone(),
                     data: CertificateData::from_x509(x509)
-                        .map_err(|_| CertificateLoadingError::InvalidCert)?,
+                        .map_err(|_| CertificateLoadingError::InvalidCert(name.to_string()))?,
                     name: hsm_name.clone(),
                     id: rc.id,
                 };
@@ -3347,7 +3355,7 @@ impl Ca {
             }
         } else {
             service::log::debug!("{} does not exist 2", name);
-            Err(CertificateLoadingError::DoesNotExist)
+            Err(CertificateLoadingError::DoesNotExist(name.to_string()))
         }
     }
 
@@ -3364,9 +3372,13 @@ impl Ca {
                 ca.load_ocsp_cert(hsm.clone()).await?;
                 match &settings.admin_cert {
                     CertificateType::Soft(p) => {
-                        ca.load_admin_cert(hsm.clone(), p)
-                            .await
-                            .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
+                        ca.load_admin_cert(hsm.clone(), p).await.map_err(|e| {
+                            service::log::debug!(
+                                "There was a problem loading the admin certificate {:?}",
+                                e
+                            );
+                            CaLoadError::CertificateLoadingError(e.to_owned())
+                        })?;
                     }
                     CertificateType::SmartCard(_p) => {
                         ca.load_admin_smartcard(hsm.clone())
@@ -3406,13 +3418,15 @@ impl Ca {
                 Ok(
                     cert_common::pkcs12::Pkcs12::load_from_data(&rc.contents, p.as_bytes(), rc.id)
                         .try_into()
-                        .map_err(|_| CertificateLoadingError::InvalidCert)?,
+                        .map_err(|_| CertificateLoadingError::InvalidCert("admin".to_string()))?,
                 )
             } else {
-                Err(CertificateLoadingError::DoesNotExist)
+                service::log::debug!("Failed to load p12 fromm medium");
+                Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
             }
         } else {
-            Err(CertificateLoadingError::DoesNotExist)
+            service::log::debug!("Not a soft admin certificate");
+            Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
         }
     }
 
@@ -3490,9 +3504,9 @@ impl Ca {
             .map_err(|e| CaLoadError::StorageError(e))?;
         Ok(Self {
             medium,
-            root_cert: Err(CertificateLoadingError::DoesNotExist),
-            ocsp_signer: Err(CertificateLoadingError::DoesNotExist),
-            admin: Err(CertificateLoadingError::DoesNotExist),
+            root_cert: Err(CertificateLoadingError::DoesNotExist("root".to_string())),
+            ocsp_signer: Err(CertificateLoadingError::DoesNotExist("ocsp".to_string())),
+            admin: Err(CertificateLoadingError::DoesNotExist("admin".to_string())),
             ocsp_urls: Self::get_ocsp_urls(settings)
                 .map_err(|_| CaLoadError::FailedToBuildOcspUrl)?,
             admin_access: Zeroizing::new(settings.admin_access_password.to_string()),
@@ -3997,9 +4011,13 @@ pub enum MaybeError<T, E> {
 impl From<std::io::Error> for CertificateLoadingError {
     fn from(value: std::io::Error) -> Self {
         match value.kind() {
-            std::io::ErrorKind::NotFound => CertificateLoadingError::DoesNotExist,
-            std::io::ErrorKind::PermissionDenied => CertificateLoadingError::CantOpen,
-            _ => CertificateLoadingError::OtherIo(value.to_string()),
+            std::io::ErrorKind::NotFound => {
+                CertificateLoadingError::DoesNotExist("Certificate io error".to_string())
+            }
+            std::io::ErrorKind::PermissionDenied => {
+                CertificateLoadingError::CantOpen("unknown Permission denied".to_string())
+            }
+            _ => CertificateLoadingError::OtherIo("unknown".to_string(), value.to_string()),
         }
     }
 }
