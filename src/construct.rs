@@ -57,6 +57,10 @@ struct Args {
     /// The name of the config being created
     #[arg(short, long)]
     name: Option<String>,
+
+    /// The program should run for test mode
+    #[arg(long, default_value_t = false)]
+    test: bool,
 }
 
 /// Used to send log data back to an observing process
@@ -199,8 +203,10 @@ pub async fn main() {
     exe.pop();
 
     let mut service = service::Service::new(format!("rust-iot-{}", name));
-    if service.exists() {
-        panic!("Service already exists");
+    if !args.test {
+        if service.exists() {
+            panic!("Service already exists");
+        }
     }
 
     {
@@ -232,6 +238,7 @@ pub async fn main() {
     {
         let softhsm_config = config_path.join("softhsm2.conf");
         let token_path = config_path.join("tokens");
+        let _ = tokio::fs::create_dir(&token_path).await;
         let hsm_contents = format!(
             "directories.tokendir = {}\n
         objectstore.backend = file
@@ -384,6 +391,8 @@ library.reset_on_fork = false
     {
         do_without_tpm2().await
     }
-    service.create_async(service_config).await.unwrap();
-    let _ = service.start();
+    if !args.test {
+        service.create_async(service_config).await.unwrap();
+        let _ = service.start();
+    }
 }

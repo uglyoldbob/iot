@@ -7,10 +7,11 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
-use ca::{CertificateType, SmartCardPin2};
+use ca::{
+    CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
+};
 pub use main_config::MainConfiguration;
-use serde::Serialize;
-use userprompt::Password2;
+use userprompt::{FileCreate, Password2};
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -136,9 +137,30 @@ fn common_oid() {
 #[tokio::test]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     use std::str::FromStr;
+    use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
     let mut args = main_config::MainConfigurationAnswers::default();
+    args.username = whoami::username();
+    let mut dbname = FileCreate::default();
+    let pw = Password2::new(utility::generate_password(32));
+    let pw2 = Password2::new(utility::generate_password(32));
+    *dbname = std::path::PathBuf::from_str("./test-db1.sqlite").unwrap();
+    let ca_a = StandaloneCaConfigurationAnswers {
+        sign_method: cert_common::CertificateSigningMethod::Https(
+            cert_common::HttpsSigningMethod::RsaSha256,
+        ),
+        path: ca::CaCertificateStorageBuilder::Sqlite(dbname),
+        inferior_to: None,
+        common_name: "TEST CA".to_string(),
+        days: 5,
+        chain_length: 1,
+        admin_access_password: pw,
+        admin_cert: ca::CertificateTypeAnswers::Soft(pw2),
+        ocsp_signature: false,
+        name: "TEST RSA CA".to_string(),
+    };
+    args.pki = PkiConfigurationEnumAnswers::Ca(Box::new(ca_a));
 
     let c = toml::to_string(&args).unwrap();
     let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
@@ -147,12 +169,35 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Failed to write answers file");
 
+    tokio::fs::remove_dir_all(std::path::PathBuf::from_str("./tokens").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./answers2.toml").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-config.toml").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-initialized").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-shm").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-wal").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-password.bin").unwrap()).await;
+
     use assert_cmd::prelude::*;
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
         .arg("--answers=./answers1.toml")
+        .arg("--save-answers=./answers2.toml")
+        .arg("--test")
+        .arg("--config=./")
         .assert()
-        .failure()
-        .stderr(predicates::str::contains("Failed to construct"));
+        .success();
+
+    let pb2 = std::path::PathBuf::from_str("./answers2.toml").unwrap();
+    let mut f2 = tokio::fs::File::open(pb2).await.unwrap();
+    let mut f2_contents = Vec::new();
+    let c2 = f2.read_to_end(&mut f2_contents).await.unwrap();
+    let args2: main_config::MainConfigurationAnswers =
+        toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
+    //TODO compare args and args2
+
+    let mut run = std::process::Command::cargo_bin("rust-iot")?;
+    run.arg("--test").arg("--config=./").assert().success();
+
     Ok(())
 }

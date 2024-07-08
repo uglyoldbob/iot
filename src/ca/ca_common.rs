@@ -265,6 +265,11 @@ impl StandaloneCaConfiguration {
             .as_ref()
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
+        let proxy = if !settings.public_names.is_empty() {
+            Some(settings.public_names[0].subdomain.to_owned())
+        } else {
+            None
+        };
         CaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
@@ -278,7 +283,7 @@ impl StandaloneCaConfiguration {
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
-            proxy: Some(settings.public_names[0].subdomain.to_owned()),
+            proxy,
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }

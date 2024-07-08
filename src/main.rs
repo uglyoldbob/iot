@@ -127,6 +127,10 @@ struct Args {
     /// The config path to override the default with
     #[arg(short, long)]
     config: Option<String>,
+
+    /// The program should run for test mode
+    #[arg(long, default_value_t = false)]
+    test: bool,
 }
 
 /// The main function for the service
@@ -426,7 +430,20 @@ async fn smain() {
         }
     }
 
+    let test = || async {
+        if args.test {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        } else {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        }
+    };
+
     tokio::select! {
+        _ = test() => {
+            service::log::info!("The test function ended the server early");
+        }
         r = tasks.join_next() => {
             service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
             tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
