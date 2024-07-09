@@ -11,6 +11,7 @@ use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
 pub use main_config::MainConfiguration;
+use main_config::{HttpSettings, HttpsSettingsAnswers};
 use service::LogLevel;
 use userprompt::{FileCreate, Password2};
 
@@ -135,15 +136,26 @@ fn common_oid() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     use std::str::FromStr;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
 
+    let mut https_path = FileCreate::default();
+    *https_path = std::path::PathBuf::from_str("./test-https.p12").unwrap();
     let mut args = main_config::MainConfigurationAnswers::default();
     args.debug_level = LogLevel::Trace;
     args.username = whoami::username();
+    args.http = Some(HttpSettings { port: 3000 });
+    args.https = Some(HttpsSettingsAnswers {
+        port: 3001,
+        certificate: main_config::HttpsCertificateLocationAnswers::New {
+            path: https_path,
+            ca_name: "default".to_string(),
+        },
+        require_certificate: false,
+    });
     let mut dbname = FileCreate::default();
     let pw = Password2::new(utility::generate_password(32));
     let pw2 = Password2::new(utility::generate_password(32));
@@ -172,6 +184,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to write answers file");
 
     tokio::fs::remove_dir_all(std::path::PathBuf::from_str("./tokens").unwrap()).await;
+    tokio::fs::remove_file(std::path::PathBuf::from_str("./test-https.p12").unwrap()).await;
     tokio::fs::remove_file(std::path::PathBuf::from_str("./answers2.toml").unwrap()).await;
     tokio::fs::remove_file(std::path::PathBuf::from_str("./default-config.toml").unwrap()).await;
     tokio::fs::remove_file(std::path::PathBuf::from_str("./default-initialized").unwrap()).await;
@@ -198,8 +211,25 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
     //TODO compare args and args2
 
-    let mut run = std::process::Command::cargo_bin("rust-iot")?;
+    let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
     run.arg("--test").arg("--config=./").assert().success();
+
+    let h = tokio::spawn(async {
+        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+        run.arg("--config=./").assert().success();
+    });
+
+    if false {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+            let c = reqwest::Client::new();
+            if let Ok(t) = c.get("https://127.0.0.1:3001").send().await {
+                let t2 = t.text().await.expect("No text?");
+                break;
+            }
+        }
+    }
+    h.abort();
 
     Ok(())
 }

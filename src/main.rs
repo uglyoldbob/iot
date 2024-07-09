@@ -402,53 +402,42 @@ async fn smain() {
 
     let client_certs = webserver::tls::load_user_cert_data(&settings);
 
-    if let Some(http) = &settings.http {
-        service::log::info!("Listening http on port {}", http.port);
+    if !args.test {
+        if let Some(http) = &settings.http {
+            service::log::info!("Listening http on port {}", http.port);
 
-        if let Err(e) = http_webserver(hc.clone(), http.port, &mut tasks).await {
-            service::log::error!("https web server errored {}", e);
-        }
-    }
-
-    if let Some(https) = &settings.https {
-        service::log::info!("Listening https on port {}", https.port);
-
-        let tls_cert = https.certificate.to_owned();
-        let https_cert = tls_cert.get_usable();
-
-        if let Err(e) = https_webserver(
-            hc.clone(),
-            https.port,
-            https_cert,
-            &mut tasks,
-            client_certs,
-            https.require_certificate,
-        )
-        .await
-        {
-            service::log::error!("https web server errored {}", e);
-        }
-    }
-
-    let test = || async {
-        if args.test {
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        } else {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            if let Err(e) = http_webserver(hc.clone(), http.port, &mut tasks).await {
+                service::log::error!("https web server errored {}", e);
             }
         }
-    };
 
-    tokio::select! {
-        _ = test() => {
-            service::log::info!("The test function ended the server early");
+        if let Some(https) = &settings.https {
+            service::log::info!("Listening https on port {}", https.port);
+
+            let tls_cert = https.certificate.to_owned();
+            let https_cert = tls_cert.get_usable();
+
+            if let Err(e) = https_webserver(
+                hc.clone(),
+                https.port,
+                https_cert,
+                &mut tasks,
+                client_certs,
+                https.require_certificate,
+            )
+            .await
+            {
+                service::log::error!("https web server errored {}", e);
+            }
         }
-        r = tasks.join_next() => {
-            service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
-            tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
-        }
-        _ = tokio::signal::ctrl_c() => {
+
+        tokio::select! {
+            r = tasks.join_next() => {
+                service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
+                tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
+            }
+            _ = tokio::signal::ctrl_c() => {
+            }
         }
     }
     service::log::error!("Closing server now");
