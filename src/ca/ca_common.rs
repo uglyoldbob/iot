@@ -932,7 +932,7 @@ impl CaCertificateStorageBuilder {
     /// Build the CaCertificateStorage from self
     /// # Arguments
     pub async fn build(&self) -> Result<CaCertificateStorage, StorageBuilderError> {
-        match self {
+        let r = match self {
             CaCertificateStorageBuilder::Nowhere => Ok(CaCertificateStorage::Nowhere),
             CaCertificateStorageBuilder::Sqlite(p) => {
                 service::log::info!("Building sqlite with {}", p.display());
@@ -959,7 +959,9 @@ impl CaCertificateStorageBuilder {
                     pool.map_err(|_| StorageBuilderError::FailedToCreateStorage)?,
                 ))
             }
-        }
+        };
+        service::log::debug!("Done building storage");
+        r
     }
 }
 
@@ -1097,7 +1099,7 @@ impl CaCertificateStorage {
                     conn.execute("CREATE TABLE serials ( id INTEGER PRIMARY KEY, serial BLOB)", [])?;
                     conn.execute("CREATE TABLE hsm_labels ( id INTEGER PRIMARY KEY, label TEXT)", [])?;
                     if let CertificateType::Soft(_) = admin_cert {
-                        conn.execute("CREATE TABLE p12 ( id INTEGER PRIMARY KEY, pem BLOB)", [])?;
+                        conn.execute("CREATE TABLE p12 ( id INTEGER PRIMARY KEY, der BLOB)", [])?;
                     }
                     match sign_method {
                         CertificateSigningMethod::Https(_) => {
@@ -1132,6 +1134,12 @@ impl CaCertificateStorage {
         cert: CaCertificate,
         password: &str,
     ) -> Result<(), CertificateSaveError> {
+        service::log::debug!(
+            "Save {} {} to medium {:?}",
+            cert.id,
+            cert.name,
+            cert.data.hsm_label()
+        );
         let cert_der = &cert
             .contents()
             .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
@@ -1161,14 +1169,15 @@ impl CaCertificateStorage {
                     .map_err(|_| CertificateSaveError::FailedToSave)?;
                 }
             }
-        } else if let Some(p12) = cert.try_p12(password) {
-            service::log::info!("Inserting p12 data for {}", cert.id);
+        }
+        if let Some(p12) = cert.try_p12(password) {
+            service::log::info!("Inserting p12 data {:02X?} for {}", p12, cert.id);
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
                         let mut stmt = conn
-                            .prepare("INSERT INTO p12 (id, pem) VALUES (?1, ?2)")
+                            .prepare("INSERT INTO p12 (id, der) VALUES (?1, ?2)")
                             .expect("Failed to build prepared statement");
                         stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
                     })
@@ -1188,6 +1197,7 @@ impl CaCertificateStorage {
     ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
             CaCertificateStorage::Nowhere => {
+                service::log::debug!("Tried to load {} certificate from nowhere", name);
                 Err(CertificateLoadingError::DoesNotExist(name.to_string()))
             }
             CaCertificateStorage::Sqlite(p) => {
@@ -1250,8 +1260,10 @@ impl CaCertificateStorage {
         &self,
         label: &str,
     ) -> Result<ProtectedPkcs12, CertificateLoadingError> {
+        service::log::debug!("Attempting to load {} from storage p12", label);
         match self {
             CaCertificateStorage::Nowhere => {
+                service::log::debug!("Tried to load {} p12 certificate from nowhere", label);
                 Err(CertificateLoadingError::DoesNotExist(label.to_string()))
             }
             CaCertificateStorage::Sqlite(p) => {
@@ -1272,7 +1284,7 @@ impl CaCertificateStorage {
                     })?;
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row("SELECT der FROM certs WHERE id=?1", [id], |r| r.get(0))
+                        conn.query_row("SELECT der FROM p12 WHERE id=?1", [id], |r| r.get(0))
                     })
                     .await;
                 let p12 = cert_common::pkcs12::ProtectedPkcs12 {
@@ -1375,7 +1387,20 @@ impl CertificateDataTrait for HttpsCertificate {
             });
             let kps = kp.smartcard();
             let label2 = kps.map(|a| a.label());
-            label.or(label2.or(None))
+            let kp2 = kp.private();
+            let label3 = if kp2.is_some() {
+                let mut r = None;
+                for attr in &self.attributes {
+                    match attr {
+                        BagAttribute::FriendlyName(n) => r = Some(n.to_owned()),
+                        _ => {}
+                    }
+                }
+                r
+            } else {
+                None
+            };
+            label.or(label2.or(label3))
         })
     }
 
@@ -2200,6 +2225,7 @@ impl Pki {
                                     ca.check_https_create(hsm.clone(), main_config)
                                         .await
                                         .map_err(|_| {
+                                            service::log::error!("Failed to load ca due to https certificate creation");
                                             PkiLoadError::FailedToLoadCa(
                                                 name.to_owned(),
                                                 CaLoadError::FailedToInitHttps,
@@ -2214,6 +2240,7 @@ impl Pki {
                                 done = false;
                             }
                             _ => {
+                                service::log::error!("Failed to load ca 7 {} {:?}", name, e);
                                 return Err(PkiLoadError::FailedToLoadCa(name.to_owned(), e));
                             }
                         },
@@ -2242,7 +2269,10 @@ impl Pki {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(hsm.clone(), config)
                 .await
-                .map_err(|e| PkiLoadError::FailedToLoadCa(name.to_owned(), e))?;
+                .map_err(|e| {
+                    service::log::error!("Failed to load ca 8 {} {:?}", name, e);
+                    PkiLoadError::FailedToLoadCa(name.to_owned(), e)
+                })?;
             hm.insert(name.to_owned(), ca);
         }
         let super_admin: Option<CaCertificate> = if let Some(sa) = &settings.super_admin {
@@ -2253,6 +2283,7 @@ impl Pki {
                         .await
                         .map(|a| a.to_owned())
                         .map_err(|e| {
+                            service::log::error!("Failed to load super admin {:?}", e);
                             PkiLoadError::FailedToLoadCa(
                                 sa.to_owned(),
                                 CaLoadError::CertificateLoadingError(e.to_owned()),
@@ -2356,11 +2387,15 @@ impl PkiInstance {
                 let ca = ca_config.get_ca(main_config);
                 let mut ca = crate::ca::Ca::init(hsm.clone(), &ca, None)
                     .await
-                    .map_err(|e| PkiLoadError::FailedToLoadCa("ca".to_string(), e))?; //TODO Use the proper ca superior object instead of None
+                    .map_err(|e| {
+                        service::log::error!("Failed to load ca 9 {:?}", e);
+                        PkiLoadError::FailedToLoadCa("ca".to_string(), e)
+                    })?; //TODO Use the proper ca superior object instead of None
                 if main_config.https.is_some() {
                     ca.check_https_create(hsm.clone(), main_config)
                         .await
                         .map_err(|_| {
+                            service::log::error!("Failed to init https cert");
                             PkiLoadError::FailedToLoadCa(
                                 "ca".to_string(),
                                 CaLoadError::FailedToInitHttps,
@@ -2385,9 +2420,10 @@ impl PkiInstance {
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca_config = &ca_config.get_ca(settings);
-                let ca = Ca::load(hsm, ca_config)
-                    .await
-                    .map_err(|e| PkiLoadError::FailedToLoadCa("ca".to_string(), e))?;
+                let ca = Ca::load(hsm, ca_config).await.map_err(|e| {
+                    service::log::error!("Failed to load ca 10 {:?}", e);
+                    PkiLoadError::FailedToLoadCa("ca".to_string(), e)
+                })?;
                 Ok(Self::Ca(ca))
             }
         }
@@ -2698,6 +2734,7 @@ impl Ca {
                             )
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
+                        service::log::debug!("Saving admin cert to medium");
                         admin_cert.save_to_medium(&mut ca, &p).await;
                         admin_cert
                     }
@@ -3289,6 +3326,7 @@ impl Ca {
     async fn load_user_cert(&self, id: u64) -> Result<CaCertificate, CertificateLoadingError> {
         match &self.medium {
             CaCertificateStorage::Nowhere => {
+                service::log::debug!("Tried to load {} certificate from nowhere", id);
                 Err(CertificateLoadingError::DoesNotExist(format!("ID: {}", id)))
             }
             CaCertificateStorage::Sqlite(p) => {
@@ -3364,14 +3402,17 @@ impl Ca {
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::CaConfiguration,
     ) -> Result<Self, CaLoadError> {
+        service::log::debug!("Trying to load ca from config");
         let mut ca = Self::from_config(settings).await?;
-
+        service::log::debug!("Done loading ca from config");
         // These will error when the ca needs to be built
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_m) => {
+                service::log::debug!("Trying to load ocsp cert");
                 ca.load_ocsp_cert(hsm.clone()).await?;
                 match &settings.admin_cert {
                     CertificateType::Soft(p) => {
+                        service::log::debug!("Trying to load admin cert");
                         ca.load_admin_cert(hsm.clone(), p).await.map_err(|e| {
                             service::log::debug!(
                                 "There was a problem loading the admin certificate {:?}",
@@ -3379,6 +3420,7 @@ impl Ca {
                             );
                             CaLoadError::CertificateLoadingError(e.to_owned())
                         })?;
+                        service::log::debug!("Success load admin cert");
                     }
                     CertificateType::SmartCard(_p) => {
                         ca.load_admin_smartcard(hsm.clone())
@@ -3386,10 +3428,14 @@ impl Ca {
                             .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
                     }
                 }
-
-                ca.load_root_ca_cert(hsm)
-                    .await
-                    .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
+                service::log::debug!("Trying to load root cert");
+                ca.load_root_ca_cert(hsm).await.map_err(|e| {
+                    service::log::debug!(
+                        "There was a problem loading the root certificate {:?}",
+                        e
+                    );
+                    CaLoadError::CertificateLoadingError(e.to_owned())
+                })?;
             }
             CertificateSigningMethod::Ssh(_m) => {
                 ca.load_root_ca_cert(hsm)

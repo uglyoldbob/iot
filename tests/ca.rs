@@ -11,6 +11,7 @@ use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
 pub use main_config::MainConfiguration;
+use service::LogLevel;
 use userprompt::{FileCreate, Password2};
 
 #[path = "../src/utility.rs"]
@@ -141,6 +142,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     use tokio::io::AsyncWriteExt;
 
     let mut args = main_config::MainConfigurationAnswers::default();
+    args.debug_level = LogLevel::Trace;
     args.username = whoami::username();
     let mut dbname = FileCreate::default();
     let pw = Password2::new(utility::generate_password(32));
