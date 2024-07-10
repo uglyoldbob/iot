@@ -2371,6 +2371,20 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Set the shutdown for all pki
+    pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
+        match self {
+            PkiInstance::Pki(pki) => {
+                for ca in pki.roots.values_mut() {
+                    ca.set_shutdown(sd.clone());
+                }
+            }
+            PkiInstance::Ca(ca) => {
+                ca.set_shutdown(sd);
+            }
+        }
+    }
+
     /// Init a pki Instance from the given settings
     #[allow(dead_code)]
     pub async fn init(
@@ -2451,9 +2465,16 @@ pub struct Ca {
     pub admin_access: zeroize::Zeroizing<String>,
     /// The configuration used to create this ca
     pub config: CaConfiguration,
+    /// The optional shutdown message sender
+    pub shutdown: Option<tokio::sync::mpsc::UnboundedSender<()>>,
 }
 
 impl Ca {
+    /// Set the shutdown sender
+    pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
+        self.shutdown = Some(sd);
+    }
+
     /// Check to see if the https certifiate should be created
     pub async fn check_https_create(
         &mut self,
@@ -2557,6 +2578,7 @@ impl Ca {
             config: settings.to_owned(),
             super_admin: None,
             admin_authorities: Vec::new(),
+            shutdown: None,
         })
     }
 
@@ -3559,6 +3581,7 @@ impl Ca {
             config: settings.to_owned(),
             super_admin: None,
             admin_authorities: Vec::new(),
+            shutdown: None,
         })
     }
 

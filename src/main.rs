@@ -131,6 +131,10 @@ struct Args {
     /// The program should run for test mode
     #[arg(long, default_value_t = false)]
     test: bool,
+
+    /// The program should run enable the shutdown trigger
+    #[arg(long, default_value_t = false)]
+    shutdown: bool,
 }
 
 /// The main function for the service
@@ -348,11 +352,17 @@ async fn smain() {
         }
     }
 
+    let (shutdown_send, mut shutdown_recv) = tokio::sync::mpsc::unbounded_channel::<()>();
+
     let settings = Arc::new(settings);
-    let pki = ca::PkiInstance::load(hsm, &settings).await.unwrap(); //TODO remove this unwrap?
+    let mut pki = ca::PkiInstance::load(hsm, &settings).await.unwrap(); //TODO remove this unwrap?
 
     ca::ca_register(&pki, &mut router);
     ca::ca_register_files(&pki, &mut static_map);
+    if args.shutdown {
+        pki.set_shutdown(shutdown_send);
+        ca::ca_register_test(&pki, &mut router);
+    }
 
     let mysql_pw = &settings.database.password;
     let mysql_user = &settings.database.username;
@@ -436,8 +446,8 @@ async fn smain() {
                 service::log::error!("A task exited {:?}, closing server in 5 seconds", r);
                 tokio::time::sleep(tokio::time::Duration::from_millis(5000)).await;
             }
-            _ = tokio::signal::ctrl_c() => {
-            }
+            _ = tokio::signal::ctrl_c() => {}
+            _ = shutdown_recv.recv() => {}
         }
     }
     service::log::error!("Closing server now");

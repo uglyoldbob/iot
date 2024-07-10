@@ -557,6 +557,46 @@ async fn ca_main_page(s: WebPageContext) -> WebResponse {
     }
 }
 
+/// The page that triggers web server early exit
+async fn handle_ca_test_exit(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    if let Some(shutdown) = &ca.shutdown {
+        let _ = shutdown.send(());
+    }
+    let mut html = html::root::Html::builder();
+    html.head(|h| h).body(|b| {
+        b.ordered_list(|ol| {
+            for name in ["I", "am", "groot"] {
+                ol.list_item(|li| li.text(name));
+            }
+            ol
+        })
+    });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// The page that triggers web server early exit
+async fn ca_test_exit(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_test_exit(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_test_exit(ca, &s).await,
+    }
+}
+
 /// Redirect to the main ca page
 async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name();
@@ -2049,6 +2089,11 @@ pub fn ca_register_files(
             service::log::info!("Registering ca static files");
         }
     }
+}
+
+/// Register a test handler that can terminate the server early
+pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter) {
+    router.register("/test-exit.rs", ca_test_exit);
 }
 
 /// Register handlers into the specified webrouter.

@@ -214,22 +214,25 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
     run.arg("--test").arg("--config=./").assert().success();
 
-    let h = tokio::spawn(async {
-        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-        run.arg("--config=./").assert().success();
-    });
-
-    if false {
+    tokio::spawn(async {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             let c = reqwest::Client::new();
-            if let Ok(t) = c.get("https://127.0.0.1:3001").send().await {
+            let d = c.get("http://127.0.0.1:3000").send().await;
+            if let Ok(t) = d {
+                use predicates::prelude::*;
                 let t2 = t.text().await.expect("No text?");
+                assert_eq!(true, predicate::str::contains("missing").eval(&t2));
                 break;
             }
         }
-    }
-    h.abort();
+        let c = reqwest::Client::new();
+        let d = c.get("http://127.0.0.1:3000/test-exit.rs").send().await;
+        d.expect("No response to shutdown");
+    });
+
+    let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+    run.arg("--shutdown").arg("--config=./").assert().success();
 
     Ok(())
 }
