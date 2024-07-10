@@ -10,6 +10,8 @@ mod main_config;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
+use der::Decode;
+use der::DecodePem;
 pub use main_config::MainConfiguration;
 use main_config::{HttpSettings, HttpsSettingsAnswers};
 use service::LogLevel;
@@ -136,6 +138,127 @@ fn common_oid() {
     );
 }
 
+async fn run_web_checks() {
+    use predicates::prelude::*;
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!("{}://127.0.0.1:{}", prot, port))
+            .send()
+            .await
+            .expect("Failed to query")
+            .text()
+            .await
+            .expect("No content");
+        assert_eq!(true, predicate::str::contains("missing").eval(&t));
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!("{}://127.0.0.1:{}/ca", prot, port))
+            .send()
+            .await
+            .expect("Failed to query")
+            .text()
+            .await
+            .expect("No content");
+        assert_eq!(false, predicate::str::contains("missing").eval(&t));
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!(
+                "{}://127.0.0.1:{}/ca/get_ca.rs?type=der",
+                prot, port
+            ))
+            .send()
+            .await
+            .expect("Failed to query")
+            .bytes()
+            .await
+            .expect("No content");
+        x509_cert::Certificate::from_der(&t).unwrap();
+        assert!(t.len() > 10);
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!("{}://127.0.0.1:{}/ca/get_ca.rs", prot, port))
+            .send()
+            .await
+            .expect("Failed to query")
+            .bytes()
+            .await
+            .expect("No content");
+        x509_cert::Certificate::from_der(&t).unwrap();
+        assert!(t.len() > 10);
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!(
+                "{}://127.0.0.1:{}/ca/get_ca.rs?type=pem",
+                prot, port
+            ))
+            .send()
+            .await
+            .expect("Failed to query")
+            .text()
+            .await
+            .expect("No content");
+        x509_cert::Certificate::from_pem(&t).unwrap();
+        assert!(t.len() > 10);
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!(
+                "{}://127.0.0.1:{}/ca/get_ca.rs?type=bla",
+                prot, port
+            ))
+            .send()
+            .await
+            .expect("Failed to query")
+            .text()
+            .await
+            .expect("No content");
+        assert_eq!(true, predicate::str::contains("missing").eval(&t));
+    }
+
+    for (prot, port) in [("http", 3000), ("https", 3001)] {
+        let t = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get(format!("{}://127.0.0.1:{}/ca/request.rs", prot, port))
+            .send()
+            .await
+            .expect("Failed to query")
+            .text()
+            .await
+            .expect("No content");
+        assert_eq!(false, predicate::str::contains("missing").eval(&t));
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     use std::str::FromStr;
@@ -215,20 +338,34 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     run.arg("--test").arg("--config=./").assert().success();
 
     tokio::spawn(async {
+        use futures::FutureExt;
+        use predicates::prelude::*;
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             let c = reqwest::Client::new();
             let d = c.get("http://127.0.0.1:3000").send().await;
             if let Ok(t) = d {
-                use predicates::prelude::*;
                 let t2 = t.text().await.expect("No text?");
                 assert_eq!(true, predicate::str::contains("missing").eval(&t2));
                 break;
             }
         }
-        let c = reqwest::Client::new();
-        let d = c.get("http://127.0.0.1:3000/test-exit.rs").send().await;
-        d.expect("No response to shutdown");
+        let resp = std::panic::AssertUnwindSafe(run_web_checks())
+            .catch_unwind()
+            .await;
+
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .unwrap()
+            .get("http://127.0.0.1:3000/test-exit.rs")
+            .send()
+            .await
+            .expect("Failed to shutdown");
+
+        if resp.is_err() {
+            panic!("FAIL: {:?}", resp.err());
+        }
     });
 
     let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
