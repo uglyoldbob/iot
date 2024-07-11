@@ -7,6 +7,9 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
+use std::str::FromStr;
+
+use assert_cmd::prelude::*;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
@@ -14,7 +17,10 @@ use der::Decode;
 use der::DecodePem;
 pub use main_config::MainConfiguration;
 use main_config::{HttpSettings, HttpsSettingsAnswers};
+use predicates::prelude::predicate;
 use service::LogLevel;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 use userprompt::{FileCreate, Password2};
 
 #[path = "../src/utility.rs"]
@@ -259,12 +265,22 @@ async fn run_web_checks() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
-    use std::str::FromStr;
-    use tokio::io::AsyncReadExt;
-    use tokio::io::AsyncWriteExt;
+async fn cleanup() {
+    let _ = tokio::fs::remove_dir_all(std::path::PathBuf::from_str("./tokens").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./test-https.p12").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./answers2.toml").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-config.toml").unwrap())
+        .await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-initialized").unwrap())
+        .await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-shm").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-wal").unwrap()).await;
+    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-password.bin").unwrap())
+        .await;
+}
 
+fn build_answers() -> main_config::MainConfigurationAnswers {
     let mut https_path = FileCreate::default();
     *https_path = std::path::PathBuf::from_str("./test-https.p12").unwrap();
     let mut args = main_config::MainConfigurationAnswers::default();
@@ -298,6 +314,12 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         name: "TEST RSA CA".to_string(),
     };
     args.pki = PkiConfigurationEnumAnswers::Ca(Box::new(ca_a));
+    args
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+    let args = build_answers();
 
     let c = toml::to_string(&args).unwrap();
     let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
@@ -306,17 +328,8 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Failed to write answers file");
 
-    tokio::fs::remove_dir_all(std::path::PathBuf::from_str("./tokens").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./test-https.p12").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./answers2.toml").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-config.toml").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-initialized").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-shm").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-wal").unwrap()).await;
-    tokio::fs::remove_file(std::path::PathBuf::from_str("./default-password.bin").unwrap()).await;
+    cleanup().await;
 
-    use assert_cmd::prelude::*;
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
         .arg("--answers=./answers1.toml")
@@ -340,6 +353,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async {
         use futures::FutureExt;
         use predicates::prelude::*;
+        //Wait until the service is ready by polling it
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
             let c = reqwest::Client::new();
@@ -350,10 +364,11 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
         }
+        //no run all the checks
         let resp = std::panic::AssertUnwindSafe(run_web_checks())
             .catch_unwind()
             .await;
-
+        // indicate that it should exit so the test can actually finish
         reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .build()
@@ -362,7 +377,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
             .send()
             .await
             .expect("Failed to shutdown");
-
+        // indicate errors now
         if resp.is_err() {
             panic!("FAIL: {:?}", resp.err());
         }
@@ -371,5 +386,94 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
     run.arg("--shutdown").arg("--config=./").assert().success();
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
+    cleanup().await;
+    let args = main_config::MainConfigurationAnswers::default();
+    let c = toml::to_string(&args).unwrap();
+    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    f.write_all(c.as_bytes())
+        .await
+        .expect("Failed to write answers file");
+
+    let pb = std::path::PathBuf::from_str("./answers2.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    f.write_all(c.as_bytes())
+        .await
+        .expect("Failed to write answers file");
+
+    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    construct
+        .arg("--answers=./answers1.toml")
+        .arg("--save-answers=./answers2.toml")
+        .arg("--test")
+        .arg("--config=./")
+        .assert()
+        .failure()
+        .code(predicate::eq(101))
+        .stderr(predicate::str::contains("Answers file already exists"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
+    let args = build_answers();
+
+    let c = toml::to_string(&args).unwrap();
+    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    f.write_all(c.as_bytes())
+        .await
+        .expect("Failed to write answers file");
+
+    cleanup().await;
+    let pb2 = std::path::PathBuf::from_str("./default-config.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb2).await.unwrap();
+    f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
+
+    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    construct
+        .arg("--answers=./answers1.toml")
+        .arg("--save-answers=./answers2.toml")
+        .arg("--test")
+        .arg("--config=./")
+        .assert()
+        .failure()
+        .code(predicate::eq(101))
+        .stderr(predicate::str::contains("Configuration file"))
+        .stderr(predicate::str::contains("already exists"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
+    let args = build_answers();
+
+    let c = toml::to_string(&args).unwrap();
+    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
+    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    f.write_all(c.as_bytes())
+        .await
+        .expect("Failed to write answers file");
+
+    cleanup().await;
+    let pb2 = std::path::PathBuf::from_str("./default-password.bin").unwrap();
+    let mut f = tokio::fs::File::create(pb2).await.unwrap();
+    f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
+
+    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    construct
+        .arg("--answers=./answers1.toml")
+        .arg("--save-answers=./answers2.toml")
+        .arg("--test")
+        .arg("--config=./")
+        .assert()
+        .failure()
+        .code(predicate::eq(101))
+        .stderr(predicate::str::contains("Password file aready exists"));
     Ok(())
 }
