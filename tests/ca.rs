@@ -7,8 +7,6 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
-use std::str::FromStr;
-
 use assert_cmd::prelude::*;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
@@ -265,24 +263,10 @@ async fn run_web_checks() {
     }
 }
 
-async fn cleanup() {
-    let _ = tokio::fs::remove_dir_all(std::path::PathBuf::from_str("./tokens").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./test-https.p12").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./answers2.toml").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-config.toml").unwrap())
-        .await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-initialized").unwrap())
-        .await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-shm").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./db1.sqlite-wal").unwrap()).await;
-    let _ = tokio::fs::remove_file(std::path::PathBuf::from_str("./default-password.bin").unwrap())
-        .await;
-}
-
-fn build_answers() -> main_config::MainConfigurationAnswers {
+fn build_answers(td: &tempfile::TempDir) -> main_config::MainConfigurationAnswers {
     let mut https_path = FileCreate::default();
-    *https_path = std::path::PathBuf::from_str("./test-https.p12").unwrap();
+    let base = std::path::PathBuf::from(td.path());
+    *https_path = base.join("test-https.p12");
     let mut args = main_config::MainConfigurationAnswers::default();
     args.debug_level = LogLevel::Trace;
     args.username = whoami::username();
@@ -298,7 +282,7 @@ fn build_answers() -> main_config::MainConfigurationAnswers {
     let mut dbname = FileCreate::default();
     let pw = Password2::new(utility::generate_password(32));
     let pw2 = Password2::new(utility::generate_password(32));
-    *dbname = std::path::PathBuf::from_str("./test-db1.sqlite").unwrap();
+    *dbname = base.join("test-db1.sqlite");
     let ca_a = StandaloneCaConfigurationAnswers {
         sign_method: cert_common::CertificateSigningMethod::Https(
             cert_common::HttpsSigningMethod::RsaSha256,
@@ -319,36 +303,40 @@ fn build_answers() -> main_config::MainConfigurationAnswers {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
-    let args = build_answers();
+    let configpath = tempfile::TempDir::new().unwrap();
+    let base = std::path::PathBuf::from(configpath.path());
+    let args = build_answers(&configpath);
 
     let c = toml::to_string(&args).unwrap();
-    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    let pb = base.join("answers1.toml");
+    let mut f = tokio::fs::File::create(&pb).await.unwrap();
     f.write_all(c.as_bytes())
         .await
         .expect("Failed to write answers file");
 
-    cleanup().await;
+    let pb2 = base.join("answers2.toml");
 
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
-        .arg("--answers=./answers1.toml")
-        .arg("--save-answers=./answers2.toml")
+        .arg(format!("--answers={}", pb.display()))
+        .arg(format!("--save-answers={}", pb2.display()))
         .arg("--test")
-        .arg("--config=./")
+        .arg(format!("--config={}", configpath.path().display()))
         .assert()
         .success();
 
-    let pb2 = std::path::PathBuf::from_str("./answers2.toml").unwrap();
     let mut f2 = tokio::fs::File::open(pb2).await.unwrap();
     let mut f2_contents = Vec::new();
-    let c2 = f2.read_to_end(&mut f2_contents).await.unwrap();
+    f2.read_to_end(&mut f2_contents).await.unwrap();
     let args2: main_config::MainConfigurationAnswers =
         toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
     //TODO compare args and args2
 
     let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-    run.arg("--test").arg("--config=./").assert().success();
+    run.arg("--test")
+        .arg(format!("--config={}", configpath.path().display()))
+        .assert()
+        .success();
 
     tokio::spawn(async {
         use futures::FutureExt;
@@ -384,34 +372,38 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-    run.arg("--shutdown").arg("--config=./").assert().success();
+    run.arg("--shutdown")
+        .arg(format!("--config={}", configpath.path().display()))
+        .assert()
+        .success();
 
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
-    cleanup().await;
+    let configpath = tempfile::TempDir::new().unwrap();
+    let base = std::path::PathBuf::from(configpath.path());
     let args = main_config::MainConfigurationAnswers::default();
     let c = toml::to_string(&args).unwrap();
-    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    let pb = base.join("answers1.toml");
+    let mut f = tokio::fs::File::create(&pb).await.unwrap();
     f.write_all(c.as_bytes())
         .await
         .expect("Failed to write answers file");
 
-    let pb = std::path::PathBuf::from_str("./answers2.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    let pb2 = base.join("answers2.toml");
+    let mut f = tokio::fs::File::create(&pb2).await.unwrap();
     f.write_all(c.as_bytes())
         .await
         .expect("Failed to write answers file");
 
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
-        .arg("--answers=./answers1.toml")
-        .arg("--save-answers=./answers2.toml")
+        .arg(format!("--answers={}", pb.display()))
+        .arg(format!("--save-answers={}", pb2.display()))
         .arg("--test")
-        .arg("--config=./")
+        .arg(format!("--config={}", configpath.path().display()))
         .assert()
         .failure()
         .code(predicate::eq(101))
@@ -421,26 +413,28 @@ async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
-    let args = build_answers();
+    let configpath = tempfile::TempDir::new().unwrap();
+    let base = std::path::PathBuf::from(configpath.path());
+    let args = build_answers(&configpath);
 
     let c = toml::to_string(&args).unwrap();
-    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    let pb = base.join("answers1.toml");
+    let pb2 = base.join("answers2.toml");
+    let mut f = tokio::fs::File::create(&pb).await.unwrap();
     f.write_all(c.as_bytes())
         .await
         .expect("Failed to write answers file");
 
-    cleanup().await;
-    let pb2 = std::path::PathBuf::from_str("./default-config.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb2).await.unwrap();
+    let pb3 = base.join("default-config.toml");
+    let mut f = tokio::fs::File::create(&pb3).await.unwrap();
     f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
 
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
-        .arg("--answers=./answers1.toml")
-        .arg("--save-answers=./answers2.toml")
+        .arg(format!("--answers={}", pb.display()))
+        .arg(format!("--save-answers={}", pb2.display()))
         .arg("--test")
-        .arg("--config=./")
+        .arg(format!("--config={}", configpath.path().display()))
         .assert()
         .failure()
         .code(predicate::eq(101))
@@ -451,26 +445,28 @@ async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
-    let args = build_answers();
+    let configpath = tempfile::TempDir::new().unwrap();
+    let base = std::path::PathBuf::from(configpath.path());
+    let args = build_answers(&configpath);
 
     let c = toml::to_string(&args).unwrap();
-    let pb = std::path::PathBuf::from_str("./answers1.toml").unwrap();
-    let mut f = tokio::fs::File::create(pb).await.unwrap();
+    let pb = base.join("answers1.toml");
+    let pb2 = base.join("answers2.toml");
+    let mut f = tokio::fs::File::create(&pb).await.unwrap();
     f.write_all(c.as_bytes())
         .await
         .expect("Failed to write answers file");
 
-    cleanup().await;
-    let pb2 = std::path::PathBuf::from_str("./default-password.bin").unwrap();
-    let mut f = tokio::fs::File::create(pb2).await.unwrap();
+    let pb3 = base.join("default-password.bin");
+    let mut f = tokio::fs::File::create(&pb3).await.unwrap();
     f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
 
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
     construct
-        .arg("--answers=./answers1.toml")
-        .arg("--save-answers=./answers2.toml")
+        .arg(format!("--answers={}", pb.display()))
+        .arg(format!("--save-answers={}", pb2.display()))
         .arg("--test")
-        .arg("--config=./")
+        .arg(format!("--config={}", configpath.path().display()))
         .assert()
         .failure()
         .code(predicate::eq(101))
