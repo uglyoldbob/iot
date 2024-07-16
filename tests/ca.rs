@@ -377,6 +377,14 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         .assert()
         .success();
 
+    let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
+    kill.arg(format!("--config={}", configpath.path().display()))
+        .arg("--name=default")
+        .arg("--delete")
+        .arg("--test")
+        .assert()
+        .success();
+
     Ok(())
 }
 

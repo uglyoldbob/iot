@@ -35,6 +35,10 @@ struct Args {
     /// Definitely delete the configuration without asking
     #[arg(long, default_value_t = false)]
     delete: bool,
+
+    /// The program should run for test mode
+    #[arg(long, default_value_t = false)]
+    test: bool,
 }
 
 #[tokio::main]
@@ -60,7 +64,7 @@ async fn main() {
     let mut exe = std::env::current_exe().unwrap();
     exe.pop();
 
-    {
+    if !args.test {
         let mut service = service::Service::new(format!("rust-iot-{}", name));
         if service.exists() {
             let _ = service.stop();
