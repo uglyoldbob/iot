@@ -263,7 +263,10 @@ async fn run_web_checks() {
     }
 }
 
-fn build_answers(td: &tempfile::TempDir) -> main_config::MainConfigurationAnswers {
+fn build_answers(
+    td: &tempfile::TempDir,
+    method: cert_common::CertificateSigningMethod,
+) -> main_config::MainConfigurationAnswers {
     let mut https_path = FileCreate::default();
     let base = std::path::PathBuf::from(td.path());
     *https_path = base.join("test-https.p12");
@@ -284,9 +287,7 @@ fn build_answers(td: &tempfile::TempDir) -> main_config::MainConfigurationAnswer
     let pw2 = Password2::new(utility::generate_password(32));
     *dbname = base.join("test-db1.sqlite");
     let ca_a = StandaloneCaConfigurationAnswers {
-        sign_method: cert_common::CertificateSigningMethod::Https(
-            cert_common::HttpsSigningMethod::RsaSha256,
-        ),
+        sign_method: method,
         path: ca::CaCertificateStorageBuilder::Sqlite(dbname),
         inferior_to: None,
         common_name: "TEST CA".to_string(),
@@ -295,7 +296,7 @@ fn build_answers(td: &tempfile::TempDir) -> main_config::MainConfigurationAnswer
         admin_access_password: pw,
         admin_cert: ca::CertificateTypeAnswers::Soft(pw2),
         ocsp_signature: false,
-        name: "TEST RSA CA".to_string(),
+        name: "TEST CA".to_string(),
     };
     args.pki = PkiConfigurationEnumAnswers::Ca(Box::new(ca_a));
     args
@@ -303,87 +304,94 @@ fn build_answers(td: &tempfile::TempDir) -> main_config::MainConfigurationAnswer
 
 #[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
-    let configpath = tempfile::TempDir::new().unwrap();
-    let base = std::path::PathBuf::from(configpath.path());
-    let args = build_answers(&configpath);
+    let methods = vec![
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
+    ];
 
-    let c = toml::to_string(&args).unwrap();
-    let pb = base.join("answers1.toml");
-    let mut f = tokio::fs::File::create(&pb).await.unwrap();
-    f.write_all(c.as_bytes())
-        .await
-        .expect("Failed to write answers file");
+    for method in methods {
+        let configpath = tempfile::TempDir::new().unwrap();
+        let base = std::path::PathBuf::from(configpath.path());
+        let args = build_answers(&configpath, method);
 
-    let pb2 = base.join("answers2.toml");
-
-    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
-    construct
-        .arg(format!("--answers={}", pb.display()))
-        .arg(format!("--save-answers={}", pb2.display()))
-        .arg("--test")
-        .arg(format!("--config={}", configpath.path().display()))
-        .assert()
-        .success();
-
-    let mut f2 = tokio::fs::File::open(pb2).await.unwrap();
-    let mut f2_contents = Vec::new();
-    f2.read_to_end(&mut f2_contents).await.unwrap();
-    let args2: main_config::MainConfigurationAnswers =
-        toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
-    //TODO compare args and args2
-
-    let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-    run.arg("--test")
-        .arg(format!("--config={}", configpath.path().display()))
-        .assert()
-        .success();
-
-    tokio::spawn(async {
-        use futures::FutureExt;
-        use predicates::prelude::*;
-        //Wait until the service is ready by polling it
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-            let c = reqwest::Client::new();
-            let d = c.get("http://127.0.0.1:3000").send().await;
-            if let Ok(t) = d {
-                let t2 = t.text().await.expect("No text?");
-                assert_eq!(true, predicate::str::contains("missing").eval(&t2));
-                break;
-            }
-        }
-        //no run all the checks
-        let resp = std::panic::AssertUnwindSafe(run_web_checks())
-            .catch_unwind()
-            .await;
-        // indicate that it should exit so the test can actually finish
-        reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap()
-            .get("http://127.0.0.1:3000/test-exit.rs")
-            .send()
+        let c = toml::to_string(&args).unwrap();
+        let pb = base.join("answers1.toml");
+        let mut f = tokio::fs::File::create(&pb).await.unwrap();
+        f.write_all(c.as_bytes())
             .await
-            .expect("Failed to shutdown");
-        // indicate errors now
-        if resp.is_err() {
-            panic!("FAIL: {:?}", resp.err());
-        }
-    });
+            .expect("Failed to write answers file");
 
-    let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-    run.arg("--shutdown")
-        .arg(format!("--config={}", configpath.path().display()))
-        .assert()
-        .success();
+        let pb2 = base.join("answers2.toml");
 
-    let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
-    kill.arg(format!("--config={}", configpath.path().display()))
-        .arg("--name=default")
-        .arg("--delete")
-        .arg("--test")
-        .assert()
-        .success();
+        let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+        construct
+            .arg(format!("--answers={}", pb.display()))
+            .arg(format!("--save-answers={}", pb2.display()))
+            .arg("--test")
+            .arg(format!("--config={}", configpath.path().display()))
+            .assert()
+            .success();
+
+        let mut f2 = tokio::fs::File::open(pb2).await.unwrap();
+        let mut f2_contents = Vec::new();
+        f2.read_to_end(&mut f2_contents).await.unwrap();
+        let args2: main_config::MainConfigurationAnswers =
+            toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
+        //TODO compare args and args2
+
+        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+        run.arg("--test")
+            .arg(format!("--config={}", configpath.path().display()))
+            .assert()
+            .success();
+
+        tokio::spawn(async {
+            use futures::FutureExt;
+            use predicates::prelude::*;
+            //Wait until the service is ready by polling it
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                let c = reqwest::Client::new();
+                let d = c.get("http://127.0.0.1:3000").send().await;
+                if let Ok(t) = d {
+                    let t2 = t.text().await.expect("No text?");
+                    assert_eq!(true, predicate::str::contains("missing").eval(&t2));
+                    break;
+                }
+            }
+            //no run all the checks
+            let resp = std::panic::AssertUnwindSafe(run_web_checks())
+                .catch_unwind()
+                .await;
+            // indicate that it should exit so the test can actually finish
+            reqwest::Client::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap()
+                .get("http://127.0.0.1:3000/test-exit.rs")
+                .send()
+                .await
+                .expect("Failed to shutdown");
+            // indicate errors now
+            if resp.is_err() {
+                panic!("FAIL: {:?}", resp.err());
+            }
+        });
+
+        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+        run.arg("--shutdown")
+            .arg(format!("--config={}", configpath.path().display()))
+            .assert()
+            .success();
+
+        let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
+        kill.arg(format!("--config={}", configpath.path().display()))
+            .arg("--name=default")
+            .arg("--delete")
+            .arg("--test")
+            .assert()
+            .success();
+    }
 
     Ok(())
 }
@@ -423,7 +431,10 @@ async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
 async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
     let configpath = tempfile::TempDir::new().unwrap();
     let base = std::path::PathBuf::from(configpath.path());
-    let args = build_answers(&configpath);
+    let args = build_answers(
+        &configpath,
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
+    );
 
     let c = toml::to_string(&args).unwrap();
     let pb = base.join("answers1.toml");
@@ -455,7 +466,10 @@ async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
 async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
     let configpath = tempfile::TempDir::new().unwrap();
     let base = std::path::PathBuf::from(configpath.path());
-    let args = build_answers(&configpath);
+    let args = build_answers(
+        &configpath,
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
+    );
 
     let c = toml::to_string(&args).unwrap();
     let pb = base.join("answers1.toml");

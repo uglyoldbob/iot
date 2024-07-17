@@ -13,6 +13,9 @@ Examine a certificate signing request der format
 `openssl req -text -inform der -in request.csr`
 
 
+Generate an ecdsa private key
+`openssl ecparam -name prime256v1 -genkey -noout -out private.ec.key`
+
 Generate a certificate to be signed by a certificate authority:
 ```
 openssl req -newkey rsa:2048 -keyout private.key -out server.csr

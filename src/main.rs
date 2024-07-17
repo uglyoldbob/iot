@@ -148,7 +148,7 @@ async fn smain() {
 
     let args = Args::parse();
     let config_path = if let Some(p) = args.config {
-        std::path::PathBuf::from(p)
+        std::path::PathBuf::from(p).canonicalize().unwrap()
     } else {
         crate::main_config::default_config_path()
     };
@@ -173,9 +173,9 @@ async fn smain() {
     router.register("/", main_redirect);
 
     let mut settings_con = Vec::new();
-    let mut f = tokio::fs::File::open(config_path.join(format!("{}-config.toml", name)))
-        .await
-        .unwrap();
+    let pb = config_path.join(format!("{}-config.toml", name));
+    service::log::debug!("Opening {}", pb.display());
+    let mut f = tokio::fs::File::open(pb).await.unwrap();
     f.read_to_end(&mut settings_con).await.unwrap();
 
     let settings: MainConfiguration;
@@ -458,12 +458,6 @@ service::ServiceAsyncMacro!(service_starter, smain, u64);
 #[tokio::main]
 async fn main() -> Result<(), u32> {
     let args = Args::parse();
-    let config_path = if let Some(p) = args.config {
-        std::path::PathBuf::from(p)
-    } else {
-        crate::main_config::default_config_path()
-    };
-    std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
     let name = args.name.unwrap_or("default".to_string());
 

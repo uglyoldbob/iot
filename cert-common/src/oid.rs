@@ -119,6 +119,9 @@ fn as_oid2(s: &'static str) -> Oid {
 }
 
 lazy_static::lazy_static! {
+    /// The oid for an ec public key
+    pub static ref OID_EC_PUBLIC_KEY: Oid =
+        as_oid(&[1, 2, 840, 10_045, 2, 1]);
     /// The oid for pkcs1 ecdsa signing
     pub static ref OID_ECDSA_P256_SHA256_SIGNING: Oid =
         as_oid(&[1, 2, 840, 10_045, 4, 3, 2]);

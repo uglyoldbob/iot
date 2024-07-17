@@ -2,7 +2,13 @@
 
 use std::sync::{Arc, Mutex};
 
-use cert_common::{oid::OID_PKCS1_SHA256_RSA_ENCRYPTION, HttpsSigningMethod};
+use cert_common::{
+    oid::{OID_ECDSA_P256_SHA256_SIGNING, OID_EC_PUBLIC_KEY, OID_PKCS1_SHA256_RSA_ENCRYPTION},
+    HttpsSigningMethod,
+};
+use cryptoki::object::Attribute;
+use cryptoki::object::{KeyType, ObjectClass};
+use der::Class;
 use zeroize::Zeroizing;
 
 /// The keypair for a certificate in the hsm module
@@ -11,6 +17,8 @@ use zeroize::Zeroizing;
 pub enum KeyPair {
     /// An rsa sha256 keypair
     RsaSha256(RsaSha256Keypair),
+    /// An ecdsa sha256 keypair
+    EcdsaSha256(EcdsaSha256Keypair),
 }
 
 impl KeyPair {
@@ -89,27 +97,91 @@ pub trait KeyPairTrait {
     fn https_algorithm(&self) -> Option<HttpsSigningMethod>;
 }
 
+//TODO try to use enum_dispatch for this impl
 impl rcgen::RemoteKeyPair for KeyPair {
     fn public_key(&self) -> &[u8] {
         match self {
             KeyPair::RsaSha256(m) => m.public_key(),
+            KeyPair::EcdsaSha256(m) => m.public_key(),
         }
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
         match self {
             KeyPair::RsaSha256(m) => m.sign(msg),
+            KeyPair::EcdsaSha256(m) => m.sign(msg),
         }
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
         match self {
             KeyPair::RsaSha256(m) => m.algorithm(),
+            KeyPair::EcdsaSha256(m) => m.algorithm(),
         }
     }
 }
 
-/// An rsa 2ha-256 hsm keypair
+/// An ecdsa sha-256 hsm keypair
+#[derive(Clone, Debug)]
+pub struct EcdsaSha256Keypair {
+    /// The handle for the public key
+    _public: cryptoki::object::ObjectHandle,
+    /// The handle for the private key
+    private: cryptoki::object::ObjectHandle,
+    /// The actual public key
+    pubkey: Vec<u8>,
+    /// The label for the keypair
+    label: String,
+    /// The reference hsm to commmunicate with
+    hsm: Arc<crate::hsm2::Hsm>,
+}
+
+impl KeyPairTrait for EcdsaSha256Keypair {
+    fn keypair(&self) -> rcgen::KeyPair {
+        rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
+    }
+
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    fn https_algorithm(&self) -> Option<HttpsSigningMethod> {
+        Some(HttpsSigningMethod::EcdsaSha256)
+    }
+}
+
+impl rcgen::RemoteKeyPair for EcdsaSha256Keypair {
+    fn public_key(&self) -> &[u8] {
+        &self.pubkey
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+        let session = self.hsm.session.lock().unwrap();
+        let hash = session
+            .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
+            .map_err(|_| rcgen::Error::RemoteKeyError)?;
+        let h1: Vec<u8> = hash.into_iter().rev().collect();
+        let hashed = todo!();
+
+        service::log::debug!("Data to ecdsa sign is length {} {:02X?}", msg.len(), msg);
+        service::log::debug!("HASH IS {} {:02X?}", hashed.len(), hashed);
+        let r = session.sign(
+            &cryptoki::mechanism::Mechanism::Ecdsa,
+            self.private,
+            &hashed,
+        );
+        r.map_err(|e| {
+            service::log::error!("The error for ecdsa sign is {:?}", e);
+            rcgen::Error::RemoteKeyError
+        })
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components()).unwrap()
+    }
+}
+
+/// An rsa sha-256 hsm keypair
 #[derive(Clone, Debug)]
 pub struct RsaSha256Keypair {
     /// The handle for the public key
@@ -211,8 +283,52 @@ fn get_rsa_public_key(
         .expect("Failed to build public key");
 
     let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
-        .expect("Faiiled to build public key bytes");
+        .expect("Failed to build public key bytes");
     pubbytes.as_bytes().to_vec()
+}
+
+/// Get the rsa public key from the hsm
+fn get_ecdsa_public_key(
+    session: &cryptoki::session::Session,
+    public: cryptoki::object::ObjectHandle,
+) -> Vec<u8> {
+    let attrs = session
+        .get_attributes(
+            public,
+            &[
+                cryptoki::object::AttributeType::EcParams,
+                cryptoki::object::AttributeType::EcPoint,
+            ],
+        )
+        .unwrap();
+    let mut ecpoint = Vec::new();
+    let mut params = Vec::new();
+    for attr in &attrs {
+        service::log::debug!("ecdsa attribute {:02x?}", attr);
+    }
+    for attr in &attrs {
+        match attr {
+            cryptoki::object::Attribute::EcPoint(d) => {
+                ecpoint = d[2..].to_owned();
+            }
+            cryptoki::object::Attribute::EcParams(p) => {
+                params = p.to_owned();
+            }
+            _ => {
+                panic!("Unexpected attribute");
+            }
+        }
+    }
+    let der = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_sequence(|w| {
+                w.next().write_oid(&OID_EC_PUBLIC_KEY.to_yasna());
+                w.next().write_der(&params);
+            });
+            w.next().write_bitvec_bytes(&ecpoint, ecpoint.len() * 8);
+        })
+    });
+    der
 }
 
 impl Hsm {
@@ -403,7 +519,38 @@ impl Hsm {
                 Some(KeyPair::RsaSha256(rkp))
             }
             HttpsSigningMethod::EcdsaSha256 => {
-                todo!()
+                let mechanism = cryptoki::mechanism::Mechanism::EccKeyPairGen;
+
+                let pub_key_template = vec![
+                    cryptoki::object::Attribute::Token(true),
+                    cryptoki::object::Attribute::Label(name.as_bytes().to_vec()),
+                    cryptoki::object::Attribute::EcParams(vec![
+                        0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+                    ]),
+                    cryptoki::object::Attribute::Private(false),
+                    cryptoki::object::Attribute::Encrypt(true),
+                ];
+                let priv_key_template = vec![
+                    cryptoki::object::Attribute::Token(true),
+                    cryptoki::object::Attribute::Label(name.as_bytes().to_vec()),
+                    Attribute::Sensitive(true),
+                    Attribute::Derive(true),
+                    cryptoki::object::Attribute::Private(true),
+                    cryptoki::object::Attribute::Decrypt(true),
+                ];
+                let (public, private) = session
+                    .generate_key_pair(&mechanism, &pub_key_template, &priv_key_template)
+                    .expect("Failed to generate keypair");
+                let pubvec = get_ecdsa_public_key(&session, public);
+
+                let rkp = EcdsaSha256Keypair {
+                    _public: public,
+                    private,
+                    pubkey: pubvec,
+                    hsm: self.clone(),
+                    label: name.to_string(),
+                };
+                Some(KeyPair::EcdsaSha256(rkp))
             }
         }
     }
