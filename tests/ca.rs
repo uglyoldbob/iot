@@ -7,7 +7,10 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
+use std::str::FromStr;
+
 use assert_cmd::prelude::*;
+use ca::ComplexName;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
@@ -299,6 +302,8 @@ fn build_answers(
         name: "TEST CA".to_string(),
     };
     args.pki = PkiConfigurationEnumAnswers::Ca(Box::new(ca_a));
+    args.public_names
+        .push(ComplexName::from_str("127.0.0.1").unwrap());
     args
 }
 
