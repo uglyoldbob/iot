@@ -1,0 +1,4 @@
+`SOFTHSM2_CONF=./softhsm2.conf pkcs11-tool --module=./src/lib/libsofthsm2.so --token-label=ecdsa --login --pin pac-afu-signer --keypairgen --mechanism ECDSA-KEY-PAIR-GEN --key-type EC:secp256r1 --usage-sign --label root_key --id 0`
+`SOFTHSM2_CONF=./softhsm2.conf pkcs11-tool --module=./src/lib/libsofthsm2.so --token-label=ecdsa --login --pin pac-afu-signer --read-object --type pubkey --id 0 -o ecdsapub.key`
+
+`SOFTHSM2_CONF=./softhsm2.conf pkcs11-tool --module=./src/lib/libsofthsm2.so --token-label=ecdsa --login --pin pac-afu-signer --mechanism ECDSA --sign --id 0 -o sig.bin -i data.bin --signature-format openssl`

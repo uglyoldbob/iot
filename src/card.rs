@@ -83,7 +83,7 @@ impl KeyPair {
         let mut hasher = sha2::Sha256::new();
         hasher.update(data);
         let hash = hasher.finalize();
-        let hashed = crate::ca::pkcs15_sha256(self.keysize_bytes(), &hash);
+        let hashed = crate::utility::pkcs15_sha256(self.keysize_bytes(), &hash);
 
         service::log::debug!(
             "Signing hdata len {} with pin {:02X?} {:02X?}",

@@ -35,7 +35,7 @@ fn hash_setup1() -> Vec<u8> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(data);
     let hash = hasher.finalize();
-    let t = ca::rsa_sha256(&hash);
+    let t = utility::rsa_sha256(&hash);
     t
 }
 
@@ -58,7 +58,7 @@ fn rsa_sha256() {
 fn pkcs15_sha256() {
     let t = hash_setup1();
     for i in [128, 256, 512, 1024] {
-        let t2 = ca::pkcs15_sha256(i, &t);
+        let t2 = utility::pkcs15_sha256(i, &t);
         assert_eq!(i, t2.len());
     }
 }

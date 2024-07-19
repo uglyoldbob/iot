@@ -121,6 +121,12 @@ impl rcgen::RemoteKeyPair for KeyPair {
     }
 }
 
+#[derive(Debug, der::Sequence)]
+pub struct EcdsaSignature {
+    pub r: der::asn1::Uint,
+    pub s: der::asn1::Uint,
+}
+
 /// An ecdsa sha-256 hsm keypair
 #[derive(Clone, Debug)]
 pub struct EcdsaSha256Keypair {
@@ -158,22 +164,24 @@ impl rcgen::RemoteKeyPair for EcdsaSha256Keypair {
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
         let session = self.hsm.session.lock().unwrap();
         let hash = session
-            .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
+            .digest(&cryptoki::mechanism::Mechanism::Sha256, &msg)
             .map_err(|_| rcgen::Error::RemoteKeyError)?;
-        let h1: Vec<u8> = hash.into_iter().rev().collect();
-        let hashed = todo!();
 
-        service::log::debug!("Data to ecdsa sign is length {} {:02X?}", msg.len(), msg);
-        service::log::debug!("HASH IS {} {:02X?}", hashed.len(), hashed);
-        let r = session.sign(
-            &cryptoki::mechanism::Mechanism::Ecdsa,
-            self.private,
-            &hashed,
-        );
-        r.map_err(|e| {
+        let r = session.sign(&cryptoki::mechanism::Mechanism::Ecdsa, self.private, &hash);
+        let raw = r.map_err(|e| {
             service::log::error!("The error for ecdsa sign is {:?}", e);
             rcgen::Error::RemoteKeyError
-        })
+        })?;
+
+        let sig = EcdsaSignature {
+            r: der::asn1::Uint::new(&raw[0..32]).unwrap(),
+            s: der::asn1::Uint::new(&raw[32..64]).unwrap(),
+        };
+
+        use der::Encode;
+        let yder = sig.to_der().unwrap();
+
+        Ok(yder)
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
@@ -220,12 +228,7 @@ impl rcgen::RemoteKeyPair for RsaSha256Keypair {
         let hash = session
             .digest(&cryptoki::mechanism::Mechanism::Sha256, msg)
             .map_err(|_| rcgen::Error::RemoteKeyError)?;
-        let hashed = crate::ca::rsa_sha256(&hash);
-        service::log::debug!(
-            "Data to rsa sign is length {} {:02X?}",
-            hashed.len(),
-            hashed
-        );
+        let hashed = crate::utility::rsa_sha256(&hash);
         let r = session.sign(
             &cryptoki::mechanism::Mechanism::RsaPkcs,
             self.private,
@@ -304,12 +307,9 @@ fn get_ecdsa_public_key(
     let mut ecpoint = Vec::new();
     let mut params = Vec::new();
     for attr in &attrs {
-        service::log::debug!("ecdsa attribute {:02x?}", attr);
-    }
-    for attr in &attrs {
         match attr {
             cryptoki::object::Attribute::EcPoint(d) => {
-                ecpoint = d[2..].to_owned();
+                ecpoint = d.to_owned();
             }
             cryptoki::object::Attribute::EcParams(p) => {
                 params = p.to_owned();
@@ -319,16 +319,8 @@ fn get_ecdsa_public_key(
             }
         }
     }
-    let der = yasna::construct_der(|w| {
-        w.write_sequence(|w| {
-            w.next().write_sequence(|w| {
-                w.next().write_oid(&OID_EC_PUBLIC_KEY.to_yasna());
-                w.next().write_der(&params);
-            });
-            w.next().write_bitvec_bytes(&ecpoint, ecpoint.len() * 8);
-        })
-    });
-    der
+
+    ecpoint[2..].to_vec()
 }
 
 impl Hsm {
@@ -362,9 +354,7 @@ impl Hsm {
             .unwrap();
         let so_slot = pkcs11.get_slots_with_token().unwrap().remove(0);
         let so_pin = cryptoki::types::AuthPin::new(admin_pin.as_str().into());
-        pkcs11
-            .init_token(so_slot, &so_pin, "Initial token")
-            .unwrap();
+        pkcs11.init_token(so_slot, &so_pin, "InitialToken").unwrap();
         {
             // open a session
             let session = pkcs11.open_rw_session(so_slot).unwrap();

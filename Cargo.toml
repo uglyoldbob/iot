@@ -67,6 +67,10 @@ features = ["derive"]
 version = "0.18.0"
 features = ["secure"]
 
+[dependencies.ecdsa]
+version = "0.16.9"
+features = ["der", "verifying"]
+
 [dependencies.html]
 git = "https://github.com/uglyoldbob/html"
 
@@ -90,6 +94,10 @@ features = ["default-rustls"]
 
 [dependencies.ocsp]
 git = "https://github.com/uglyoldbob/ocsp-rs"
+
+[dependencies.p256]
+version = "0.13.2"
+features = ["ecdsa"]
 
 [dependencies.pkcs8]
 version = "0.10.2"
