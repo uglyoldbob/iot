@@ -7,6 +7,7 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
+use std::future::IntoFuture;
 use std::str::FromStr;
 
 use assert_cmd::prelude::*;
@@ -14,10 +15,11 @@ use ca::ComplexName;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
+use cert_common::pkcs12::Pkcs12;
 use der::Decode;
 use der::DecodePem;
 pub use main_config::MainConfiguration;
-use main_config::{HttpSettings, HttpsSettingsAnswers};
+use main_config::{HttpSettings, HttpsSettingsAnswers, MainConfigurationAnswers};
 use predicates::prelude::predicate;
 use service::LogLevel;
 use tokio::io::AsyncReadExt;
@@ -145,12 +147,41 @@ fn common_oid() {
     );
 }
 
-async fn run_web_checks() {
+async fn run_web_checks(config: MainConfigurationAnswers) {
     use predicates::prelude::*;
+
+    let t = reqwest::Client::builder()
+        .build()
+        .unwrap()
+        .get("http://127.0.0.1:3000/ca/get_ca.rs?type=der".to_string())
+        .send()
+        .await
+        .expect("Failed to query")
+        .bytes()
+        .await
+        .expect("No content");
+    let cert = reqwest::Certificate::from_der(t.as_ref()).unwrap();
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .connection_verbose(true)
+        .build()
+        .unwrap()
+        .post("https://127.0.0.1:3001/ca/get_admin.rs".to_string())
+        .send()
+        .await
+        .expect("Failed to post")
+        .bytes()
+        .await
+        .expect("No content");
+    println!("The admin cwert is {:02X?}", t.as_ref());
+    panic!("AHSGFIGGJIBOQJEERG");
+    let id = reqwest::Identity::from_pkcs12_der(t.as_ref(), config.admin.pass.as_str()).unwrap();
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!("{}://127.0.0.1:{}", prot, port))
@@ -165,7 +196,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!("{}://127.0.0.1:{}/ca", prot, port))
@@ -180,7 +212,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!(
@@ -199,7 +232,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!("{}://127.0.0.1:{}/ca/get_ca.rs", prot, port))
@@ -215,7 +249,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!(
@@ -234,7 +269,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!(
@@ -252,7 +288,8 @@ async fn run_web_checks() {
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(cert.clone())
+            .identity(id.clone())
             .build()
             .unwrap()
             .get(format!("{}://127.0.0.1:{}/ca/request.rs", prot, port))
@@ -350,7 +387,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
             .assert()
             .success();
 
-        tokio::spawn(async {
+        let jh = tokio::spawn(async {
             use futures::FutureExt;
             use predicates::prelude::*;
             //Wait until the service is ready by polling it
@@ -364,13 +401,12 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 }
             }
-            //no run all the checks
-            let resp = std::panic::AssertUnwindSafe(run_web_checks())
+            //now run all the checks
+            let resp = std::panic::AssertUnwindSafe(run_web_checks(args2))
                 .catch_unwind()
                 .await;
             // indicate that it should exit so the test can actually finish
             reqwest::Client::builder()
-                .danger_accept_invalid_certs(true)
                 .build()
                 .unwrap()
                 .get("http://127.0.0.1:3000/test-exit.rs")
@@ -384,10 +420,15 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-        run.arg("--shutdown")
+        let a = run
+            .arg("--shutdown")
             .arg(format!("--config={}", configpath.path().display()))
             .assert()
             .success();
+        let o = a.get_output();
+        println!("OUTPUT IS {}", std::str::from_utf8(&o.stdout).unwrap());
+
+        let r = jh.into_future().await;
 
         let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
         kill.arg(format!("--config={}", configpath.path().display()))
@@ -396,6 +437,8 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
             .arg("--test")
             .assert()
             .success();
+
+        r.unwrap();
     }
 
     Ok(())
