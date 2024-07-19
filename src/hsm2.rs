@@ -3,12 +3,10 @@
 use std::sync::{Arc, Mutex};
 
 use cert_common::{
-    oid::{OID_ECDSA_P256_SHA256_SIGNING, OID_EC_PUBLIC_KEY, OID_PKCS1_SHA256_RSA_ENCRYPTION},
+    oid::{OID_ECDSA_P256_SHA256_SIGNING, OID_PKCS1_SHA256_RSA_ENCRYPTION},
     HttpsSigningMethod,
 };
 use cryptoki::object::Attribute;
-use cryptoki::object::{KeyType, ObjectClass};
-use der::Class;
 use zeroize::Zeroizing;
 
 /// The keypair for a certificate in the hsm module
@@ -70,7 +68,19 @@ impl KeyPair {
             match kt.to_owned() {
                 cryptoki::object::KeyType::RSA => {
                     let pubkey = get_rsa_public_key(&session, public);
+                    //TODO Pick the correct rsa keypair instead of assuming sha256
                     Some(KeyPair::RsaSha256(RsaSha256Keypair {
+                        _public: public,
+                        private,
+                        pubkey,
+                        label: label.to_string(),
+                        hsm: hsm2,
+                    }))
+                }
+                cryptoki::object::KeyType::EC => {
+                    let pubkey = get_ecdsa_public_key(&session, public);
+                    //TODO Pick the correct ecdsa keypair instead of assuming sha256
+                    Some(KeyPair::EcdsaSha256(EcdsaSha256Keypair {
                         _public: public,
                         private,
                         pubkey,
