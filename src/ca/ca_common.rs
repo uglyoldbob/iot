@@ -186,28 +186,25 @@ pub struct StandaloneCaConfiguration {
     pub ocsp_signature: bool,
     /// The name of the ca instance
     pub name: String,
+    /// The pki name to use, must be blank or end with /
+    pub pki_name: String,
 }
 
-impl From<Box<StandaloneCaConfigurationAnswers>> for Box<StandaloneCaConfiguration> {
-    fn from(value: Box<StandaloneCaConfigurationAnswers>) -> Self {
-        let a: &StandaloneCaConfigurationAnswers = &value;
-        Box::new(a.to_owned().into())
-    }
-}
-
-impl From<StandaloneCaConfigurationAnswers> for StandaloneCaConfiguration {
-    fn from(value: StandaloneCaConfigurationAnswers) -> Self {
+impl StandaloneCaConfiguration {
+    /// Build a Self using answers and the containing pki_name, which must be blank or end with /
+    fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
             sign_method: value.sign_method,
-            path: value.path,
-            inferior_to: value.inferior_to,
-            common_name: value.common_name,
+            path: value.path.clone(),
+            inferior_to: value.inferior_to.clone(),
+            common_name: value.common_name.clone(),
             days: value.days,
             chain_length: value.chain_length,
             admin_access_password: value.admin_access_password.to_string(),
-            admin_cert: value.admin_cert.into(),
+            admin_cert: value.admin_cert.clone().into(),
             ocsp_signature: value.ocsp_signature,
             name: value.name.clone(),
+            pki_name: pki_name.clone(),
         }
     }
 }
@@ -256,7 +253,7 @@ impl StandaloneCaConfiguration {
             http_port,
             https_port,
             proxy,
-            pki_name: Some(format!("pki/{}", full_name)),
+            pki_name: Some(format!("{}{}", self.pki_name, full_name)),
         }
     }
 }
@@ -477,22 +474,25 @@ pub struct LocalCaConfiguration {
     pub root_password: String,
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
+    /// The name of the pki this ca belongs to, must be blank or end with a /
+    pub pki_name: String,
 }
 
-impl From<LocalCaConfigurationAnswers> for LocalCaConfiguration {
-    fn from(value: LocalCaConfigurationAnswers) -> Self {
-        Self {
-            sign_method: value.sign_method,
-            path: value.path,
-            inferior_to: value.inferior_to,
-            common_name: value.common_name,
-            days: value.days,
-            chain_length: value.chain_length,
-            admin_access_password: value.admin_access_password.to_string(),
-            admin_cert: value.admin_cert.into(),
+impl LocalCaConfigurationAnswers {
+    fn into_config(self, pki_config: &PkiConfigurationAnswers) -> LocalCaConfiguration {
+        LocalCaConfiguration {
+            sign_method: self.sign_method,
+            path: self.path,
+            inferior_to: self.inferior_to,
+            common_name: self.common_name,
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.to_string(),
+            admin_cert: self.admin_cert.into(),
             ocsp_password: crate::utility::generate_password(32),
             root_password: crate::utility::generate_password(32),
-            ocsp_signature: value.ocsp_signature,
+            ocsp_signature: self.ocsp_signature,
+            pki_name: pki_config.pki_name.clone(),
         }
     }
 }
@@ -536,7 +536,7 @@ impl LocalCaConfiguration {
             http_port,
             https_port,
             proxy: Some(settings.public_names[0].subdomain.to_owned()),
-            pki_name: Some(format!("pki/{}", full_name)),
+            pki_name: Some(format!("{}{}", self.pki_name, full_name)),
         }
     }
 }
@@ -568,9 +568,9 @@ pub struct CaConfiguration {
     pub https_port: Option<u16>,
     /// The externally accessible http port, if accessible by http
     pub http_port: Option<u16>,
-    /// The proxy configuration for this authority
+    /// The proxy configuration for this authority, must be blank or end with a /
     pub proxy: Option<String>,
-    /// The pki name for the authority, used when operating a pki
+    /// The pki name for the authority, used when operating a pki, must be blank or end with a /
     pub pki_name: Option<String>,
 }
 
@@ -1871,7 +1871,7 @@ impl std::str::FromStr for ComplexName {
         } else {
             ComplexName {
                 domain: s.to_string(),
-                subdomain: "/".to_string(),
+                subdomain: "".to_string(),
             }
         };
         Ok(s)
@@ -1911,6 +1911,8 @@ pub struct PkiConfigurationAnswers {
     pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
     /// The provider for the super-admin key
     super_admin: Option<String>,
+    /// The name to use for the pki
+    pub pki_name: String,
 }
 
 /// The configuration of a general pki instance.
@@ -1920,6 +1922,8 @@ pub struct PkiConfiguration {
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
     /// The super-admin certificate provider
     pub super_admin: Option<String>,
+    /// The name to use for the pki
+    pub pki_name: String,
 }
 
 impl From<PkiConfigurationAnswers> for PkiConfiguration {
@@ -1928,13 +1932,14 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
         let map2 = map
             .iter()
             .map(|(s, v)| {
-                let v: LocalCaConfiguration = v.to_owned().into();
+                let v: LocalCaConfiguration = v.to_owned().into_config(&value);
                 (s.to_owned(), v.to_owned())
             })
             .collect();
         Self {
             local_ca: map2,
             super_admin: value.super_admin.clone(),
+            pki_name: value.pki_name.clone(),
         }
     }
 }
@@ -1952,8 +1957,13 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
 pub enum PkiConfigurationEnumAnswers {
     /// A generic Pki configuration
     Pki(PkiConfigurationAnswers),
-    /// A standard certificate authority configuration
-    Ca(Box<StandaloneCaConfigurationAnswers>),
+    /// A standard certificate authority configuration, paired with an external pki provider
+    Ca {
+        /// The pki_name for the ca to use when generating urls
+        pki_name: String,
+        /// The configuration
+        config: Box<StandaloneCaConfigurationAnswers>,
+    },
 }
 
 impl Default for PkiConfigurationEnumAnswers {
@@ -1965,7 +1975,10 @@ impl Default for PkiConfigurationEnumAnswers {
 impl PkiConfigurationEnumAnswers {
     /// Construct a new ca, defaulting to a Ca configuration
     pub fn new() -> Self {
-        Self::Ca(Box::new(StandaloneCaConfigurationAnswers::new()))
+        Self::Ca {
+            pki_name: "pki/".to_string(),
+            config: Box::new(StandaloneCaConfigurationAnswers::new()),
+        }
     }
 }
 
@@ -1978,11 +1991,14 @@ pub enum PkiConfigurationEnum {
     Ca(Box<StandaloneCaConfiguration>),
 }
 
-impl From<PkiConfigurationEnumAnswers> for PkiConfigurationEnum {
-    fn from(value: PkiConfigurationEnumAnswers) -> Self {
+impl PkiConfigurationEnum {
+    pub fn from_config(value: PkiConfigurationEnumAnswers) -> Self {
         match value {
             PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
-            PkiConfigurationEnumAnswers::Ca(ca) => Self::Ca(ca.into()),
+            PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
+                let ca = Box::new(StandaloneCaConfiguration::from(&config, pki_name));
+                Self::Ca(ca)
+            }
         }
     }
 }
@@ -3454,14 +3470,18 @@ impl Ca {
     /// Get the protected admin certificate, only useful for soft admin tokens
     pub async fn get_admin_cert(&self) -> Result<CaCertificate, CertificateLoadingError> {
         if let CertificateType::Soft(p) = &self.config.admin_cert {
-            if let Ok(rc) = self.medium.load_p12_from_medium("admin").await {
+            if let Ok(rc) = self
+                .medium
+                .load_p12_from_medium(&format!("{}-admin", self.config.common_name))
+                .await
+            {
                 Ok(
                     cert_common::pkcs12::Pkcs12::load_from_data(&rc.contents, p.as_bytes(), rc.id)
                         .try_into()
                         .map_err(|_| CertificateLoadingError::InvalidCert("admin".to_string()))?,
                 )
             } else {
-                service::log::debug!("Failed to load p12 fromm medium");
+                service::log::debug!("Failed to load p12 from medium");
                 Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
             }
         } else {

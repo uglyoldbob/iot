@@ -557,7 +557,7 @@ impl MainConfiguration {
                 .client_certs
                 .clone()
                 .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
-            pki: answers.pki.clone().into(),
+            pki: crate::ca::PkiConfigurationEnum::from_config(answers.pki.clone()),
             debug_level: Some(answers.debug_level.clone()),
             tpm2_required: answers.tpm2_required,
             hsm_path_override: answers.hsm_path_override.clone(),

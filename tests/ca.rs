@@ -7,6 +7,7 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
+use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::str::FromStr;
 
@@ -162,21 +163,35 @@ async fn run_web_checks(config: MainConfigurationAnswers) {
         .expect("No content");
     let cert = reqwest::Certificate::from_der(t.as_ref()).unwrap();
 
+    let mut params = HashMap::new();
+    let (token, pass) = if let PkiConfigurationEnumAnswers::Ca {
+        pki_name: _,
+        config,
+    } = &config.pki
+    {
+        let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
+            a.to_string()
+        } else {
+            panic!("INVALID");
+        };
+        (config.admin_access_password.to_string(), p)
+    } else {
+        panic!("Invalid config");
+    };
+    params.insert("token", token);
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
-        .connection_verbose(true)
         .build()
         .unwrap()
         .post("https://127.0.0.1:3001/ca/get_admin.rs".to_string())
+        .form(&params)
         .send()
         .await
         .expect("Failed to post")
         .bytes()
         .await
         .expect("No content");
-    println!("The admin cwert is {:02X?}", t.as_ref());
-    panic!("AHSGFIGGJIBOQJEERG");
-    let id = reqwest::Identity::from_pkcs12_der(t.as_ref(), config.admin.pass.as_str()).unwrap();
+    let id = reqwest::Identity::from_pkcs12_der(t.as_ref(), &pass).unwrap();
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
         let t = reqwest::Client::builder()
@@ -338,7 +353,10 @@ fn build_answers(
         ocsp_signature: false,
         name: "TEST CA".to_string(),
     };
-    args.pki = PkiConfigurationEnumAnswers::Ca(Box::new(ca_a));
+    args.pki = PkiConfigurationEnumAnswers::Ca {
+        pki_name: "".to_string(),
+        config: Box::new(ca_a),
+    };
     args.public_names
         .push(ComplexName::from_str("127.0.0.1").unwrap());
     args
