@@ -16,7 +16,6 @@ use ca::ComplexName;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
-use cert_common::pkcs12::Pkcs12;
 use der::Decode;
 use der::DecodePem;
 pub use main_config::MainConfiguration;
@@ -178,6 +177,19 @@ async fn run_web_checks(config: MainConfigurationAnswers) {
     } else {
         panic!("Invalid config");
     };
+
+    reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/get_admin.rs".to_string())
+        .send()
+        .await
+        .expect("Failed to post")
+        .bytes()
+        .await
+        .expect("No content");
+
     params.insert("token", token);
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
