@@ -147,7 +147,23 @@ fn common_oid() {
     );
 }
 
-async fn run_web_checks(config: MainConfigurationAnswers) {
+fn build_https_csr(method: cert_common::HttpsSigningMethod) -> Option<(String, Vec<u8>)> {
+    let params: rcgen::CertificateParams = Default::default();
+    if let Some((key_pair, private)) = method.generate_keypair(4096) {
+        if let Ok(cert) = params.serialize_request(&key_pair) {
+            if let Ok(pem_serialized) = cert.pem() {
+                let data: &[u8] = private.as_ref();
+                return Some((pem_serialized, data.to_vec()));
+            }
+        }
+    }
+    None
+}
+
+async fn run_web_checks(
+    config: MainConfigurationAnswers,
+    method: cert_common::CertificateSigningMethod,
+) {
     use predicates::prelude::*;
 
     let t = reqwest::Client::builder()
@@ -162,7 +178,6 @@ async fn run_web_checks(config: MainConfigurationAnswers) {
         .expect("No content");
     let cert = reqwest::Certificate::from_der(t.as_ref()).unwrap();
 
-    let mut params = HashMap::new();
     let (token, pass) = if let PkiConfigurationEnumAnswers::Ca {
         pki_name: _,
         config,
@@ -190,6 +205,7 @@ async fn run_web_checks(config: MainConfigurationAnswers) {
         .await
         .expect("No content");
 
+    let mut params = HashMap::new();
     params.insert("token", token);
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
@@ -328,6 +344,29 @@ async fn run_web_checks(config: MainConfigurationAnswers) {
             .expect("No content");
         assert_eq!(false, predicate::str::contains("missing").eval(&t));
     }
+
+    let (csr_pem, pri_key) = match method {
+        cert_common::CertificateSigningMethod::Https(method) => build_https_csr(method).unwrap(),
+        cert_common::CertificateSigningMethod::Ssh(method) => todo!(),
+    };
+    params.clear();
+    params.insert("csr", csr_pem.clone());
+    params.insert("name", "Jenny".to_string());
+    params.insert("email", "dummy@example.com".to_string());
+    params.insert("phone", "867-5309".to_string());
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .post("https://127.0.0.1:3001/ca/submit_request.rs")
+        .form(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
 }
 
 fn build_answers(
@@ -338,7 +377,7 @@ fn build_answers(
     let base = std::path::PathBuf::from(td.path());
     *https_path = base.join("test-https.p12");
     let mut args = main_config::MainConfigurationAnswers::default();
-    args.debug_level = LogLevel::Trace;
+    args.debug_level = LogLevel::Debug;
     args.username = whoami::username();
     args.http = Some(HttpSettings { port: 3000 });
     args.https = Some(HttpsSettingsAnswers {
@@ -417,7 +456,8 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
             .assert()
             .success();
 
-        let jh = tokio::spawn(async {
+        let method2 = method;
+        let jh = tokio::spawn(async move {
             use futures::FutureExt;
             use predicates::prelude::*;
             //Wait until the service is ready by polling it
@@ -432,7 +472,7 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             //now run all the checks
-            let resp = std::panic::AssertUnwindSafe(run_web_checks(args2))
+            let resp = std::panic::AssertUnwindSafe(run_web_checks(args2, method2))
                 .catch_unwind()
                 .await;
             // indicate that it should exit so the test can actually finish
