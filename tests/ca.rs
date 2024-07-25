@@ -367,6 +367,67 @@ async fn run_web_checks(
         .text()
         .await
         .expect("No content");
+    println!("SUBMISSION IS {}", t);
+    assert_eq!(
+        true,
+        predicate::str::contains("Your request has been submitted").eval(&t)
+    );
+
+    params.clear();
+    params.insert("id", "4".to_string());
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/view_cert.rs")
+        .query(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    println!("Request submit status is {}", t);
+    assert_eq!(
+        true,
+        predicate::str::contains("request is pending").eval(&t)
+    );
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/view_all_certs.rs")
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    assert_eq!(
+        true,
+        predicate::str::contains("Current Certificates").eval(&t)
+    );
+    println!("Certs are {}", t);
+
+    params.clear();
+    params.insert("id", "4".to_string());
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/list.rs")
+        .query(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    println!("Individual cert is {}", t);
+    assert_eq!(true, predicate::str::contains("Sign this request").eval(&t));
 }
 
 fn build_answers(
