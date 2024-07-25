@@ -428,6 +428,68 @@ async fn run_web_checks(
         .expect("No content");
     println!("Individual cert is {}", t);
     assert_eq!(true, predicate::str::contains("Sign this request").eval(&t));
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/request_sign.rs")
+        .query(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    println!("Sign response is {}", t);
+    assert_eq!(
+        true,
+        predicate::str::contains("The request has been signed").eval(&t)
+    );
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca/get_cert.rs")
+        .query(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .bytes()
+        .await
+        .expect("No content");
+    println!("User cert is {:02X?}", t.as_ref());
+    let user_cert = x509_cert::Certificate::from_der(t.as_ref()).unwrap();
+
+    let user_pw = utility::generate_password(32);
+    let up12 = cert_common::pkcs12::Pkcs12 {
+        cert: t.as_ref().to_vec(),
+        pkey: zeroize::Zeroizing::new(pri_key),
+        attributes: vec![
+            cert_common::pkcs12::BagAttribute::LocalKeyId(vec![42; 16]), //TODO
+            cert_common::pkcs12::BagAttribute::FriendlyName("User Certificate".to_string()), //TODO
+        ],
+        id: 42,
+    };
+    let p12 = up12.get_pkcs12(&user_pw);
+    let user_ident = reqwest::Identity::from_pkcs12_der(&p12, &user_pw).unwrap();
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(user_ident.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3001/ca")
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    println!("User login to main page is {}", t);
 }
 
 fn build_answers(
@@ -475,7 +537,7 @@ fn build_answers(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
     let methods = vec![
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
