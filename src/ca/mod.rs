@@ -2093,7 +2093,16 @@ pub fn ca_register_files(
 
 /// Register a test handler that can terminate the server early
 pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter) {
-    router.register("/test-exit.rs", ca_test_exit);
+    match pki {
+        PkiInstance::Pki(pki) => {
+            for (name, ca) in &pki.roots {
+                router.register(&format!("/pki/{}/test-exit.rs", name), ca_test_exit);
+            }
+        }
+        PkiInstance::Ca(ca) => {
+            router.register("/test-exit.rs", ca_test_exit);
+        }
+    }
 }
 
 /// Register handlers into the specified webrouter.

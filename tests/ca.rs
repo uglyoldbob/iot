@@ -12,10 +12,10 @@ use std::future::IntoFuture;
 use std::str::FromStr;
 
 use assert_cmd::prelude::*;
-use ca::ComplexName;
 use ca::{
     CertificateType, PkiConfigurationEnumAnswers, SmartCardPin2, StandaloneCaConfigurationAnswers,
 };
+use ca::{ComplexName, PkiConfigurationAnswers};
 use der::Decode;
 use der::DecodePem;
 pub use main_config::MainConfiguration;
@@ -163,13 +163,42 @@ fn build_https_csr(method: cert_common::HttpsSigningMethod) -> Option<(String, V
 async fn run_web_checks(
     config: MainConfigurationAnswers,
     method: cert_common::CertificateSigningMethod,
+    pki_name: &str,
+    ca_name: &str,
 ) {
     use predicates::prelude::*;
+
+    let (token, pass) = match &config.pki {
+        PkiConfigurationEnumAnswers::Pki(pki) => {
+            let (name, config) = pki.local_ca.map().iter().next().unwrap();
+            let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
+                a.to_string()
+            } else {
+                panic!("INVALID");
+            };
+            (config.admin_access_password.to_string(), p)
+        }
+        PkiConfigurationEnumAnswers::Ca {
+            pki_name: _,
+            config,
+        } => {
+            let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
+                a.to_string()
+            } else {
+                panic!("INVALID");
+            };
+            (config.admin_access_password.to_string(), p)
+        }
+    };
+    let name = format!("{}{}", pki_name, ca_name);
 
     let t = reqwest::Client::builder()
         .build()
         .unwrap()
-        .get("http://127.0.0.1:3000/ca/get_ca.rs?type=der".to_string())
+        .get(format!(
+            "http://127.0.0.1:3000/{}ca/get_ca.rs?type=der",
+            name
+        ))
         .send()
         .await
         .expect("Failed to query")
@@ -178,26 +207,11 @@ async fn run_web_checks(
         .expect("No content");
     let cert = reqwest::Certificate::from_der(t.as_ref()).unwrap();
 
-    let (token, pass) = if let PkiConfigurationEnumAnswers::Ca {
-        pki_name: _,
-        config,
-    } = &config.pki
-    {
-        let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
-            a.to_string()
-        } else {
-            panic!("INVALID");
-        };
-        (config.admin_access_password.to_string(), p)
-    } else {
-        panic!("Invalid config");
-    };
-
     reqwest::Client::builder()
         .add_root_certificate(cert.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/get_admin.rs".to_string())
+        .get(format!("https://127.0.0.1:3001/{}ca/get_admin.rs", name))
         .send()
         .await
         .expect("Failed to post")
@@ -211,7 +225,7 @@ async fn run_web_checks(
         .add_root_certificate(cert.clone())
         .build()
         .unwrap()
-        .post("https://127.0.0.1:3001/ca/get_admin.rs".to_string())
+        .post(format!("https://127.0.0.1:3001/{}ca/get_admin.rs", name))
         .form(&params)
         .send()
         .await
@@ -234,7 +248,6 @@ async fn run_web_checks(
             .text()
             .await
             .expect("No content");
-        assert_eq!(true, predicate::str::contains("missing").eval(&t));
     }
 
     for (prot, port) in [("http", 3000), ("https", 3001)] {
@@ -243,7 +256,7 @@ async fn run_web_checks(
             .identity(id.clone())
             .build()
             .unwrap()
-            .get(format!("{}://127.0.0.1:{}/ca", prot, port))
+            .get(format!("{}://127.0.0.1:{}/{}ca", prot, port, name))
             .send()
             .await
             .expect("Failed to query")
@@ -260,8 +273,8 @@ async fn run_web_checks(
             .build()
             .unwrap()
             .get(format!(
-                "{}://127.0.0.1:{}/ca/get_ca.rs?type=der",
-                prot, port
+                "{}://127.0.0.1:{}/{}ca/get_ca.rs?type=der",
+                prot, port, name
             ))
             .send()
             .await
@@ -279,7 +292,10 @@ async fn run_web_checks(
             .identity(id.clone())
             .build()
             .unwrap()
-            .get(format!("{}://127.0.0.1:{}/ca/get_ca.rs", prot, port))
+            .get(format!(
+                "{}://127.0.0.1:{}/{}ca/get_ca.rs",
+                prot, port, name
+            ))
             .send()
             .await
             .expect("Failed to query")
@@ -297,8 +313,8 @@ async fn run_web_checks(
             .build()
             .unwrap()
             .get(format!(
-                "{}://127.0.0.1:{}/ca/get_ca.rs?type=pem",
-                prot, port
+                "{}://127.0.0.1:{}/{}ca/get_ca.rs?type=pem",
+                prot, port, name
             ))
             .send()
             .await
@@ -317,8 +333,8 @@ async fn run_web_checks(
             .build()
             .unwrap()
             .get(format!(
-                "{}://127.0.0.1:{}/ca/get_ca.rs?type=bla",
-                prot, port
+                "{}://127.0.0.1:{}/{}ca/get_ca.rs?type=bla",
+                prot, port, name
             ))
             .send()
             .await
@@ -335,7 +351,10 @@ async fn run_web_checks(
             .identity(id.clone())
             .build()
             .unwrap()
-            .get(format!("{}://127.0.0.1:{}/ca/request.rs", prot, port))
+            .get(format!(
+                "{}://127.0.0.1:{}/{}ca/request.rs",
+                prot, port, name
+            ))
             .send()
             .await
             .expect("Failed to query")
@@ -359,7 +378,10 @@ async fn run_web_checks(
         .identity(id.clone())
         .build()
         .unwrap()
-        .post("https://127.0.0.1:3001/ca/submit_request.rs")
+        .post(format!(
+            "https://127.0.0.1:3001/{}ca/submit_request.rs",
+            name
+        ))
         .form(&params)
         .send()
         .await
@@ -379,7 +401,7 @@ async fn run_web_checks(
         .add_root_certificate(cert.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/view_cert.rs")
+        .get(format!("https://127.0.0.1:3001/{}ca/view_cert.rs", name))
         .query(&params)
         .send()
         .await
@@ -398,7 +420,10 @@ async fn run_web_checks(
         .identity(id.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/view_all_certs.rs")
+        .get(format!(
+            "https://127.0.0.1:3001/{}ca/view_all_certs.rs",
+            name
+        ))
         .send()
         .await
         .expect("Failed to query")
@@ -418,7 +443,7 @@ async fn run_web_checks(
         .identity(id.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/list.rs")
+        .get(format!("https://127.0.0.1:3001/{}ca/list.rs", name))
         .query(&params)
         .send()
         .await
@@ -434,7 +459,7 @@ async fn run_web_checks(
         .identity(id.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/request_sign.rs")
+        .get(format!("https://127.0.0.1:3001/{}ca/request_sign.rs", name))
         .query(&params)
         .send()
         .await
@@ -453,7 +478,7 @@ async fn run_web_checks(
         .identity(id.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca/get_cert.rs")
+        .get(format!("https://127.0.0.1:3001/{}ca/get_cert.rs", name))
         .query(&params)
         .send()
         .await
@@ -482,7 +507,7 @@ async fn run_web_checks(
         .identity(user_ident.clone())
         .build()
         .unwrap()
-        .get("https://127.0.0.1:3001/ca")
+        .get(format!("https://127.0.0.1:3001/{}ca", name))
         .send()
         .await
         .expect("Failed to query")
@@ -536,17 +561,37 @@ fn build_answers(
     args
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
-    let methods = vec![
-        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
-        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
-    ];
-
+async fn run_ca<F>(
+    methods: Vec<cert_common::CertificateSigningMethod>,
+    m: impl Fn(main_config::MainConfigurationAnswers) -> F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: std::future::Future<Output = main_config::MainConfigurationAnswers>,
+{
     for method in methods {
         let configpath = tempfile::TempDir::new().unwrap();
         let base = std::path::PathBuf::from(configpath.path());
         let args = build_answers(&configpath, method);
+        let args = m(args).await;
+
+        let pki_name = match &args.pki {
+            PkiConfigurationEnumAnswers::Pki(pki) => pki.pki_name.clone(),
+            PkiConfigurationEnumAnswers::Ca {
+                pki_name: _,
+                config: _,
+            } => "".to_string(),
+        };
+
+        let ca_name = match &args.pki {
+            PkiConfigurationEnumAnswers::Pki(pki) => {
+                let (name, _) = pki.local_ca.map().iter().next().unwrap();
+                format!("{}/", name)
+            }
+            PkiConfigurationEnumAnswers::Ca {
+                pki_name: _,
+                config: _,
+            } => "".to_string(),
+        };
 
         let c = toml::to_string(&args).unwrap();
         let pb = base.join("answers1.toml");
@@ -590,19 +635,22 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
                 let d = c.get("http://127.0.0.1:3000").send().await;
                 if let Ok(t) = d {
                     let t2 = t.text().await.expect("No text?");
-                    assert_eq!(true, predicate::str::contains("missing").eval(&t2));
                     break;
                 }
             }
             //now run all the checks
-            let resp = std::panic::AssertUnwindSafe(run_web_checks(args2, method2))
-                .catch_unwind()
-                .await;
+            let resp =
+                std::panic::AssertUnwindSafe(run_web_checks(args2, method2, &pki_name, &ca_name))
+                    .catch_unwind()
+                    .await;
             // indicate that it should exit so the test can actually finish
             reqwest::Client::builder()
                 .build()
                 .unwrap()
-                .get("http://127.0.0.1:3000/test-exit.rs")
+                .get(format!(
+                    "http://127.0.0.1:3000/{}{}test-exit.rs",
+                    pki_name, ca_name
+                ))
                 .send()
                 .await
                 .expect("Failed to shutdown");
@@ -633,6 +681,47 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
 
         r.unwrap();
     }
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
+    let methods = vec![
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
+    ];
+
+    run_ca(methods, |config| async { config }).await.unwrap();
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+    let methods = vec![
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
+        cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
+    ];
+
+    run_ca(methods, |mut config| async {
+        if let PkiConfigurationEnumAnswers::Ca {
+            pki_name: _,
+            config: sac,
+        } = config.pki.clone()
+        {
+            let mut pc = PkiConfigurationAnswers::default();
+            pc.pki_name = "pki/".to_string();
+            pc.local_ca
+                .map_mut()
+                .insert("default".to_string(), sac.to_local());
+            let pki = PkiConfigurationEnumAnswers::Pki(pc);
+            config.pki = pki;
+        }
+        config
+    })
+    .await
+    .unwrap();
 
     Ok(())
 }

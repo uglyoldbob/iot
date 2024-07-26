@@ -313,6 +313,21 @@ impl StandaloneCaConfigurationAnswers {
         }
     }
 
+    /// Convert to a local ca configuration
+    pub fn to_local(&self) -> LocalCaConfigurationAnswers {
+        LocalCaConfigurationAnswers {
+            sign_method: self.sign_method,
+            path: self.path.clone(),
+            inferior_to: self.inferior_to.clone(),
+            common_name: self.common_name.clone(),
+            days: self.days,
+            chain_length: self.chain_length,
+            admin_access_password: self.admin_access_password.clone(),
+            admin_cert: self.admin_cert.clone(),
+            ocsp_signature: self.ocsp_signature,
+        }
+    }
+
     ///Get a Caconfiguration for editing
     pub fn get_editable_ca(&self) -> CaConfigurationAnswers {
         CaConfigurationAnswers {
