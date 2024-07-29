@@ -521,36 +521,71 @@ async fn run_web_checks(
         use der::Encode;
         openssl::x509::X509::from_der(user_cert.to_der().unwrap().as_ref()).unwrap()
     };
-    let issuer = openssl::x509::X509::from_der(root_cert_der.as_ref()).unwrap();
-    let ocip = openssl::ocsp::OcspCertId::from_cert(
-        openssl::hash::MessageDigest::sha1(),
-        &subject,
-        &issuer,
-    )
-    .unwrap();
-    ocsp_request.add_id(ocip).unwrap();
-    let ocsp_der = ocsp_request.as_ref().to_der().unwrap();
+    {
+        let issuer = openssl::x509::X509::from_der(root_cert_der.as_ref()).unwrap();
+        let ocip = openssl::ocsp::OcspCertId::from_cert(
+            openssl::hash::MessageDigest::sha1(),
+            &subject,
+            &issuer,
+        )
+        .unwrap();
+        ocsp_request.add_id(ocip).unwrap();
+        let ocsp_der = ocsp_request.as_ref().to_der().unwrap();
 
-    let t = reqwest::Client::builder()
-        .add_root_certificate(cert.clone())
-        .identity(user_ident.clone())
-        .build()
-        .unwrap()
-        .post(format!("https://127.0.0.1:3001/{}ca/ocsp", name))
-        .body(ocsp_der)
-        .send()
-        .await
-        .expect("Failed to query")
-        .bytes()
-        .await
-        .expect("No content");
-    println!("OCSP RESPONSE is {:02X?}", t.as_ref());
+        let t = reqwest::Client::builder()
+            .add_root_certificate(cert.clone())
+            .identity(user_ident.clone())
+            .build()
+            .unwrap()
+            .post(format!("https://127.0.0.1:3001/{}ca/ocsp", name))
+            .body(ocsp_der)
+            .send()
+            .await
+            .expect("Failed to query")
+            .bytes()
+            .await
+            .expect("No content");
+        println!("OCSP RESPONSE is {:02X?}", t.as_ref());
 
-    let ocsp_response = openssl::ocsp::OcspResponse::from_der(t.as_ref()).unwrap();
-    assert_eq!(
-        ocsp_response.status(),
-        openssl::ocsp::OcspResponseStatus::SUCCESSFUL
-    );
+        let ocsp_response = openssl::ocsp::OcspResponse::from_der(t.as_ref()).unwrap();
+        assert_eq!(
+            ocsp_response.status(),
+            openssl::ocsp::OcspResponseStatus::SUCCESSFUL
+        );
+    }
+    //TODO sha256 not currently supported for ocsp requests
+    if false {
+        let issuer = openssl::x509::X509::from_der(root_cert_der.as_ref()).unwrap();
+        let ocip = openssl::ocsp::OcspCertId::from_cert(
+            openssl::hash::MessageDigest::sha256(),
+            &subject,
+            &issuer,
+        )
+        .unwrap();
+        ocsp_request.add_id(ocip).unwrap();
+        let ocsp_der = ocsp_request.as_ref().to_der().unwrap();
+
+        let t = reqwest::Client::builder()
+            .add_root_certificate(cert.clone())
+            .identity(user_ident.clone())
+            .build()
+            .unwrap()
+            .post(format!("https://127.0.0.1:3001/{}ca/ocsp", name))
+            .body(ocsp_der)
+            .send()
+            .await
+            .expect("Failed to query")
+            .bytes()
+            .await
+            .expect("No content");
+        println!("OCSP RESPONSE is {:02X?}", t.as_ref());
+
+        let ocsp_response = openssl::ocsp::OcspResponse::from_der(t.as_ref()).unwrap();
+        assert_eq!(
+            ocsp_response.status(),
+            openssl::ocsp::OcspResponseStatus::SUCCESSFUL
+        );
+    }
 }
 
 fn build_answers(
