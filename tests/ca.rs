@@ -7,6 +7,12 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 
+#[path = "../src/utility.rs"]
+mod utility;
+
+#[path = "../src/card.rs"]
+mod card;
+
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::str::FromStr;
@@ -25,12 +31,6 @@ use service::LogLevel;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use userprompt::{FileCreate, Password2};
-
-#[path = "../src/utility.rs"]
-mod utility;
-
-#[path = "../src/card.rs"]
-mod card;
 
 fn hash_setup1() -> Vec<u8> {
     use rand::Rng;
@@ -192,7 +192,7 @@ async fn run_web_checks(
     };
     let name = format!("{}{}", pki_name, ca_name);
 
-    let t = reqwest::Client::builder()
+    let root_cert_der = reqwest::Client::builder()
         .build()
         .unwrap()
         .get(format!(
@@ -205,7 +205,7 @@ async fn run_web_checks(
         .bytes()
         .await
         .expect("No content");
-    let cert = reqwest::Certificate::from_der(t.as_ref()).unwrap();
+    let cert = reqwest::Certificate::from_der(root_cert_der.as_ref()).unwrap();
 
     reqwest::Client::builder()
         .add_root_certificate(cert.clone())
@@ -515,6 +515,42 @@ async fn run_web_checks(
         .await
         .expect("No content");
     println!("User login to main page is {}", t);
+
+    let mut ocsp_request = openssl::ocsp::OcspRequest::new().unwrap();
+    let subject = {
+        use der::Encode;
+        openssl::x509::X509::from_der(user_cert.to_der().unwrap().as_ref()).unwrap()
+    };
+    let issuer = openssl::x509::X509::from_der(root_cert_der.as_ref()).unwrap();
+    let ocip = openssl::ocsp::OcspCertId::from_cert(
+        openssl::hash::MessageDigest::sha1(),
+        &subject,
+        &issuer,
+    )
+    .unwrap();
+    ocsp_request.add_id(ocip).unwrap();
+    let ocsp_der = ocsp_request.as_ref().to_der().unwrap();
+
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(user_ident.clone())
+        .build()
+        .unwrap()
+        .post(format!("https://127.0.0.1:3001/{}ca/ocsp", name))
+        .body(ocsp_der)
+        .send()
+        .await
+        .expect("Failed to query")
+        .bytes()
+        .await
+        .expect("No content");
+    println!("OCSP RESPONSE is {:02X?}", t.as_ref());
+
+    let ocsp_response = openssl::ocsp::OcspResponse::from_der(t.as_ref()).unwrap();
+    assert_eq!(
+        ocsp_response.status(),
+        openssl::ocsp::OcspResponseStatus::SUCCESSFUL
+    );
 }
 
 fn build_answers(

@@ -4292,6 +4292,7 @@ dependencies = [
  "mysql",
  "nix 0.28.0",
  "ocsp",
+ "openssl",
  "p256",
  "pem",
  "pin-project-lite",

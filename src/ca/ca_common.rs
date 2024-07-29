@@ -110,16 +110,15 @@ impl userprompt::Prompting for SmartCardPin2 {
     }
 }
 
-impl From<SmartCardPin2> for String {
-    fn from(value: SmartCardPin2) -> Self {
-        value.0
+impl From<&str> for SmartCardPin2 {
+    fn from(value: &str) -> Self {
+        Self(value.to_string(), value.to_string())
     }
 }
 
-impl SmartCardPin2 {
-    /// Get a string
-    pub fn to_string(&self) -> String {
-        self.0.to_owned()
+impl std::fmt::Display for SmartCardPin2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
