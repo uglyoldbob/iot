@@ -502,6 +502,26 @@ async fn run_web_checks(
     let p12 = up12.get_pkcs12(&user_pw);
     let user_ident = reqwest::Identity::from_pkcs12_der(&p12, &user_pw).unwrap();
 
+    params.clear();
+    params.insert("id", "4".to_string());
+    params.insert("type", "pem".to_string());
+    let t = reqwest::Client::builder()
+        .add_root_certificate(cert.clone())
+        .identity(id.clone())
+        .build()
+        .unwrap()
+        .get(format!("https://127.0.0.1:3001/{}ca/get_cert.rs", name))
+        .query(&params)
+        .send()
+        .await
+        .expect("Failed to query")
+        .text()
+        .await
+        .expect("No content");
+    println!("User cert is {}", t);
+    let user_cert2 = x509_cert::Certificate::from_pem(t.as_bytes()).unwrap();
+    assert_eq!(user_cert, user_cert2);
+
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
         .identity(user_ident.clone())
