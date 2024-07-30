@@ -27,6 +27,7 @@ use der::DecodePem;
 pub use main_config::MainConfiguration;
 use main_config::{HttpSettings, HttpsSettingsAnswers, MainConfigurationAnswers};
 use predicates::prelude::predicate;
+use serde::Serialize;
 use service::LogLevel;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -98,6 +99,38 @@ fn from_certificate_type_answers() {
 }
 
 #[test]
+fn https_signing() {
+    let s = service::Service::new("Testing".to_string());
+    s.new_log(LogLevel::Trace);
+    let ai = x509_cert::spki::AlgorithmIdentifier::<()> {
+        oid: x509_cert::spki::ObjectIdentifier::new("2.16.840.1.101.3.4.1.42").unwrap(),
+        parameters: None,
+    };
+    let h: Result<cert_common::HttpsSigningMethod, ()> = ai.try_into();
+    assert!(h.is_err());
+
+    let y: Result<cert_common::HttpsSigningMethod, ()> = cert_common::oid::OID_AES_256_CBC
+        .clone()
+        .to_yasna()
+        .try_into();
+    assert!(y.is_err());
+}
+
+#[test]
+fn ssh_genkey() {
+    let m = vec![
+        cert_common::SshSigningMethod::Rsa,
+        cert_common::SshSigningMethod::Ed25519,
+    ];
+    for m in m {
+        let d = bincode::serialize(&m).unwrap();
+        let m2: cert_common::SshSigningMethod = bincode::deserialize(&d).unwrap();
+        assert_eq!(m2, m);
+        let kp = m.generate_keypair(4096).unwrap();
+    }
+}
+
+#[test]
 fn common_oid() {
     let oid1: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone();
     let eku1: cert_common::ExtendedKeyUsage = oid1.clone().into();
@@ -118,6 +151,14 @@ fn common_oid() {
     let eku4: cert_common::ExtendedKeyUsage = oid4.clone().into();
     assert_eq!(cert_common::ExtendedKeyUsage::OcspSigning, eku4);
     assert_eq!(eku4.to_oid(), oid4);
+
+    let oid5: cert_common::oid::Oid = cert_common::oid::OID_AES_256_CBC.clone();
+    let eku5: cert_common::ExtendedKeyUsage = oid5.clone().into();
+    assert_eq!(
+        cert_common::ExtendedKeyUsage::Unrecognized(oid5.clone()),
+        eku5
+    );
+    assert_eq!(eku5.to_oid(), oid5);
 
     let ekus = vec![eku1, eku2, eku3, eku4];
     cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone())
@@ -145,6 +186,83 @@ fn common_oid() {
         cert_common::CsrAttribute::ExtendedKeyUsage(ekus.clone()),
         ekus2
     );
+}
+
+#[test]
+fn csr_attributes() {
+    let un1 = yasna::construct_der(|w| w.write_utf8string("ssh not while im testing"));
+    cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_UNSTRUCTURED_NAME.clone(),
+        der::Any::from_der(&un1).unwrap(),
+    )
+    .unwrap();
+    cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_CHALLENGE_PASSWORD.clone(),
+        der::Any::from_der(&un1).unwrap(),
+    )
+    .unwrap();
+
+    assert!(cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_CERT_EXTENDED_KEY_USAGE.clone(),
+        der::Any::from_der(&[1, 2, 3, 4]).unwrap()
+    )
+    .is_none());
+
+    let un1 = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next()
+                .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_yasna());
+            w.next()
+                .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_yasna());
+            w.next()
+                .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_CODE_SIGNING.to_yasna());
+            w.next()
+                .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_OCSP_SIGNING.to_yasna());
+        })
+    });
+    cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_CERT_EXTENDED_KEY_USAGE.clone(),
+        der::Any::from_der(&un1).unwrap(),
+    )
+    .unwrap();
+
+    let un1 = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_sequence(|w| {
+                w.next()
+                    .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_yasna());
+                w.next().write_bytes(&un1);
+            })
+        })
+    });
+    let t1 = der::Any::from_der(&un1).unwrap();
+    cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_EXTENSION_REQUEST.clone(),
+        t1,
+    )
+    .unwrap();
+
+    let un1 = yasna::construct_der(|w| {
+        w.write_sequence(|w| {
+            w.next().write_sequence(|w| {
+                w.next()
+                    .write_oid(&cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_yasna());
+                w.next().write_bytes(&[1, 2, 3, 4]);
+            })
+        })
+    });
+    let t1 = der::Any::from_der(&un1).unwrap();
+    assert!(cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_EXTENSION_REQUEST.clone(),
+        t1.clone()
+    )
+    .is_none());
+
+    let o =
+        cert_common::CsrAttribute::with_oid_and_any(cert_common::oid::OID_AES_256_CBC.clone(), t1)
+            .unwrap();
+    assert!(o.to_custom_attribute().is_none());
+    assert!(o.to_custom_extension().is_none());
 }
 
 fn build_https_csr(method: cert_common::HttpsSigningMethod) -> Option<(String, Vec<u8>)> {

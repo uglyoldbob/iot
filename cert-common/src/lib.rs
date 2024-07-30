@@ -195,6 +195,7 @@ pub enum HttpsSigningMethod {
     Default,
     Copy,
     Clone,
+    PartialEq,
     userprompt::Prompting,
     serde::Deserialize,
     serde::Serialize,
