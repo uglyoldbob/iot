@@ -176,6 +176,7 @@ impl CsrAttribute {
     Default,
     Copy,
     Clone,
+    PartialEq,
     userprompt::Prompting,
     serde::Deserialize,
     serde::Serialize,

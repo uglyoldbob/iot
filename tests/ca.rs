@@ -27,7 +27,6 @@ use der::DecodePem;
 pub use main_config::MainConfiguration;
 use main_config::{HttpSettings, HttpsSettingsAnswers, MainConfigurationAnswers};
 use predicates::prelude::predicate;
-use serde::Serialize;
 use service::LogLevel;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -108,6 +107,20 @@ fn https_signing() {
     };
     let h: Result<cert_common::HttpsSigningMethod, ()> = ai.try_into();
     assert!(h.is_err());
+
+    let ai = x509_cert::spki::AlgorithmIdentifier::<()> {
+        oid: x509_cert::spki::ObjectIdentifier::new("1.2.840.113549.1.1.11").unwrap(),
+        parameters: None,
+    };
+    let h: cert_common::HttpsSigningMethod = ai.try_into().unwrap();
+    assert_eq!(h, cert_common::HttpsSigningMethod::RsaSha256);
+
+    let ai = x509_cert::spki::AlgorithmIdentifier::<()> {
+        oid: x509_cert::spki::ObjectIdentifier::new("1.2.840.10045.4.3.2").unwrap(),
+        parameters: None,
+    };
+    let h: cert_common::HttpsSigningMethod = ai.try_into().unwrap();
+    assert_eq!(h, cert_common::HttpsSigningMethod::EcdsaSha256);
 
     let y: Result<cert_common::HttpsSigningMethod, ()> = cert_common::oid::OID_AES_256_CBC
         .clone()
@@ -190,12 +203,26 @@ fn common_oid() {
 
 #[test]
 fn csr_attributes() {
+    let unbad = yasna::construct_der(|w| w.write_i8(42));
+    assert!(cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_UNSTRUCTURED_NAME.clone(),
+        der::Any::from_der(&unbad).unwrap(),
+    )
+    .is_none());
+
     let un1 = yasna::construct_der(|w| w.write_utf8string("ssh not while im testing"));
     cert_common::CsrAttribute::with_oid_and_any(
         cert_common::oid::OID_PKCS9_UNSTRUCTURED_NAME.clone(),
         der::Any::from_der(&un1).unwrap(),
     )
     .unwrap();
+
+    let unbad = yasna::construct_der(|w| w.write_i8(42));
+    assert!(cert_common::CsrAttribute::with_oid_and_any(
+        cert_common::oid::OID_PKCS9_CHALLENGE_PASSWORD.clone(),
+        der::Any::from_der(&unbad).unwrap(),
+    )
+    .is_none());
     cert_common::CsrAttribute::with_oid_and_any(
         cert_common::oid::OID_PKCS9_CHALLENGE_PASSWORD.clone(),
         der::Any::from_der(&un1).unwrap(),
