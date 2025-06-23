@@ -78,7 +78,6 @@ fn main() {
         let nfp = p.join("node_modules");
         let filenames = vec![
             ("certgen-wasm/certgen_bg.wasm", "certgen_bg.wasm"),
-            ("certgen-wasm/certgen_bg.wasm.d.ts", "certgen_bg.wasm.d.ts"),
             ("certgen-wasm/certgen.d.ts", "certgen_wasm.d.ts"),
             ("certgen-wasm/certgen.js", "certgen.js"),
         ];

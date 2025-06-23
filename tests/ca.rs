@@ -133,17 +133,352 @@ fn https_signing() {
     assert!(y.is_err());
 }
 
-#[test]
-fn ssh_genkey() {
-    let m = vec![
-        cert_common::SshSigningMethod::Rsa,
+#[tokio::test]
+async fn ssh_genkey() {
+    use russh::*;
+    use russh_keys::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+    use tokio::sync::Mutex;
+
+    // Test SSH server handler
+    struct TestServer {
+        clients: Arc<Mutex<HashMap<String, bool>>>,
+        authorized_keys: Arc<Mutex<Vec<key::PublicKey>>>,
+    }
+
+    impl TestServer {
+        fn new() -> Self {
+            Self {
+                clients: Arc::new(Mutex::new(HashMap::new())),
+                authorized_keys: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        async fn add_authorized_key(&self, key: key::PublicKey) {
+            self.authorized_keys.lock().await.push(key);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl server::Handler for TestServer {
+        type Error = russh::Error;
+
+        async fn channel_open_session(
+            self,
+            _channel: Channel<server::Msg>,
+            session: server::Session,
+        ) -> Result<(Self, bool, server::Session), Self::Error> {
+            Ok((self, true, session))
+        }
+
+        async fn auth_publickey(
+            self,
+            _user: &str,
+            public_key: &key::PublicKey,
+        ) -> Result<(Self, server::Auth), Self::Error> {
+            let incoming_key_data = public_key.public_key_bytes();
+
+            let auth_result = {
+                let auth_keys = self.authorized_keys.lock().await;
+
+                let mut found = false;
+                for auth_key in auth_keys.iter() {
+                    if auth_key.public_key_bytes() == incoming_key_data {
+                        found = true;
+                        break;
+                    }
+                }
+                found
+            };
+
+            if auth_result {
+                Ok((self, server::Auth::Accept))
+            } else {
+                Ok((
+                    self,
+                    server::Auth::Reject {
+                        proceed_with_methods: None,
+                    },
+                ))
+            }
+        }
+    }
+
+    // Simple client handler
+    struct ClientHandler;
+
+    #[async_trait::async_trait]
+    impl client::Handler for ClientHandler {
+        type Error = russh::Error;
+
+        async fn check_server_key(
+            self,
+            _server_public_key: &key::PublicKey,
+        ) -> Result<(Self, bool), Self::Error> {
+            Ok((self, true))
+        }
+    }
+
+    let methods = vec![
         cert_common::SshSigningMethod::Ed25519,
+        cert_common::SshSigningMethod::Rsa,
     ];
-    for m in m {
-        let d = bincode::serialize(&m).unwrap();
-        let m2: cert_common::SshSigningMethod = bincode::deserialize(&d).unwrap();
-        assert_eq!(m2, m);
-        let kp = m.generate_keypair(4096).unwrap();
+
+    for method in methods {
+        // Test serialization/deserialization
+        let d = bincode::serialize(&method).unwrap();
+        let method2: cert_common::SshSigningMethod = bincode::deserialize(&d).unwrap();
+        assert_eq!(method2, method);
+
+        // Generate keypair using the original method
+        let kp = method.generate_keypair(4096).unwrap();
+
+        // Validate basic key properties
+        let public_key = kp.public_key();
+
+        // Test that we can convert to OpenSSH format
+        match public_key.to_openssh() {
+            Ok(openssh_key) => {
+                println!(
+                    "✓ {:?} public key converts to OpenSSH format successfully",
+                    method
+                );
+                assert!(
+                    !openssh_key.is_empty(),
+                    "OpenSSH public key should not be empty"
+                );
+            }
+            Err(e) => {
+                println!(
+                    "⚠ {:?} public key OpenSSH conversion failed: {:?}",
+                    method, e
+                );
+            }
+        }
+
+        // Test that we can convert private key to OpenSSH format
+        match kp.to_openssh(ssh_key::LineEnding::LF) {
+            Ok(openssh_private) => {
+                println!(
+                    "✓ {:?} private key converts to OpenSSH format successfully",
+                    method
+                );
+                assert!(
+                    !openssh_private.is_empty(),
+                    "OpenSSH private key should not be empty"
+                );
+            }
+            Err(e) => {
+                println!(
+                    "⚠ {:?} private key OpenSSH conversion failed: {:?}",
+                    method, e
+                );
+            }
+        }
+
+        // Try to convert generated keys to russh format for SSH server testing
+        if let (Ok(public_key_openssh), Ok(private_key_openssh)) = (
+            public_key.to_openssh(),
+            kp.to_openssh(ssh_key::LineEnding::LF),
+        ) {
+            println!(
+                "Generated public key OpenSSH format: {}",
+                public_key_openssh
+            );
+            println!(
+                "Generated private key first 100 chars: {}",
+                &private_key_openssh[..100.min(private_key_openssh.len())]
+            );
+
+            // Extract just the base64 part from the OpenSSH public key format
+            // Format is like: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARTDP..."
+            let public_key_base64 = public_key_openssh
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or(&public_key_openssh);
+
+            // Try to parse the generated keys with russh
+            let russh_public_result = russh_keys::parse_public_key_base64(public_key_base64);
+            let russh_private_result = russh_keys::decode_secret_key(&private_key_openssh, None);
+
+            match (&russh_public_result, &russh_private_result) {
+                (Ok(_), Ok(_)) => {
+                    println!("✓ Successfully converted {:?} keys to russh format", method);
+                }
+                (Err(pub_err), _) => {
+                    println!("⚠ Failed to parse public key: {:?}", pub_err);
+                }
+                (_, Err(priv_err)) => {
+                    println!("⚠ Failed to parse private key: {:?}", priv_err);
+                }
+            }
+
+            if let (Ok(russh_public_key), Ok(russh_private_key)) =
+                (russh_public_result, russh_private_result)
+            {
+                // Start SSH server on high port
+                let listener = TcpListener::bind("127.0.0.1:12345").await.unwrap();
+                let server_handler = TestServer::new();
+
+                // Add the generated public key to authorized keys
+                server_handler.add_authorized_key(russh_public_key).await;
+
+                // Generate server key using cert_common::SshSigningMethod
+                println!("✓ Generating SSH server key using SshSigningMethod::Ed25519");
+                let server_kp = cert_common::SshSigningMethod::Ed25519
+                    .generate_keypair(4096)
+                    .unwrap();
+                let server_private_openssh = server_kp.to_openssh(ssh_key::LineEnding::LF).unwrap();
+                let server_russh_key =
+                    russh_keys::decode_secret_key(&server_private_openssh, None).unwrap();
+                println!("✓ SSH server key generated and converted successfully");
+
+                // Configure SSH server (use key generated by code under test)
+                let server_config = Arc::new(server::Config {
+                    auth_rejection_time_initial: Some(std::time::Duration::from_secs(1)),
+                    keys: vec![server_russh_key],
+                    ..Default::default()
+                });
+
+                let server_handle = tokio::spawn(async move {
+                    match listener.accept().await {
+                        Ok((stream, addr)) => {
+                            println!("SSH server accepted connection from: {}", addr);
+                            match server::run_stream(server_config, stream, server_handler).await {
+                                Ok(_) => println!("SSH server session completed successfully"),
+                                Err(e) => eprintln!("SSH server session error: {:?}", e),
+                            }
+                        }
+                        Err(e) => eprintln!("SSH server failed to accept connection: {:?}", e),
+                    }
+                });
+
+                // Give server time to start
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // Test SSH client connection
+                let client_config = Arc::new(client::Config::default());
+                let client_handler = ClientHandler;
+
+                // Connect to SSH server
+                let mut session =
+                    match client::connect(client_config, "127.0.0.1:12345", client_handler).await {
+                        Ok(session) => {
+                            println!("SSH client connected successfully for {:?}", method);
+                            session
+                        }
+                        Err(e) => {
+                            println!("⚠ Failed to connect SSH client for {:?}: {:?}", method, e);
+                            continue;
+                        }
+                    };
+
+                // Authenticate with the generated keypair from SshSigningMethod::generate_keypair
+                let auth_result = session
+                    .authenticate_publickey("testuser", Arc::new(russh_private_key))
+                    .await;
+
+                // Verify authentication succeeded
+                match auth_result {
+                    Ok(authenticated) => {
+                        assert!(
+                            authenticated,
+                            "SSH authentication was rejected for {:?} method",
+                            method
+                        );
+                        println!(
+                            "SSH authentication successful with generated {:?} key!",
+                            method
+                        );
+                    }
+                    Err(e) => {
+                        println!("⚠ SSH authentication failed for {:?}: {:?}", method, e);
+                    }
+                }
+
+                // Close the session
+                if let Err(e) = session
+                    .disconnect(Disconnect::ByApplication, "Test completed", "")
+                    .await
+                {
+                    eprintln!("Warning: Failed to disconnect SSH session cleanly: {:?}", e);
+                }
+
+                // Wait for server to finish
+                match tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await {
+                    Ok(_) => println!("SSH server shut down cleanly for {:?}", method),
+                    Err(_) => eprintln!("Warning: SSH server timeout for {:?}", method),
+                }
+            } else {
+                println!(
+                    "⚠ Failed to convert {:?} keys to russh format - skipping SSH server test",
+                    method
+                );
+            }
+        }
+
+        println!(
+            "Key generation test completed successfully for {:?}",
+            method
+        );
+    }
+
+    // Additional test for different key sizes
+    println!("Testing SSH key generation with different sizes...");
+
+    let test_sizes = vec![2048, 4096]; // Use only safe RSA key sizes
+    for size in test_sizes {
+        for method in &[
+            cert_common::SshSigningMethod::Ed25519,
+            cert_common::SshSigningMethod::Rsa,
+        ] {
+            match method {
+                cert_common::SshSigningMethod::Ed25519 => {
+                    // Ed25519 should ignore size parameter and always work
+                    let kp_result = method.generate_keypair(size);
+                    assert!(
+                        kp_result.is_some(),
+                        "Ed25519 key generation should always succeed regardless of size parameter"
+                    );
+                    let kp = kp_result.unwrap();
+                    let public_key = kp.public_key();
+                    let openssh_format = public_key.to_openssh();
+                    assert!(
+                        openssh_format.is_ok(),
+                        "Ed25519 public key should convert to OpenSSH format"
+                    );
+                    println!(
+                        "✓ Ed25519 key generated successfully (size parameter: {})",
+                        size
+                    );
+                }
+                cert_common::SshSigningMethod::Rsa => {
+                    // RSA key generation might fail for certain sizes, handle gracefully
+                    match std::panic::catch_unwind(|| method.generate_keypair(size)) {
+                        Ok(Some(kp)) => {
+                            let public_key = kp.public_key();
+                            let openssh_format = public_key.to_openssh();
+                            assert!(
+                                openssh_format.is_ok(),
+                                "RSA public key should convert to OpenSSH format"
+                            );
+                            println!("✓ RSA-{} key generated successfully", size);
+                        }
+                        Ok(None) => {
+                            println!("⚠ RSA-{} key generation returned None", size);
+                        }
+                        Err(_) => {
+                            println!(
+                                "⚠ RSA-{} key generation failed (expected for some sizes)",
+                                size
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

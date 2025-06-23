@@ -154,9 +154,12 @@ windows-acl = "0.3.0"
 
 [dev-dependencies]
 assert_cmd = "2.0"
+async-trait = "0.1"
 openssl = "0.10"
 predicates = "3.1"
 reqwest = { version = "0.12", features = ["json", "native-tls"] }
+russh = "0.40"
+russh-keys = "0.40"
 
 [features]
 default = ["tpm2"]
@@ -177,4 +180,3 @@ path = "src/construct-gui.rs"
 [[bin]]
 name = "rust-iot-destroy"
 path = "src/destroy.rs"
-
