@@ -16,6 +16,7 @@ mod card;
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 use assert_cmd::prelude::*;
 use ca::{
@@ -31,6 +32,9 @@ use service::LogLevel;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use userprompt::{FileCreate, Password2};
+
+// Mutex to ensure CA tests run sequentially to avoid port conflicts
+static CA_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 fn hash_setup1() -> Vec<u8> {
     use rand::Rng;
@@ -923,6 +927,8 @@ where
 
 #[tokio::test(flavor = "multi_thread")]
 async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
+    let _lock = CA_TEST_MUTEX.lock().unwrap();
+
     let methods = vec![
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
@@ -935,6 +941,8 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
+    let _lock = CA_TEST_MUTEX.lock().unwrap();
+
     let methods = vec![
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
