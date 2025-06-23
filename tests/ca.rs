@@ -1,3 +1,21 @@
+#![warn(missing_docs)]
+
+//! Comprehensive Certificate Authority (CA) and SSH key generation testing suite
+//!
+//! This test module provides extensive validation of the IoT certificate management system,
+//! including:
+//! - SSH key generation and authentication testing with real SSH servers
+//! - CA (Certificate Authority) setup and certificate signing workflows
+//! - PKI (Public Key Infrastructure) hierarchical certificate management
+//! - HTTPS certificate generation and validation
+//! - Cryptographic signature testing (RSA-SHA256, ECDSA-SHA256)
+//! - Certificate Signing Request (CSR) processing and validation
+//! - Web interface endpoint testing for certificate management
+//! - Configuration file handling and persistence
+//!
+//! The tests use real network servers, cryptographic operations, and file I/O
+//! to ensure the certificate management system works correctly in production scenarios.
+
 #[path = "../src/hsm2.rs"]
 mod hsm2;
 
@@ -33,9 +51,15 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use userprompt::{FileCreate, Password2};
 
-// Mutex to ensure CA tests run sequentially to avoid port conflicts
+/// Mutex to ensure CA tests run sequentially to avoid port conflicts
+///
+/// Since CA tests bind to specific ports (3000, 3001), this mutex prevents
+/// parallel execution that would cause port binding conflicts
 static CA_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
+/// Generate a test hash for cryptographic signature testing
+///
+/// Creates random data, hashes it with SHA-256, and formats it for RSA signature testing
 fn hash_setup1() -> Vec<u8> {
     use rand::Rng;
     use sha2::Digest;
@@ -48,6 +72,7 @@ fn hash_setup1() -> Vec<u8> {
     t
 }
 
+/// Test RSA-SHA256 signature generation and ASN.1 DER encoding validation
 #[test]
 fn rsa_sha256() {
     let t = hash_setup1();
@@ -63,6 +88,7 @@ fn rsa_sha256() {
     .unwrap();
 }
 
+/// Test PKCS#1.5 SHA256 padding and signature format validation
 #[test]
 fn pkcs15_sha256() {
     let t = hash_setup1();
@@ -73,6 +99,7 @@ fn pkcs15_sha256() {
 }
 
 #[test]
+/// Test SQLite path resolution and database file handling
 fn get_sqlite_paths() {
     use std::str::FromStr;
     let p = std::path::PathBuf::from_str("./temp").unwrap();
@@ -80,6 +107,7 @@ fn get_sqlite_paths() {
     assert!(paths.len() > 0)
 }
 
+/// Test certificate type answer conversion and validation
 #[test]
 fn from_certificate_type_answers() {
     let scpin = SmartCardPin2::default();
@@ -101,6 +129,7 @@ fn from_certificate_type_answers() {
     }
 }
 
+/// Test HTTPS certificate signing methods (RSA-SHA256 and ECDSA-SHA256)
 #[test]
 fn https_signing() {
     let s = service::Service::new("Testing".to_string());
@@ -133,6 +162,14 @@ fn https_signing() {
     assert!(y.is_err());
 }
 
+/// Comprehensive SSH key generation test with real SSH server authentication
+///
+/// This test validates that `SshSigningMethod::generate_keypair` produces functional SSH keys by:
+/// 1. Generating Ed25519 and RSA keypairs using the code under test
+/// 2. Converting keys to OpenSSH format and validating format compatibility
+/// 3. Running an actual SSH server on port 12345 with generated server keys
+/// 4. Performing real SSH client authentication using generated client keys
+/// 5. Testing multiple key sizes for robustness
 #[tokio::test]
 async fn ssh_genkey() {
     use russh::*;
@@ -142,13 +179,16 @@ async fn ssh_genkey() {
     use tokio::net::TcpListener;
     use tokio::sync::Mutex;
 
-    // Test SSH server handler
+    /// Test SSH server handler for validating SSH key authentication
     struct TestServer {
+        /// Connected clients map
         clients: Arc<Mutex<HashMap<String, bool>>>,
+        /// List of authorized public keys for authentication
         authorized_keys: Arc<Mutex<Vec<key::PublicKey>>>,
     }
 
     impl TestServer {
+        /// Create a new test SSH server instance
         fn new() -> Self {
             Self {
                 clients: Arc::new(Mutex::new(HashMap::new())),
@@ -156,6 +196,7 @@ async fn ssh_genkey() {
             }
         }
 
+        /// Add a public key to the list of authorized keys for authentication
         async fn add_authorized_key(&self, key: key::PublicKey) {
             self.authorized_keys.lock().await.push(key);
         }
@@ -206,7 +247,7 @@ async fn ssh_genkey() {
         }
     }
 
-    // Simple client handler
+    /// Simple SSH client handler for test connections
     struct ClientHandler;
 
     #[async_trait::async_trait]
@@ -482,6 +523,7 @@ async fn ssh_genkey() {
     }
 }
 
+/// Test OID (Object Identifier) conversion and validation for certificate extensions
 #[test]
 fn common_oid() {
     let oid1: cert_common::oid::Oid = cert_common::oid::OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.clone();
@@ -540,6 +582,7 @@ fn common_oid() {
     );
 }
 
+/// Test Certificate Signing Request (CSR) attributes handling and validation
 #[test]
 fn csr_attributes() {
     let unbad = yasna::construct_der(|w| w.write_i8(42));
@@ -631,6 +674,9 @@ fn csr_attributes() {
     assert!(o.to_custom_extension().is_none());
 }
 
+/// Build an HTTPS Certificate Signing Request using the specified signing method
+///
+/// Returns a tuple of (PEM-encoded CSR, private key bytes) if successful
 fn build_https_csr(method: cert_common::HttpsSigningMethod) -> Option<(String, Vec<u8>)> {
     let params: rcgen::CertificateParams = Default::default();
     if let Some((key_pair, private)) = method.generate_keypair(4096) {
@@ -644,6 +690,10 @@ fn build_https_csr(method: cert_common::HttpsSigningMethod) -> Option<(String, V
     None
 }
 
+/// Run comprehensive web endpoint checks for CA functionality
+///
+/// Tests various CA web endpoints including certificate requests, signing,
+/// and administrative functions to ensure the web interface works correctly
 async fn run_web_checks(
     config: MainConfigurationAnswers,
     method: cert_common::CertificateSigningMethod,
@@ -1092,6 +1142,9 @@ async fn run_web_checks(
     }
 }
 
+/// Build test configuration answers for CA testing with specified signing method
+///
+/// Creates a complete configuration structure with temporary paths and test certificates
 fn build_answers(
     td: &tempfile::TempDir,
     method: cert_common::CertificateSigningMethod,
@@ -1136,6 +1189,14 @@ fn build_answers(
     args
 }
 
+/// Run CA (Certificate Authority) integration tests with specified signing methods
+///
+/// This function orchestrates a complete CA lifecycle test including:
+/// - Configuration setup and validation
+/// - CA construction and initialization
+/// - Web server startup and endpoint testing
+/// - Certificate request and signing workflows
+/// - Proper cleanup and shutdown
 async fn run_ca<F>(
     methods: Vec<cert_common::CertificateSigningMethod>,
     m: impl Fn(main_config::MainConfigurationAnswers) -> F,
@@ -1260,6 +1321,10 @@ where
     Ok(())
 }
 
+/// Test building and running a standalone CA (Certificate Authority)
+///
+/// This integration test validates the complete CA setup process including
+/// configuration, initialization, web server startup, and basic functionality
 #[tokio::test(flavor = "multi_thread")]
 async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
     let _lock = CA_TEST_MUTEX.lock().unwrap();
@@ -1274,6 +1339,10 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Test building and running a PKI (Public Key Infrastructure) with multiple CAs
+///
+/// This integration test validates PKI setup with hierarchical CA relationships
+/// and ensures proper certificate chain handling and management
 #[tokio::test(flavor = "multi_thread")]
 async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     let _lock = CA_TEST_MUTEX.lock().unwrap();
@@ -1305,6 +1374,10 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Test CA configuration with pre-existing answer files
+///
+/// Validates that the system can load and process existing configuration
+/// answers from TOML files correctly
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
     let configpath = tempfile::TempDir::new().unwrap();
@@ -1336,6 +1409,10 @@ async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Test CA system with existing configuration files
+///
+/// Ensures the CA can be constructed and operated using pre-existing
+/// configuration files and settings
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
     let configpath = tempfile::TempDir::new().unwrap();
@@ -1371,6 +1448,10 @@ async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Test CA system with existing password configuration
+///
+/// Validates password handling and authentication systems work correctly
+/// with pre-configured password settings
 #[tokio::test(flavor = "multi_thread")]
 async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
     let configpath = tempfile::TempDir::new().unwrap();
