@@ -26,3 +26,170 @@ js/node_modules
 *.min.js
 cafiles
 certgen/target
+
+# Java build artifacts
+smartcard-sim/target/
+smartcard-sim/dependency-reduced-pom.xml
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Java IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.metadata/
+.factorypath
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Gradle (additional)
+.gradle/
+build/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# Eclipse
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+out/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Visual Studio Code
+.vscode/
+
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Compiled binary addons (https://nodejs.org/api/addons.html)
+build/Release
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Temporary folders
+tmp/
+temp/
+
+# Smart Card Simulator specific
+smartcard-sim/hs_err_pid*
+smartcard-sim/*.log
+smartcard-sim/.attach_pid*
+*.hprof
+*.prof
+
+# Card simulation data
+*.card
+*.sim
+carddata/
+simdata/
+
+# Test artifacts
+TEST-*.xml
+surefire-reports/
+failsafe-reports/
+
+# PKCS#11 test tokens
+tokens/
+*.db
+*.so
+*.dll
+softhsm2.conf
+
+# Smart card applet compilation
+*.cap
+*.exp
+*.jca
+*.opt

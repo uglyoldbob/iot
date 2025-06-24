@@ -1,0 +1,77 @@
+# Maven build artifacts
+target/
+dependency-reduced-pom.xml
+
+# Compiled class files
+*.class
+
+# JAR files (except wrapper JAR)
+*.jar
+!gradle-wrapper.jar
+
+# Log files
+*.log
+
+# Java virtual machine crash logs
+hs_err_pid*
+*.hprof
+*.prof
+.attach_pid*
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.metadata/
+.factorypath
+.vscode/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test output
+TEST-*.xml
+surefire-reports/
+failsafe-reports/
+
+# Smart card simulation specific
+*.card
+*.sim
+carddata/
+simdata/
+
+# PKCS#11 and HSM test data
+tokens/
+*.db
+softhsm2.conf
+
+# JavaCard applet artifacts
+*.cap
+*.exp
+*.jca
+*.opt
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+*~
+
+# Coverage reports
+jacoco.exec
+coverage/
+
+# Maven wrapper (uncomment if not using wrapper)
+# .mvn/
+# mvnw
+# mvnw.cmd

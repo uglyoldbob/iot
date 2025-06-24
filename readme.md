@@ -45,6 +45,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Allow no tpm2 with the answers data
 - [x] Check for presence of tpm2 asap in construction.
 - [x] Implement HSM for certificate operations with pkcs11 api
+- [x] Add smart card simulation using jCardSim for testing and development
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
@@ -58,4 +59,16 @@ Helpful openssl commands see [openssl](openssl.md)
 - [ ] Add a method for adding more ca entities after construction has occurred.
 - [ ] Add ssh certificate operations
 - [ ] Implement paging operations for certificate lists
+
+## Smart Card Simulation
+
+This project includes a jCardSim-based smart card simulator for testing and development:
+
+- **Location**: `smartcard-sim/` directory
+- **Purpose**: Simulate smart card operations without physical hardware
+- **Features**: RSA key generation, digital signatures, PIN verification, APDU communication
+- **Usage**: `cd smartcard-sim && ./run-simulator.sh build && ./run-simulator.sh run`
+- **Integration**: Rust examples available in `examples/smartcard_integration.rs`
+
+See `smartcard-sim/README.md` for detailed documentation.
 - [ ] For intermediate authorities, add ability to get full certificate chain
