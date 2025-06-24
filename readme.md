@@ -70,5 +70,30 @@ This project includes a jCardSim-based smart card simulator for testing and deve
 - **Usage**: `cd smartcard-sim && ./run-simulator.sh build && ./run-simulator.sh run`
 - **Integration**: Rust examples available in `examples/smartcard_integration.rs`
 
+### New Virtual Card Management Features
+
+The smart card simulator now supports comprehensive virtual card management:
+
+- **Virtual Card Creation**: Create multiple named virtual smart cards
+- **Dynamic Card Insertion/Removal**: Insert and remove cards from the terminal dynamically
+- **Card Status Monitoring**: Check insertion status and get detailed card information
+- **Card Lifecycle Management**: Delete cards when no longer needed
+
+#### Key Operations
+- `create_virtual_card(name)` - Create a new virtual card with a friendly name
+- `insert_card(card_id)` - Insert a specific virtual card into the terminal
+- `remove_card()` - Remove the currently inserted card
+- `delete_virtual_card(card_id)` - Permanently delete a virtual card
+- `is_card_inserted()` - Check if any card is currently inserted
+- `get_card_status()` - Get comprehensive status including all cards
+
+#### Demo Usage
+Run the comprehensive demo to see the new functionality:
+```bash
+./demo_smartcard_insertion.sh
+```
+
+This enables more sophisticated certificate authority workflows where different cards can represent different roles or security levels.
+
 See `smartcard-sim/README.md` for detailed documentation.
 - [ ] For intermediate authorities, add ability to get full certificate chain

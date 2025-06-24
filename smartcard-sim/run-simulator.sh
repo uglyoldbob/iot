@@ -35,6 +35,7 @@ print_usage() {
     echo "  build     - Build the project"
     echo "  test      - Run tests"
     echo "  run       - Run the simulator"
+    echo "  cli       - Run interactive CLI interface"
     echo "  clean     - Clean build artifacts"
     echo "  package   - Build executable JAR"
     echo "  dev       - Development mode (build + run)"
@@ -49,6 +50,7 @@ print_usage() {
     echo "  $0 build"
     echo "  $0 test --verbose"
     echo "  $0 run --debug"
+    echo "  $0 cli"
     echo "  $0 dev"
 }
 
@@ -177,6 +179,28 @@ run_simulator_direct() {
     mvn $MAVEN_OPTS exec:java -Dexec.mainClass="$MAIN_CLASS" -Dexec.args="$JAVA_OPTS"
 }
 
+run_cli() {
+    echo -e "${YELLOW}Starting Smart Card CLI interface...${NC}"
+
+    # Ensure classes are compiled
+    if [ ! -d "target/classes" ]; then
+        build_project
+    fi
+
+    local JAVA_OPTS=""
+    if [ "$DEBUG" = "true" ]; then
+        JAVA_OPTS="$JAVA_OPTS -Dorg.slf4j.simpleLogger.defaultLogLevel=DEBUG"
+    fi
+
+    local CLI_CLASS="com.uglyoldbob.smartcard.sim.VirtualCardCLI"
+
+    echo -e "${GREEN}Starting interactive CLI...${NC}"
+    echo "Type 'help' for available commands"
+    echo ""
+
+    mvn $MAVEN_OPTS exec:java -Dexec.mainClass="$CLI_CLASS" -Dexec.args="$JAVA_OPTS"
+}
+
 clean_project() {
     echo -e "${YELLOW}Cleaning project...${NC}"
 
@@ -231,6 +255,12 @@ show_status() {
     else
         echo -e "${YELLOW}!${NC} jCardSim submodule not found"
     fi
+
+    # Check available main classes
+    echo ""
+    echo "Available interfaces:"
+    echo "  - SmartCardSimulator (basic demonstration)"
+    echo "  - VirtualCardCLI (interactive interface)"
 }
 
 # Parse command line arguments
@@ -241,7 +271,7 @@ PORT=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        build|test|run|clean|package|dev|help|status)
+        build|test|run|cli|clean|package|dev|help|status)
             COMMAND=$1
             shift
             ;;
@@ -285,6 +315,10 @@ case $COMMAND in
     run)
         check_prerequisites
         run_simulator
+        ;;
+    cli)
+        check_prerequisites
+        run_cli
         ;;
     clean)
         clean_project

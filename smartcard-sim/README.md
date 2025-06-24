@@ -5,9 +5,11 @@ A Java-based smart card simulation module using jCardSim for the IoT project. Th
 ## Features
 
 - **Smart Card Simulation**: Uses jCardSim to simulate a complete smart card environment
+- **Virtual Card Management**: Create, insert, and remove virtual smart cards dynamically
 - **Cryptographic Operations**: Supports RSA key generation, digital signatures, and public key export
 - **PIN Management**: Implements PIN verification and change functionality
 - **APDU Communication**: Full APDU command/response protocol support
+- **Interactive CLI**: Command-line interface for card management and operations
 - **Java Integration**: Easy integration with existing Java applications
 - **Testing Framework**: Comprehensive JUnit test suite
 
@@ -29,6 +31,13 @@ A Java-based smart card simulation module using jCardSim for the IoT project. Th
 - ISO 7816-4 compliant APDU commands
 - Custom instruction set for cryptographic operations
 - Proper error handling and status word responses
+
+### Virtual Card Management
+- Dynamic card creation with custom names
+- Card insertion and removal simulation
+- Multiple virtual cards support
+- Card state persistence
+- Real-time card status monitoring
 
 ## Quick Start
 
@@ -60,24 +69,42 @@ This creates a shaded JAR with all dependencies included.
 
 ### Running the Simulator
 
+**Basic Simulator**:
 ```bash
 java -jar target/smartcard-sim-1.0.0-SNAPSHOT.jar
 ```
 
 Or run the main class directly:
-
 ```bash
 mvn exec:java -Dexec.mainClass="com.uglyoldbob.smartcard.sim.SmartCardSimulator"
+```
+
+**Interactive CLI Interface**:
+```bash
+./run-simulator.sh cli
+```
+
+Or directly:
+```bash
+mvn exec:java -Dexec.mainClass="com.uglyoldbob.smartcard.sim.VirtualCardCLI"
 ```
 
 ## Usage Examples
 
 ### Basic Usage
 
+**Virtual Card Management**:
 ```java
 // Create and start the simulator
 SmartCardSimulator simulator = new SmartCardSimulator();
 simulator.start();
+
+// Create virtual cards
+String card1Id = simulator.createVirtualCard("Business Card");
+String card2Id = simulator.createVirtualCard("Personal Card");
+
+// Insert a card
+simulator.insertCard(card1Id);
 
 // Generate a key pair
 simulator.generateKeyPair(2048);
@@ -89,8 +116,28 @@ byte[] signature = simulator.signData(data);
 // Get the public key
 byte[] publicKey = simulator.getPublicKey();
 
+// Remove the card and insert another
+simulator.removeCard();
+simulator.insertCard(card2Id);
+
 // Stop the simulator
 simulator.stop();
+```
+
+**CLI Interface**:
+```bash
+# Start the CLI
+./run-simulator.sh cli
+
+# Available commands:
+smartcard> create "My Test Card"     # Create a virtual card
+smartcard> list                      # List all cards
+smartcard> insert <card-id>          # Insert a card
+smartcard> pin                       # Verify PIN (default: 1234)
+smartcard> keygen 2048              # Generate key pair
+smartcard> sign "test data"         # Sign data
+smartcard> remove                   # Remove current card
+smartcard> help                     # Show all commands
 ```
 
 ### Direct APDU Communication
@@ -130,6 +177,18 @@ simulator.stop();
 | 0x40 | Verify PIN | Verify user PIN | [pin_bytes] |
 | 0x50 | Change PIN | Change user PIN | [new_pin_bytes] |
 
+### Virtual Card Management API
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `createVirtualCard(name)` | Create a new virtual card | Card ID |
+| `insertCard(cardId)` | Insert virtual card into terminal | boolean |
+| `removeCard()` | Remove current card from terminal | boolean |
+| `deleteVirtualCard(cardId)` | Permanently delete virtual card | boolean |
+| `isCardInserted()` | Check if any card is inserted | boolean |
+| `getCurrentCardId()` | Get ID of inserted card | String |
+| `getVirtualCardIds()` | Get all virtual card IDs | String[] |
+
 ### Response Codes
 
 | SW | Description |
@@ -155,14 +214,51 @@ The smart card simulator can be integrated with the existing Rust IoT project th
 3. **HTTP API**: Expose simulator functionality via REST API
 4. **Process Communication**: Execute JAR and communicate via stdin/stdout
 
+### Virtual Card Workflow Examples
+
+**Testing Card Insertion/Removal**:
+```java
+// Simulate physical card insertion
+String cardId = simulator.createVirtualCard("Test Card");
+simulator.insertCard(cardId);
+
+// Perform operations
+simulator.generateKeyPair(2048);
+byte[] signature = simulator.signData(data);
+
+// Simulate physical card removal
+simulator.removeCard();
+
+// Verify operations fail without card
+assertNull(simulator.signData(data)); // Should fail
+```
+
+**Multi-Card Testing**:
+```java
+// Create multiple cards for different scenarios
+String devCard = simulator.createVirtualCard("Development");
+String prodCard = simulator.createVirtualCard("Production");
+
+// Test with development card
+simulator.insertCard(devCard);
+// ... perform dev operations ...
+simulator.removeCard();
+
+// Switch to production card
+simulator.insertCard(prodCard);
+// ... perform prod operations ...
+```
+
 ## Testing
 
 The module includes comprehensive tests covering:
 
 - Simulator initialization and lifecycle
+- Virtual card creation, insertion, and removal
 - PIN verification and change operations
 - Key generation with different sizes
 - Data signing and public key retrieval
+- Multi-card scenarios and switching
 - Error condition handling
 - Complete workflow scenarios
 
@@ -176,6 +272,13 @@ For verbose output:
 
 ```bash
 mvn test -Dtest.verbose=true
+```
+
+Run specific test classes:
+
+```bash
+mvn test -Dtest=VirtualCardInsertionTest
+mvn test -Dtest=SmartCardSimulatorTest
 ```
 
 ## Configuration
@@ -226,6 +329,35 @@ Enable debug logging by adding to your logback configuration:
 ```xml
 <logger name="com.uglyoldbob.smartcard.sim" level="DEBUG"/>
 ```
+
+Or run with debug logging:
+
+```bash
+./run-simulator.sh cli --debug
+```
+
+### CLI Commands Reference
+
+**Card Management**:
+- `create <name>` - Create new virtual card
+- `list` - Show all virtual cards
+- `insert <card-id>` - Insert card into terminal
+- `remove` - Remove current card
+- `delete <card-id>` - Delete virtual card permanently
+- `status` - Show simulator and card status
+
+**Card Operations**:
+- `pin [pin]` - Verify PIN (default: 1234)
+- `keygen [size]` - Generate key pair (default: 2048)
+- `sign <data>` - Sign data with private key
+- `pubkey` - Get public key
+- `apdu <hex>` - Send raw APDU command
+
+**Utilities**:
+- `demo` - Run demonstration sequence
+- `clear` - Clear screen
+- `help` - Show help information
+- `quit` - Exit CLI
 
 ## Contributing
 
