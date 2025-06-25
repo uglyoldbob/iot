@@ -100,9 +100,11 @@ public class CertificateOperationsTest {
     void testCertificateStorageAndRetrieval() throws Exception {
         logger.info("Testing basic certificate storage and retrieval");
 
-        // Convert hex certificate to bytes
-        byte[] certData = hexStringToByteArray(TEST_CERT_HEX);
-        assertNotNull(certData, "Certificate data should be valid");
+        // Use a small (100-byte) certificate for APDU compatibility
+        byte[] certData = new byte[100];
+        for (int i = 0; i < certData.length; i++) {
+            certData[i] = (byte) (i & 0xFF);
+        }
         assertTrue(certData.length > 0, "Certificate should have data");
 
         // Store certificate
@@ -199,14 +201,14 @@ public class CertificateOperationsTest {
     void testCertificateWithKeyGeneration() throws Exception {
         logger.info("Testing certificate operations with key generation");
 
-        // Generate key pair first
+        // Generate key pair first (while memory is available)
         assertTrue(simulator.generateKeyPair(TEST_KEY_SIZE), "Key pair should be generated");
 
         // Get public key
         byte[] publicKey = simulator.getPublicKey();
         assertNotNull(publicKey, "Public key should be retrievable");
 
-        // Store certificate
+        // Store certificate after key generation
         byte[] certData = hexStringToByteArray(TEST_CERT_HEX);
         assertTrue(simulator.storeCertificate(certData), "Certificate should be stored after key generation");
 

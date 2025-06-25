@@ -456,7 +456,7 @@ public class VirtualCardCLI {
         String hexStr = parts[1].replaceAll("\\s+", "");
 
         try {
-            byte[] apduBytes = hexStringToBytes(hexStr);
+            byte[] apduBytes = hexStringToByteArray(hexStr);
             CommandAPDU command = new CommandAPDU(apduBytes);
 
             System.out.println("Sending APDU: " + bytesToHex(apduBytes));
@@ -609,16 +609,7 @@ public class VirtualCardCLI {
         return sb.toString();
     }
 
-    /**
-     * Convert byte array to hex string.
-     */
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X", b));
-        }
-        return sb.toString();
-    }
+
 
     /**
      * Convert hex string to byte array.

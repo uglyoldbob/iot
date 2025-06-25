@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.io.ByteArrayOutputStream;
 
 /**
  * Smart Card Simulator using jCardSim for IoT project integration.
@@ -214,6 +215,12 @@ public class SmartCardSimulator {
         }
 
         try {
+            // Initialize terminal on start
+            if (terminal == null) {
+                // Create a dummy CardSimulator for the terminal
+                CardSimulator dummySimulator = new CardSimulator();
+                terminal = CardTerminalSimulator.terminal(dummySimulator);
+            }
             isRunning.set(true);
             logger.info("SmartCardSimulator started successfully");
             return true;
@@ -535,6 +542,7 @@ public class SmartCardSimulator {
             CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00,
                                                           new byte[]{0x31, 0x32, 0x33, 0x34}); // "1234"
             ResponseAPDU pinResponse = sendCommand(verifyPinCommand);
+            logger.info("PIN verification response SW={}", String.format("%04X", pinResponse.getSW()));
 
             if (pinResponse.getSW() != 0x9000) {
                 logger.warn("PIN verification failed before storing certificate: SW={}",
@@ -542,18 +550,33 @@ public class SmartCardSimulator {
                 return false;
             }
 
-            // Store certificate
-            CommandAPDU storeCertCommand = new CommandAPDU(0x80, 0x60, 0x00, 0x00, certificate);
-            ResponseAPDU response = sendCommand(storeCertCommand);
+            // Chunked upload: send certificate in ≤255-byte chunks
+            int offset = 0;
+            int chunkSize = 255;
+            boolean success = true;
+            while (offset < certificate.length) {
+                int len = Math.min(chunkSize, certificate.length - offset);
+                byte p1 = (offset + len >= certificate.length) ? (byte)0x01 : (byte)0x00; // last chunk if done
+                byte[] chunk = new byte[len];
+                System.arraycopy(certificate, offset, chunk, 0, len);
 
-            if (response.getSW() == 0x9000) {
-                logger.info("Certificate stored successfully on card {}", getCurrentCardName());
-                return true;
-            } else {
-                logger.warn("Certificate storage failed on card {}: SW={}",
-                           getCurrentCardName(), String.format("%04X", response.getSW()));
-                return false;
+                CommandAPDU storeCertCommand = new CommandAPDU(0x80, 0x60, p1, 0x00, chunk);
+                ResponseAPDU response = sendCommand(storeCertCommand);
+                logger.info("Store certificate chunk (offset {} len {}) response SW={}", offset, len, String.format("%04X", response.getSW()));
+
+                if (response.getSW() != 0x9000) {
+                    logger.warn("Certificate storage failed on card {}: SW={}",
+                               getCurrentCardName(), String.format("%04X", response.getSW()));
+                    success = false;
+                    break;
+                }
+                offset += len;
             }
+
+            if (success) {
+                logger.info("Certificate stored successfully on card {}", getCurrentCardName());
+            }
+            return success;
         } catch (Exception e) {
             logger.error("Error storing certificate", e);
             return false;
@@ -585,20 +608,38 @@ public class SmartCardSimulator {
                 return null;
             }
 
-            // Get certificate
-            CommandAPDU getCertCommand = new CommandAPDU(0x80, 0x70, 0x00, 0x00, 256);
-            ResponseAPDU response = sendCommand(getCertCommand);
+            // Chunked retrieval
+            int offset = 0;
+            int chunkSize = 255;
+            ByteArrayOutputStream certStream = new ByteArrayOutputStream();
+            while (true) {
+                int p1 = (offset >> 8) & 0xFF;
+                int p2 = offset & 0xFF;
+                CommandAPDU getCertCommand = new CommandAPDU(0x80, 0x70, p1, p2, chunkSize);
+                ResponseAPDU response = sendCommand(getCertCommand);
 
-            if (response.getSW() == 0x9000) {
-                byte[] certData = response.getData();
-                logger.info("Certificate retrieved successfully from card {}, {} bytes",
-                           getCurrentCardName(), certData.length);
-                return certData;
-            } else {
-                logger.warn("Certificate retrieval failed from card {}: SW={}",
-                           getCurrentCardName(), String.format("%04X", response.getSW()));
-                return null;
+                if (response.getSW() == 0x9000) {
+                    byte[] chunk = response.getData();
+                    if (chunk.length == 0) {
+                        break;
+                    }
+                    certStream.write(chunk, 0, chunk.length);
+                    if (chunk.length < chunkSize) {
+                        // Last chunk
+                        break;
+                    }
+                    offset += chunk.length;
+                } else if (response.getSW() == 0x6A82) {
+                    logger.info("No certificate found on card {}", getCurrentCardName());
+                    return null;
+                } else {
+                    logger.warn("Certificate retrieval failed on card {}: SW={}",
+                               getCurrentCardName(), String.format("%04X", response.getSW()));
+                    return null;
+                }
             }
+            logger.info("Certificate retrieved successfully from card {}", getCurrentCardName());
+            return certStream.toByteArray();
         } catch (Exception e) {
             logger.error("Error retrieving certificate", e);
             return null;

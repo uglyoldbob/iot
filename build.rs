@@ -96,4 +96,17 @@ fn main() {
             }
         }
     }
+
+    // Build the smartcard-sim Java project using Maven
+    let smartcard_sim_dir = source_path.join("smartcard-sim");
+    let maven_status = std::process::Command::new("mvn")
+        .arg("clean")
+        .arg("package")
+        .current_dir(&smartcard_sim_dir)
+        .status()
+        .expect("Failed to run Maven for smartcard-sim");
+    if !maven_status.success() {
+        panic!("Maven build for smartcard-sim failed");
+    }
+    println!("cargo::rerun-if-changed=smartcard-sim");
 }

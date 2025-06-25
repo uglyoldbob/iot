@@ -73,6 +73,9 @@ public class BasicSmartCardApplet extends Applet {
     private static final short MAX_CERTIFICATE_SIZE = 2048;
     private boolean certificateStored;
 
+    // For chunked upload
+    private short certChunkOffset = 0;
+
     /**
      * Constructor - called during applet installation
      */
@@ -99,20 +102,22 @@ public class BasicSmartCardApplet extends Applet {
      * Install method - called by JCRE during applet installation
      */
     public static void install(byte[] bArray, short bOffset, byte bLength) {
-        new BasicSmartCardApplet().register(bArray, (short) (bOffset + 1), bArray[bOffset]);
+        new BasicSmartCardApplet().register();
     }
 
     /**
      * Process incoming APDU commands
      */
     public void process(APDU apdu) {
+        byte[] buf = apdu.getBuffer();
+        byte ins = (byte) (buf[ISO7816.OFFSET_INS] & 0xFF);
+        System.out.println("[BasicSmartCardApplet] process called, INS=" + String.format("%02X", ins));
         if (selectingApplet()) {
+            System.out.println("[BasicSmartCardApplet] selectingApplet() == true, returning");
             return;
         }
 
-        byte[] buf = apdu.getBuffer();
         byte cla = buf[ISO7816.OFFSET_CLA];
-        byte ins = buf[ISO7816.OFFSET_INS];
 
         // Check CLA byte
         if (cla != (byte) 0x80) {
@@ -233,41 +238,38 @@ public class BasicSmartCardApplet extends Applet {
     }
 
     /**
-     * Store certificate command
+     * Store certificate command (chunked upload)
+     * P1 = 0x00: more chunks, P1 = 0x01: last chunk
      */
     private void storeCertificate(APDU apdu) {
+        System.out.println("[BasicSmartCardApplet] storeCertificate called");
         if (!pin.isValidated()) {
+            System.out.println("[BasicSmartCardApplet] storeCertificate: PIN not validated!");
             ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
         }
 
         byte[] buf = apdu.getBuffer();
-        short dataLength = (short) (buf[ISO7816.OFFSET_LC] & 0xFF);
+        byte p1 = buf[ISO7816.OFFSET_P1];
+        short dataLength = apdu.setIncomingAndReceive();
 
-        if (dataLength == 0 || dataLength > MAX_CERTIFICATE_SIZE) {
+        // Log the received data length for debugging
+        System.out.println("[BasicSmartCardApplet] storeCertificate received dataLength=" + dataLength + " at offset=" + certChunkOffset);
+
+        if (dataLength == 0 || certChunkOffset + dataLength > MAX_CERTIFICATE_SIZE) {
+            System.out.println("[BasicSmartCardApplet] storeCertificate: dataLength invalid, throwing SW_WRONG_DATA");
             ISOException.throwIt(SW_WRONG_DATA);
         }
 
-        short bytesRead = (short) apdu.setIncomingAndReceive();
-        short totalBytesRead = bytesRead;
-        short offset = 0;
+        // Copy chunk to certificate buffer
+        Util.arrayCopyNonAtomic(buf, ISO7816.OFFSET_CDATA, storedCertificate, certChunkOffset, dataLength);
+        certChunkOffset += dataLength;
 
-        // Copy initial data
-        Util.arrayCopy(buf, ISO7816.OFFSET_CDATA, storedCertificate, offset, bytesRead);
-        offset += bytesRead;
-
-        // Read remaining data if any
-        while (totalBytesRead < dataLength) {
-            bytesRead = (short) apdu.receiveBytes(ISO7816.OFFSET_CDATA);
-            if (bytesRead == 0) {
-                break;
-            }
-            Util.arrayCopy(buf, ISO7816.OFFSET_CDATA, storedCertificate, offset, bytesRead);
-            offset += bytesRead;
-            totalBytesRead += bytesRead;
+        if (p1 == (byte)0x01) { // last chunk
+            certificateStored = true;
+            certificateLength = certChunkOffset;
+            certChunkOffset = 0;
+            System.out.println("[BasicSmartCardApplet] storeCertificate: last chunk received, certificate stored, length=" + certificateLength);
         }
-
-        certificateLength = totalBytesRead;
-        certificateStored = true;
     }
 
     /**
@@ -283,16 +285,24 @@ public class BasicSmartCardApplet extends Applet {
         }
 
         byte[] buf = apdu.getBuffer();
+        // Use P1/P2 as offset (big endian)
+        int offset = ((buf[ISO7816.OFFSET_P1] & 0xFF) << 8) | (buf[ISO7816.OFFSET_P2] & 0xFF);
         short le = apdu.setOutgoing();
 
         if (le == 0) {
             le = (short) 256; // Default expected length
         }
 
-        short lengthToSend = (certificateLength < le) ? certificateLength : le;
+        // Clamp offset and length
+        if (offset >= certificateLength) {
+            apdu.setOutgoingLength((short)0);
+            return;
+        }
+        short remaining = (short)(certificateLength - offset);
+        short lengthToSend = (remaining < le) ? remaining : le;
 
         apdu.setOutgoingLength(lengthToSend);
-        apdu.sendBytesLong(storedCertificate, (short) 0, lengthToSend);
+        apdu.sendBytesLong(storedCertificate, (short) offset, lengthToSend);
     }
 
     /**
