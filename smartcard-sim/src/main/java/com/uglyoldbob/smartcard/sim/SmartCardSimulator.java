@@ -766,4 +766,23 @@ public class SmartCardSimulator {
             simulator.stop();
         }
     }
+    /**
+     * Verify PIN for the currently inserted card.
+     * @param pin PIN bytes (e.g., {0x31, 0x32, 0x33, 0x34} for "1234")
+     * @return true if PIN is correct, false otherwise
+     */
+    public boolean verifyPin(byte[] pin) {
+        if (currentCardId == null) {
+            logger.warn("Cannot verify PIN: no card inserted");
+            return false;
+        }
+        try {
+            CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, pin);
+            ResponseAPDU response = sendCommand(verifyPinCommand);
+            return response.getSW() == 0x9000;
+        } catch (Exception e) {
+            logger.error("Error verifying PIN", e);
+            return false;
+        }
+    }
 }

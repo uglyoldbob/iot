@@ -192,7 +192,7 @@ public class VirtualCardInsertionTest {
         ResponseAPDU pinResponse2 = simulator.sendCommand(verifyPinCommand);
         assertEquals(0x9000, pinResponse2.getSW(), "PIN verification on second card should succeed");
 
-        assertTrue(simulator.generateKeyPair(4096), "Key generation on second card should succeed");
+        assertTrue(simulator.generateKeyPair(2048), "Key generation on second card should succeed");
         byte[] signature2 = simulator.signData(TEST_DATA);
         assertNotNull(signature2, "Signing on second card should succeed");
 

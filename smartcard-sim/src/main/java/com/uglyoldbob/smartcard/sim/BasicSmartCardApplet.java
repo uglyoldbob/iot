@@ -67,6 +67,9 @@ public class BasicSmartCardApplet extends Applet {
     private byte[] tempBuffer;
     private static final short TEMP_BUFFER_SIZE = 512;
 
+    // For chunked public key retrieval
+    private short totalPublicKeyLength = 0;
+
     // Certificate storage
     private byte[] storedCertificate;
     private short certificateLength;
@@ -111,11 +114,8 @@ public class BasicSmartCardApplet extends Applet {
     public void process(APDU apdu) {
         byte[] buf = apdu.getBuffer();
         byte ins = (byte) (buf[ISO7816.OFFSET_INS] & 0xFF);
-        System.out.println("[BasicSmartCardApplet] process called, INS=" + String.format("%02X", ins));
-        if (selectingApplet()) {
-            System.out.println("[BasicSmartCardApplet] selectingApplet() == true, returning");
-            return;
-        }
+        System.out.println("[BasicSmartCardApplet] process called, INS=" + String.format("%02X", ins) +
+            ", pin validated=" + pin.isValidated());
 
         byte cla = buf[ISO7816.OFFSET_CLA];
 
@@ -358,42 +358,52 @@ public class BasicSmartCardApplet extends Applet {
      * Get public key
      */
     private void getPublicKey(APDU apdu) {
+        System.out.println("[BasicSmartCardApplet] getPublicKey called");
+        System.out.println("[BasicSmartCardApplet] getPublicKey: pin.isValidated()=" + pin.isValidated());
+        System.out.println("[BasicSmartCardApplet] getPublicKey: keyPairGenerated=" + keyPairGenerated);
+
         if (!pin.isValidated()) {
+            System.out.println("[BasicSmartCardApplet] getPublicKey: PIN not validated!");
             ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
         }
 
         if (!keyPairGenerated) {
+            System.out.println("[BasicSmartCardApplet] getPublicKey: keyPairGenerated is false!");
             ISOException.throwIt(SW_FUNC_NOT_SUPPORTED);
         }
 
         byte[] buf = apdu.getBuffer();
-        short offset = 0;
+        byte p1 = buf[ISO7816.OFFSET_P1];
+        short chunkOffset = (short) (p1 & 0xFF); // Use P1 as offset (0..255)
+        short le = apdu.setOutgoing();           // Get expected length from Le
+        if (le == 0) le = (short) 256;           // Default to 256 if Le is 0
 
         try {
-            // Get modulus
-            short modulusLength = publicKey.getModulus(tempBuffer, (short) 0);
+            // On offset 0, serialize public key to tempBuffer
+            if (chunkOffset == 0) {
+                short modulusLength = publicKey.getModulus(tempBuffer, (short) 4);
+                short exponentLength = publicKey.getExponent(tempBuffer, (short) (4 + modulusLength));
+                Util.setShort(tempBuffer, (short) 0, modulusLength);
+                Util.setShort(tempBuffer, (short) (2 + modulusLength), exponentLength);
+                totalPublicKeyLength = (short) (2 + modulusLength + 2 + exponentLength);
+                System.out.println("[BasicSmartCardApplet] getPublicKey: modulusLength=" + modulusLength);
+                System.out.println("[BasicSmartCardApplet] getPublicKey: exponentLength=" + exponentLength);
+                System.out.println("[BasicSmartCardApplet] getPublicKey: totalPublicKeyLength=" + totalPublicKeyLength);
+            }
 
-            // Get exponent
-            short exponentLength = publicKey.getExponent(tempBuffer, modulusLength);
+            if (chunkOffset >= totalPublicKeyLength) {
+                System.out.println("[BasicSmartCardApplet] getPublicKey: chunkOffset out of bounds");
+                ISOException.throwIt(ISO7816.SW_WRONG_P1P2);
+            }
 
-            // Format response: [modulus_length][modulus][exponent_length][exponent]
-            Util.setShort(buf, offset, modulusLength);
-            offset += 2;
-
-            Util.arrayCopyNonAtomic(tempBuffer, (short) 0, buf, offset, modulusLength);
-            offset += modulusLength;
-
-            Util.setShort(buf, offset, exponentLength);
-            offset += 2;
-
-            Util.arrayCopyNonAtomic(tempBuffer, modulusLength, buf, offset, exponentLength);
-            offset += exponentLength;
-
-            // Send response
-            apdu.setOutgoingAndSend((short) 0, offset);
-
+            short chunkLen = (short) Math.min(le, totalPublicKeyLength - chunkOffset);
+            Util.arrayCopyNonAtomic(tempBuffer, chunkOffset, buf, (short) 0, chunkLen);
+            apdu.setOutgoingLength(chunkLen);
+            apdu.sendBytes((short) 0, chunkLen);
+            System.out.println("[BasicSmartCardApplet] getPublicKey: sent chunkOffset=" + chunkOffset + ", chunkLen=" + chunkLen);
         } catch (Exception e) {
-            ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
+            System.out.println("[BasicSmartCardApplet] getPublicKey: exception " + e);
+            ISOException.throwIt(SW_FUNC_NOT_SUPPORTED);
         }
     }
 

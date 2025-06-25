@@ -201,6 +201,9 @@ public class CertificateOperationsTest {
     void testCertificateWithKeyGeneration() throws Exception {
         logger.info("Testing certificate operations with key generation");
 
+        // Verify PIN before key generation
+        assertTrue(simulator.verifyPin(DEFAULT_PIN), "PIN should be verified before key generation");
+
         // Generate key pair first (while memory is available)
         assertTrue(simulator.generateKeyPair(TEST_KEY_SIZE), "Key pair should be generated");
 
