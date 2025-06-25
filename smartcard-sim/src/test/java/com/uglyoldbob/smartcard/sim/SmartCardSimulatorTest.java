@@ -22,6 +22,7 @@ public class SmartCardSimulatorTest {
     private static final Logger logger = LoggerFactory.getLogger(SmartCardSimulatorTest.class);
 
     private SmartCardSimulator simulator;
+    private String cardId;
 
     // Test constants
     private static final byte[] DEFAULT_PIN = {(byte) 0x31, (byte) 0x32, (byte) 0x33, (byte) 0x34}; // "1234"
@@ -72,6 +73,10 @@ public class SmartCardSimulatorTest {
 
         assertTrue(simulator.start(), "Simulator should start");
 
+        // Insert card before PIN verification
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
+
         // Test correct PIN verification
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
         ResponseAPDU response = simulator.sendCommand(verifyPinCommand);
@@ -93,6 +98,10 @@ public class SmartCardSimulatorTest {
         logger.info("Testing key pair generation");
 
         assertTrue(simulator.start(), "Simulator should start");
+
+        // Insert card before key pair generation
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
 
         // Verify PIN first
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
@@ -117,6 +126,10 @@ public class SmartCardSimulatorTest {
         logger.info("Testing public key retrieval");
 
         assertTrue(simulator.start(), "Simulator should start");
+
+        // Insert card before public key retrieval
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
 
         // Verify PIN
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
@@ -148,6 +161,10 @@ public class SmartCardSimulatorTest {
 
         assertTrue(simulator.start(), "Simulator should start");
 
+        // Insert card before data signing
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
+
         // Verify PIN
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
         simulator.sendCommand(verifyPinCommand);
@@ -178,6 +195,10 @@ public class SmartCardSimulatorTest {
 
         assertTrue(simulator.start(), "Simulator should start");
 
+        // Insert card before PIN change
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
+
         // Verify current PIN
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
         ResponseAPDU response = simulator.sendCommand(verifyPinCommand);
@@ -207,6 +228,10 @@ public class SmartCardSimulatorTest {
 
         assertTrue(simulator.start(), "Simulator should start");
 
+        // Insert card before error condition tests
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
+
         // Test operations without PIN verification
         CommandAPDU generateCommand = new CommandAPDU(0x80, 0x10, 0x00, 0x00,
             new byte[]{(byte) (TEST_KEY_SIZE >> 8), (byte) TEST_KEY_SIZE});
@@ -231,6 +256,10 @@ public class SmartCardSimulatorTest {
         logger.info("Testing complete workflow");
 
         assertTrue(simulator.start(), "Simulator should start");
+
+        // Insert card before complete workflow
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
 
         // Step 1: Verify PIN
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
@@ -269,6 +298,10 @@ public class SmartCardSimulatorTest {
         assertTrue(simulator.start(), "Simulator should start initially");
         assertTrue(simulator.isRunning(), "Simulator should be running");
 
+        // Insert card before simulator restart test
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
+
         // Perform some operations
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);
         ResponseAPDU response = simulator.sendCommand(verifyPinCommand);
@@ -282,6 +315,10 @@ public class SmartCardSimulatorTest {
         assertTrue(simulator.start(), "Simulator should restart successfully");
         assertTrue(simulator.isRunning(), "Simulator should be running after restart");
 
+        // After restart, create and insert a new card (since all cards are cleared on stop)
+        String newCardId = simulator.createVirtualCard("Test Card After Restart");
+        assertTrue(simulator.insertCard(newCardId), "Card should be inserted successfully after restart");
+
         // Verify operations still work after restart
         ResponseAPDU restartResponse = simulator.sendCommand(verifyPinCommand);
         assertEquals(0x9000, restartResponse.getSW(), "Operations should work after restart");
@@ -294,6 +331,10 @@ public class SmartCardSimulatorTest {
         logger.info("Testing concurrent operations");
 
         assertTrue(simulator.start(), "Simulator should start");
+
+        // Insert card before concurrent operations
+        String cardId = simulator.createVirtualCard("Test Card");
+        assertTrue(simulator.insertCard(cardId), "Card should be inserted successfully");
 
         // Verify PIN
         CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00, DEFAULT_PIN);

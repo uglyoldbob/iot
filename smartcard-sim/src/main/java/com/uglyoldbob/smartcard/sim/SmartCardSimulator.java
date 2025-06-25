@@ -215,17 +215,23 @@ public class SmartCardSimulator {
         }
 
         try {
+            logger.info("SmartCardSimulator.start() called. terminal == null? {}", (terminal == null));
             // Initialize terminal on start
             if (terminal == null) {
+                logger.info("Creating new CardSimulator and terminal...");
                 // Create a dummy CardSimulator for the terminal
                 CardSimulator dummySimulator = new CardSimulator();
                 terminal = CardTerminalSimulator.terminal(dummySimulator);
+                logger.info("Terminal created: {}", terminal);
+            } else {
+                logger.info("Terminal already exists: {}", terminal);
             }
             isRunning.set(true);
             logger.info("SmartCardSimulator started successfully");
             return true;
         } catch (Exception e) {
             logger.error("Failed to start simulator", e);
+            e.printStackTrace();
             return false;
         }
     }
