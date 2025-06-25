@@ -46,6 +46,7 @@ Helpful openssl commands see [openssl](openssl.md)
 - [x] Check for presence of tpm2 asap in construction.
 - [x] Implement HSM for certificate operations with pkcs11 api
 - [x] Add smart card simulation using jCardSim for testing and development
+- [x] Add comprehensive certificate writing and testing for virtual smartcards
 - [ ] Implement code where todo statements exist.
 - [ ] Allow ca to be intermediate or root.
 - [ ] Add links to a privacy page on each content page.
@@ -96,4 +97,100 @@ Run the comprehensive demo to see the new functionality:
 This enables more sophisticated certificate authority workflows where different cards can represent different roles or security levels.
 
 See `smartcard-sim/README.md` for detailed documentation.
+
+## SmartCard Certificate Testing
+
+The project now includes comprehensive certificate testing capabilities for virtual smartcards:
+
+### Features
+- **Certificate Storage**: Write X.509 certificates to virtual smartcards
+- **Certificate Retrieval**: Read certificates back from smartcards
+- **Certificate Validation**: Verify certificate integrity and format
+- **PIN-based Security**: All operations require PIN verification
+- **Error Handling**: Comprehensive error scenarios and timeout handling
+- **Performance Testing**: Benchmark certificate operations
+
+### Test Components
+- **Java Tests**: `smartcard-sim/src/test/java/CertificateOperationsTest.java`
+- **Rust Basic Tests**: `tests/smartcard_cert_basic.rs` (runs with `cargo test`)
+- **Rust Integration Tests**: `tests/smartcard_integration.rs` (requires simulator)
+- **Legacy Integration Tests**: `tests/smartcard_certificate.rs`
+- **Interactive CLI**: Enhanced with certificate commands (`storecert`, `getcert`, `deletecert`)
+- **Automated Test Runner**: `./test_smartcard_certificates.sh`
+
+### Running Tests with Cargo
+```bash
+# Basic tests (no external dependencies)
+cargo test smartcard_cert_basic
+
+# Integration tests with real simulator
+cargo test smartcard_integration --ignored
+
+# All smartcard tests
+cargo test smartcard
+
+# Specific test with output
+cargo test test_basic_certificate_operations -- --nocapture
+
+# Performance tests
+cargo test test_certificate_performance -- --nocapture
+```
+
+### Quick Start
+```bash
+# Run basic certificate tests with cargo test
+cargo test smartcard_cert_basic
+
+# Run integration tests (requires simulator)
+cargo test smartcard_integration --ignored
+
+# Run all smartcard tests
+cargo test smartcard
+
+# Run comprehensive test suite
+./test_smartcard_certificates.sh
+
+# Run interactive certificate demo
+cargo run --example smartcard_certificate_demo
+
+# Manual CLI testing
+cd smartcard-sim && mvn exec:java -Dexec.mainClass="com.uglyoldbob.smartcard.sim.VirtualCardCLI"
+```
+
+### CLI Certificate Commands
+- `storecert <hex_data>` - Store DER-encoded certificate
+- `getcert` - Retrieve stored certificate
+- `deletecert` - Delete stored certificate
+- `keygen <size>` - Generate keypair for certificate
+- `sign <data>` - Sign data with certificate keypair
+
+### Integration with CA Workflows
+The certificate testing system integrates with the existing CA infrastructure:
+- Generate certificates using the CA system
+- Write certificates to virtual smartcards
+- Sign data using smartcard-stored certificates
+- Validate certificate chains and signatures
+
+### Test Categories
+
+#### Basic Tests (No External Dependencies)
+- Mock smartcard operations
+- Certificate format validation
+- Error handling scenarios
+- Performance benchmarks
+- Run with: `cargo test smartcard_cert_basic`
+
+#### Integration Tests (Requires Simulator)
+- Real virtual smartcard communication
+- End-to-end certificate workflows
+- Timeout and error handling
+- Run with: `cargo test smartcard_integration --ignored`
+
+#### Manual Testing
+- Interactive CLI for hands-on testing
+- Visual verification of operations
+- Custom certificate testing
+
+See `SMARTCARD_CERTIFICATE_TESTING.md` for comprehensive documentation.
+
 - [ ] For intermediate authorities, add ability to get full certificate chain

@@ -23,6 +23,7 @@ cryptoki = "0.6.2"
 der = "0.7.8"
 egui-multiwin = "0.5.1"
 enum_dispatch = "0.3.13"
+function_name = "0.3.0"
 futures="0.3.30"
 http-body-util = "0.1.0"
 hmac = "^0.12"
@@ -155,15 +156,19 @@ windows-acl = "0.3.0"
 [dev-dependencies]
 assert_cmd = "2.0"
 async-trait = "0.1"
+hex = "0.4"
 openssl = "0.10"
 predicates = "3.1"
 reqwest = { version = "0.12", features = ["json", "native-tls"] }
 russh = "0.40"
 russh-keys = "0.40"
+serial_test = "3.0"
 
 [features]
 default = ["tpm2"]
 tpm2 = [ "dep:tss-esapi" ]
+
+
 
 [[bin]]
 name = "rust-iot"

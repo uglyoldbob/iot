@@ -2006,6 +2006,7 @@ pub enum PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Create a PkiConfigurationEnum from configuration answers
     pub fn from_config(value: PkiConfigurationEnumAnswers) -> Self {
         match value {
             PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
@@ -2767,7 +2768,9 @@ impl Ca {
                         let keypair = crate::card::KeyPair::generate_with_smartcard(
                             p.as_bytes().to_vec(),
                             &label,
+                            true,
                         )
+                        .await
                         .ok_or(CaLoadError::FailedToCreateKeypair("admin".to_string()))?;
                         options.smartcard = Some(keypair);
                         let admin_csr = options.generate_request();

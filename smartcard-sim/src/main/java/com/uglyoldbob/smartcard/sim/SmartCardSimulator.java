@@ -511,6 +511,144 @@ public class SmartCardSimulator {
     }
 
     /**
+     * Store certificate on the smart card.
+     *
+     * @param certificate the certificate data to store
+     * @return true if successful, false otherwise
+     */
+    public boolean storeCertificate(byte[] certificate) {
+        if (currentCardId == null) {
+            logger.warn("Cannot store certificate: no card inserted");
+            return false;
+        }
+
+        if (certificate == null || certificate.length == 0) {
+            logger.warn("Cannot store empty certificate");
+            return false;
+        }
+
+        try {
+            logger.debug("Storing certificate of {} bytes on card {}",
+                        certificate.length, getCurrentCardName());
+
+            // First verify PIN
+            CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00,
+                                                          new byte[]{0x31, 0x32, 0x33, 0x34}); // "1234"
+            ResponseAPDU pinResponse = sendCommand(verifyPinCommand);
+
+            if (pinResponse.getSW() != 0x9000) {
+                logger.warn("PIN verification failed before storing certificate: SW={}",
+                           String.format("%04X", pinResponse.getSW()));
+                return false;
+            }
+
+            // Store certificate
+            CommandAPDU storeCertCommand = new CommandAPDU(0x80, 0x60, 0x00, 0x00, certificate);
+            ResponseAPDU response = sendCommand(storeCertCommand);
+
+            if (response.getSW() == 0x9000) {
+                logger.info("Certificate stored successfully on card {}", getCurrentCardName());
+                return true;
+            } else {
+                logger.warn("Certificate storage failed on card {}: SW={}",
+                           getCurrentCardName(), String.format("%04X", response.getSW()));
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("Error storing certificate", e);
+            return false;
+        }
+    }
+
+    /**
+     * Retrieve certificate from the smart card.
+     *
+     * @return certificate bytes, or null if retrieval failed
+     */
+    public byte[] getCertificate() {
+        if (currentCardId == null) {
+            logger.warn("Cannot get certificate: no card inserted");
+            return null;
+        }
+
+        try {
+            logger.debug("Retrieving certificate from card {}", getCurrentCardName());
+
+            // First verify PIN
+            CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00,
+                                                          new byte[]{0x31, 0x32, 0x33, 0x34}); // "1234"
+            ResponseAPDU pinResponse = sendCommand(verifyPinCommand);
+
+            if (pinResponse.getSW() != 0x9000) {
+                logger.warn("PIN verification failed before retrieving certificate: SW={}",
+                           String.format("%04X", pinResponse.getSW()));
+                return null;
+            }
+
+            // Get certificate
+            CommandAPDU getCertCommand = new CommandAPDU(0x80, 0x70, 0x00, 0x00, 256);
+            ResponseAPDU response = sendCommand(getCertCommand);
+
+            if (response.getSW() == 0x9000) {
+                byte[] certData = response.getData();
+                logger.info("Certificate retrieved successfully from card {}, {} bytes",
+                           getCurrentCardName(), certData.length);
+                return certData;
+            } else {
+                logger.warn("Certificate retrieval failed from card {}: SW={}",
+                           getCurrentCardName(), String.format("%04X", response.getSW()));
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Error retrieving certificate", e);
+            return null;
+        }
+    }
+
+    /**
+     * Delete certificate from the smart card.
+     *
+     * @return true if successful, false otherwise
+     */
+    public boolean deleteCertificate() {
+        if (currentCardId == null) {
+            logger.warn("Cannot delete certificate: no card inserted");
+            return false;
+        }
+
+        try {
+            logger.debug("Deleting certificate from card {}", getCurrentCardName());
+
+            // First verify PIN
+            CommandAPDU verifyPinCommand = new CommandAPDU(0x80, 0x40, 0x00, 0x00,
+                                                          new byte[]{0x31, 0x32, 0x33, 0x34}); // "1234"
+            ResponseAPDU pinResponse = sendCommand(verifyPinCommand);
+
+            if (pinResponse.getSW() != 0x9000) {
+                logger.warn("PIN verification failed before deleting certificate: SW={}",
+                           String.format("%04X", pinResponse.getSW()));
+                return false;
+            }
+
+            // Delete certificate
+            CommandAPDU deleteCertCommand = new CommandAPDU(0x80, 0x80, 0x00, 0x00);
+            ResponseAPDU response = sendCommand(deleteCertCommand);
+
+            if (response.getSW() == 0x9000) {
+                logger.info("Certificate deleted successfully from card {}", getCurrentCardName());
+                return true;
+            } else {
+                logger.warn("Certificate deletion failed from card {}: SW={}",
+                           getCurrentCardName(), String.format("%04X", response.getSW()));
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("Error deleting certificate", e);
+            return false;
+        }
+    }
+
+    /**
      * Convert byte array to hex string for logging.
      *
      * @param bytes byte array to convert

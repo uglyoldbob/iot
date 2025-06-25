@@ -14,6 +14,7 @@ pub struct KeyPair {
 }
 
 /// The errors that can occur when commmunicating with a smart card
+#[derive(Debug)]
 pub enum Error {
     /// A specific card error
     CardError(card::Error),
@@ -107,19 +108,36 @@ impl KeyPair {
     }
 
     /// Create a new self
-    pub fn generate_with_smartcard(pin: Vec<u8>, label: &str) -> Option<Self> {
+    pub async fn generate_with_smartcard(
+        pin: Vec<u8>,
+        label: &str,
+        wait_for_card: bool,
+    ) -> Option<Self> {
         let algorithm = card::AuthenticateAlgorithm::Rsa2048;
-        service::log::info!("Waiting for the next smartcard to be inserted");
-        let pubkey = card::with_next_valid_piv_card(|reader| {
-            let mut writer = card::PivCardWriter::extend(reader);
-            writer.generate_keypair_with_management(
-                card::MANAGEMENT_KEY_DEFAULT,
-                algorithm,
-                card::Slot::Authentication,
-                card::KeypairPinPolicy::Once,
-            )?;
-            writer.reader.get_public_key(card::Slot::Authentication)
-        });
+        let pubkey = if wait_for_card {
+            service::log::info!("Waiting for the next smartcard to be inserted");
+            card::with_next_valid_piv_card(|reader| {
+                let mut writer = card::PivCardWriter::extend(reader);
+                writer.generate_keypair_with_management(
+                    card::MANAGEMENT_KEY_DEFAULT,
+                    algorithm,
+                    card::Slot::Authentication,
+                    card::KeypairPinPolicy::Once,
+                )?;
+                writer.reader.get_public_key(card::Slot::Authentication)
+            })
+        } else {
+            card::with_current_valid_piv_card(|reader| {
+                let mut writer = card::PivCardWriter::extend(reader);
+                writer.generate_keypair_with_management(
+                    card::MANAGEMENT_KEY_DEFAULT,
+                    algorithm,
+                    card::Slot::Authentication,
+                    card::KeypairPinPolicy::Once,
+                )?;
+                writer.reader.get_public_key(card::Slot::Authentication)
+            })
+        };
         Some(Self {
             label: label.to_string(),
             public_key: pubkey.ok()?.to_der(),

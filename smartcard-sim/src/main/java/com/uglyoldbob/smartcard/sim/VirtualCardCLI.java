@@ -142,6 +142,18 @@ public class VirtualCardCLI {
                     handleDemo();
                     break;
 
+                case "storecert":
+                    handleStoreCertificate(parts);
+                    break;
+
+                case "getcert":
+                    handleGetCertificate();
+                    break;
+
+                case "deletecert":
+                    handleDeleteCertificate();
+                    break;
+
                 case "clear":
                     clearScreen();
                     break;
@@ -183,6 +195,11 @@ public class VirtualCardCLI {
         System.out.println("  sign <data>       - Sign data with private key");
         System.out.println("  pubkey            - Get public key");
         System.out.println("  apdu <hex>        - Send raw APDU command");
+        System.out.println();
+        System.out.println("Certificate Operations:");
+        System.out.println("  storecert <hex>   - Store certificate on card");
+        System.out.println("  getcert           - Retrieve certificate from card");
+        System.out.println("  deletecert        - Delete certificate from card");
         System.out.println();
         System.out.println("Utilities:");
         System.out.println("  demo              - Run demonstration sequence");
@@ -458,6 +475,63 @@ public class VirtualCardCLI {
     }
 
     /**
+     * Handle store certificate command.
+     */
+    private void handleStoreCertificate(String[] parts) {
+        if (parts.length < 2) {
+            System.out.println("Usage: storecert <certificate_hex_data>");
+            System.out.println("Example: storecert 3082...");
+            return;
+        }
+
+        try {
+            String certHex = parts[1];
+            byte[] certData = hexStringToByteArray(certHex);
+
+            if (simulator.storeCertificate(certData)) {
+                System.out.println("Certificate stored successfully.");
+            } else {
+                System.out.println("Failed to store certificate.");
+            }
+        } catch (Exception e) {
+            System.out.println("Error storing certificate: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle get certificate command.
+     */
+    private void handleGetCertificate() {
+        try {
+            byte[] certData = simulator.getCertificate();
+            if (certData != null && certData.length > 0) {
+                System.out.println("Certificate retrieved successfully:");
+                System.out.println("Length: " + certData.length + " bytes");
+                System.out.println("Data: " + bytesToHex(certData));
+            } else {
+                System.out.println("No certificate found on card or retrieval failed.");
+            }
+        } catch (Exception e) {
+            System.out.println("Error retrieving certificate: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Handle delete certificate command.
+     */
+    private void handleDeleteCertificate() {
+        try {
+            if (simulator.deleteCertificate()) {
+                System.out.println("Certificate deleted successfully.");
+            } else {
+                System.out.println("Failed to delete certificate.");
+            }
+        } catch (Exception e) {
+            System.out.println("Error deleting certificate: " + e.getMessage());
+        }
+    }
+
+    /**
      * Handle demonstration command.
      */
     private void handleDemo() {
@@ -536,9 +610,20 @@ public class VirtualCardCLI {
     }
 
     /**
+     * Convert byte array to hex string.
+     */
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X", b));
+        }
+        return sb.toString();
+    }
+
+    /**
      * Convert hex string to byte array.
      */
-    private static byte[] hexStringToBytes(String hex) {
+    private static byte[] hexStringToByteArray(String hex) {
         if (hex.length() % 2 != 0) {
             throw new IllegalArgumentException("Hex string must have even length");
         }

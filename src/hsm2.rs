@@ -131,9 +131,12 @@ impl rcgen::RemoteKeyPair for KeyPair {
     }
 }
 
+/// ECDSA signature structure for ASN.1 encoding
 #[derive(Debug, der::Sequence)]
 pub struct EcdsaSignature {
+    /// The r component of the ECDSA signature
     pub r: der::asn1::Uint,
+    /// The s component of the ECDSA signature
     pub s: der::asn1::Uint,
 }
 

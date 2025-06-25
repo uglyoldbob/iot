@@ -30,6 +30,9 @@ public class BasicSmartCardApplet extends Applet {
     private static final byte INS_GET_PUBLIC_KEY = (byte) 0x30;
     private static final byte INS_VERIFY_PIN = (byte) 0x40;
     private static final byte INS_CHANGE_PIN = (byte) 0x50;
+    private static final byte INS_STORE_CERTIFICATE = (byte) 0x60;
+    private static final byte INS_GET_CERTIFICATE = (byte) 0x70;
+    private static final byte INS_DELETE_CERTIFICATE = (byte) 0x80;
 
     // Response codes
     private static final short SW_PIN_VERIFICATION_REQUIRED = 0x6982;
@@ -64,6 +67,12 @@ public class BasicSmartCardApplet extends Applet {
     private byte[] tempBuffer;
     private static final short TEMP_BUFFER_SIZE = 512;
 
+    // Certificate storage
+    private byte[] storedCertificate;
+    private short certificateLength;
+    private static final short MAX_CERTIFICATE_SIZE = 2048;
+    private boolean certificateStored;
+
     /**
      * Constructor - called during applet installation
      */
@@ -77,6 +86,11 @@ public class BasicSmartCardApplet extends Applet {
 
         // Initialize temporary buffer
         tempBuffer = new byte[TEMP_BUFFER_SIZE];
+
+        // Initialize certificate storage
+        storedCertificate = new byte[MAX_CERTIFICATE_SIZE];
+        certificateLength = 0;
+        certificateStored = false;
 
         keyPairGenerated = false;
     }
@@ -124,6 +138,18 @@ public class BasicSmartCardApplet extends Applet {
 
             case INS_GET_PUBLIC_KEY:
                 getPublicKey(apdu);
+                break;
+
+            case INS_STORE_CERTIFICATE:
+                storeCertificate(apdu);
+                break;
+
+            case INS_GET_CERTIFICATE:
+                getCertificate(apdu);
+                break;
+
+            case INS_DELETE_CERTIFICATE:
+                deleteCertificate(apdu);
                 break;
 
             default:
@@ -202,8 +228,85 @@ public class BasicSmartCardApplet extends Applet {
             keyPairGenerated = true;
 
         } catch (CryptoException e) {
-            ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
+            ISOException.throwIt(ISO7816.SW_UNKNOWN);
         }
+    }
+
+    /**
+     * Store certificate command
+     */
+    private void storeCertificate(APDU apdu) {
+        if (!pin.isValidated()) {
+            ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
+        }
+
+        byte[] buf = apdu.getBuffer();
+        short dataLength = (short) (buf[ISO7816.OFFSET_LC] & 0xFF);
+
+        if (dataLength == 0 || dataLength > MAX_CERTIFICATE_SIZE) {
+            ISOException.throwIt(SW_WRONG_DATA);
+        }
+
+        short bytesRead = (short) apdu.setIncomingAndReceive();
+        short totalBytesRead = bytesRead;
+        short offset = 0;
+
+        // Copy initial data
+        Util.arrayCopy(buf, ISO7816.OFFSET_CDATA, storedCertificate, offset, bytesRead);
+        offset += bytesRead;
+
+        // Read remaining data if any
+        while (totalBytesRead < dataLength) {
+            bytesRead = (short) apdu.receiveBytes(ISO7816.OFFSET_CDATA);
+            if (bytesRead == 0) {
+                break;
+            }
+            Util.arrayCopy(buf, ISO7816.OFFSET_CDATA, storedCertificate, offset, bytesRead);
+            offset += bytesRead;
+            totalBytesRead += bytesRead;
+        }
+
+        certificateLength = totalBytesRead;
+        certificateStored = true;
+    }
+
+    /**
+     * Get certificate command
+     */
+    private void getCertificate(APDU apdu) {
+        if (!pin.isValidated()) {
+            ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
+        }
+
+        if (!certificateStored || certificateLength == 0) {
+            ISOException.throwIt(ISO7816.SW_FILE_NOT_FOUND);
+        }
+
+        byte[] buf = apdu.getBuffer();
+        short le = apdu.setOutgoing();
+
+        if (le == 0) {
+            le = (short) 256; // Default expected length
+        }
+
+        short lengthToSend = (certificateLength < le) ? certificateLength : le;
+
+        apdu.setOutgoingLength(lengthToSend);
+        apdu.sendBytesLong(storedCertificate, (short) 0, lengthToSend);
+    }
+
+    /**
+     * Delete certificate command
+     */
+    private void deleteCertificate(APDU apdu) {
+        if (!pin.isValidated()) {
+            ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
+        }
+
+        // Clear certificate data
+        Util.arrayFillNonAtomic(storedCertificate, (short) 0, MAX_CERTIFICATE_SIZE, (byte) 0x00);
+        certificateLength = 0;
+        certificateStored = false;
     }
 
     /**
