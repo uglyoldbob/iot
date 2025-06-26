@@ -1,6 +1,7 @@
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=./certgen");
+    println!("cargo::rerun-if-changed=./jcardsim/pom.xml");
 
     let out_path =
         std::path::PathBuf::from(std::env::var("OUT_DIR").expect("No output directory given"));
@@ -8,6 +9,7 @@ fn main() {
     std::env::set_var("CARGO_TARGET_DIR", out_path.clone());
     #[cfg(not(coverage))]
     {
+        // Build WASM
         let wasm_build = std::process::Command::new("wasm-pack")
             .arg("build")
             .arg("--release")
@@ -20,6 +22,19 @@ fn main() {
             println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
             eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
             panic!("build failed");
+        }
+
+        // Build jcardsim JAR using Maven, setting JC_CLASSIC_HOME to javacard-sdk/jc305u3_kit
+        let mut jcardsim_cmd = std::process::Command::new("mvn");
+        jcardsim_cmd.arg("package").current_dir("./jcardsim");
+        jcardsim_cmd.env("JC_CLASSIC_HOME", "../javacard-sdk/jc305u3_kit");
+        let jcardsim_build = jcardsim_cmd
+            .output()
+            .expect("Failed to run mvn package for jcardsim");
+        if !jcardsim_build.status.success() {
+            println!("{}", String::from_utf8_lossy(&jcardsim_build.stdout));
+            eprintln!("{}", String::from_utf8_lossy(&jcardsim_build.stderr));
+            panic!("jcardsim build failed");
         }
     }
 

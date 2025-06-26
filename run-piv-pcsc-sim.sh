@@ -8,14 +8,13 @@
 set -e
 
 # Paths (adjust as needed for your environment)
-JCARDSIM_JAR="smartcard-sim/target/dependency/jcardsim-3.0.6.0.jar"
+JCARDSIM_JAR="jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar"
 PIVAPPLET_CLASSES="PivApplet/classes"
 JC_API_JAR="javacard-sdk/jc305u3_kit/lib/api_classic.jar"
-SMARTCARD_SIM_JAR="smartcard-sim/target/smartcard-sim-1.0.0-SNAPSHOT.jar"
-JCARDSIM_CFG="smartcard-sim/jcardsim_piv.cfg"
+JCARDSIM_CFG="jcardsim/jcardsim.cfg"
 
 # Check dependencies
-for f in "$JCARDSIM_JAR" "$JC_API_JAR" "$SMARTCARD_SIM_JAR" "$JCARDSIM_CFG"; do
+for f in "$JCARDSIM_JAR" "$JC_API_JAR" "$JCARDSIM_CFG"; do
     if [ ! -f "$f" ]; then
         echo "Missing required file: $f"
         exit 1
@@ -28,7 +27,7 @@ if [ ! -d "$PIVAPPLET_CLASSES" ]; then
 fi
 
 # Build classpath
-CLASSPATH="$SMARTCARD_SIM_JAR:$JCARDSIM_JAR:$JC_API_JAR:$PIVAPPLET_CLASSES"
+CLASSPATH="$JCARDSIM_JAR:$JC_API_JAR:$PIVAPPLET_CLASSES"
 
 echo "Starting PIV smartcard simulator with PC/SC (vsmartcard) integration..."
 echo "  Config:     $JCARDSIM_CFG"

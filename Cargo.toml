@@ -38,6 +38,7 @@ rsa = "0.9.6"
 rustls-pki-types = "1.4.1"
 scrypt = "0.11.0"
 sha1 = "0.10.6"
+pcsc = "2.7.2"
 sha2 = "^0.10"
 sha256 = "1.5.0"
 simple_logger = "5.0.0"
@@ -55,7 +56,7 @@ yasna = "0.5.2"
 zeroize = "1.7.0"
 
 [dependencies.card]
-git = "ssh://git2@home.uglyoldbob.com/smartcard-test.git"
+git = "https://github.com/uglyoldbob/smartcard.git"
 
 [dependencies.cert-common]
 path = "./cert-common"
@@ -145,11 +146,11 @@ features = ["serde", "egui"]
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.28.0", features = ["user"] }
-tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled"]}
+tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "serde"]}
 
 [target.'cfg(windows)'.dependencies]
 ctrlc = "3.4.4"
-tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "generate-bindings"]}
+tss-esapi = { git = "https://github.com/uglyoldbob/rust-tss-esapi.git", branch = "main3", optional=true, features = ["bundled", "serde", "generate-bindings"]}
 winapi = {version = "0.3.9", features = ["aclapi", "impl-default", "winsvc"]}
 windows-acl = "0.3.0"
 

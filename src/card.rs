@@ -126,6 +126,7 @@ impl KeyPair {
                 )?;
                 writer.reader.get_public_key(card::Slot::Authentication)
             })
+            .await
         } else {
             service::log::info!("About to run on current valid piv card");
             card::with_current_valid_piv_card(|reader| {
@@ -139,6 +140,7 @@ impl KeyPair {
                 )?;
                 writer.reader.get_public_key(card::Slot::Authentication)
             })
+            .await
         };
         Some(Self {
             label: label.to_string(),
