@@ -1,3 +1,12 @@
 [submodule "jcardsim"]
 	path = jcardsim
 	url = https://github.com/licel/jcardsim.git
+[submodule "vsmartcard"]
+	path = vsmartcard
+	url = https://github.com/frankmorgner/vsmartcard.git
+[submodule "PivApplet"]
+	path = PivApplet
+	url = https://github.com/arekinath/PivApplet.git
+[submodule "javacard-sdk"]
+	path = javacard-sdk
+	url = https://github.com/martinpaljak/oracle_javacard_sdks.git

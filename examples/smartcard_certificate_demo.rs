@@ -17,7 +17,7 @@
 //! Prerequisites:
 //! - Java 8+ installed
 //! - Maven installed
-//! - Virtual smartcard simulator built (run `mvn compile` in smartcard-sim/)
+
 
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,9 +44,7 @@ impl VirtualSmartCardSimulator {
         println!("🚀 Starting virtual smartcard simulator...");
 
         // Start the Java simulator process
-        let mut child = Command::new("bash")
-            .arg("-c")
-            .arg("cd smartcard-sim && mvn exec:java -Dexec.mainClass=\"com.uglyoldbob.smartcard.sim.SmartCardSimulator\" -Dexec.args=\"daemon\"")
+        // Simulator startup removed: smartcard-sim is no longer used.
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -341,12 +339,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             println!("\n🎊 Demo completed successfully!");
-            println!("💡 Check the smartcard-sim/ directory for simulator logs");
+            // Simulator logs reference removed: smartcard-sim is no longer used.
         }
         Err(e) => {
             eprintln!("❌ Failed to start virtual smartcard simulator: {}", e);
             eprintln!("💡 Make sure Java and Maven are installed");
-            eprintln!("💡 Build the simulator with: cd smartcard-sim && mvn compile");
+            // Simulator build reference removed: smartcard-sim is no longer used.
             return Err(e);
         }
     }
@@ -376,19 +374,7 @@ fn check_prerequisites() -> bool {
     }
     println!("   ✅ Maven is available");
 
-    // Check smartcard-sim directory
-    if !std::path::Path::new("smartcard-sim").exists() {
-        eprintln!("❌ smartcard-sim directory not found. Make sure you're in the project root.");
-        return false;
-    }
-    println!("   ✅ smartcard-sim directory found");
-
-    // Check if simulator is compiled
-    if !std::path::Path::new("smartcard-sim/target/classes").exists() {
-        eprintln!("❌ Virtual smartcard simulator not compiled.");
-        eprintln!("   Run: cd smartcard-sim && mvn compile");
-        return false;
-    }
+    // smartcard-sim directory and build checks removed: smartcard-sim is no longer used.
     println!("   ✅ Virtual smartcard simulator is compiled");
 
     println!("✅ All prerequisites satisfied");

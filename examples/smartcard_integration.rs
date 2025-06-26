@@ -450,14 +450,8 @@ impl Drop for SmartCardSimulatorInterface {
 pub fn integrate_with_ca_system() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Smart Card Integration with CA System ===");
 
-    // Initialize the smart card simulator
-    let simulator_jar = "smartcard-sim/target/smartcard-sim-1.0.0-SNAPSHOT.jar";
-    let mut simulator = SmartCardSimulatorInterface::new(simulator_jar);
-
-    // Start the simulator
-    simulator.start()?;
-
-    // Create virtual cards for different purposes
+    // Initialize the PC/SC-compatible PIV simulator externally before running this example.
+    println!("Please ensure a PC/SC-compatible PIV simulator is running before starting integration.");
     let ca_card_id = simulator.create_virtual_card("CA Signing Card")?;
     let user_card_id = simulator.create_virtual_card("User Certificate Card")?;
 
@@ -516,14 +510,7 @@ pub fn integrate_with_ca_system() -> Result<(), Box<dyn std::error::Error>> {
 pub fn ssh_key_operations() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Smart Card SSH Key Operations ===");
 
-    let simulator_jar = "smartcard-sim/target/smartcard-sim-1.0.0-SNAPSHOT.jar";
-    let mut simulator = SmartCardSimulatorInterface::new(simulator_jar);
-
-    simulator.start()?;
-
-    // Create SSH-specific virtual cards
-    let personal_ssh_card = simulator.create_virtual_card("Personal SSH Key")?;
-    let work_ssh_card = simulator.create_virtual_card("Work SSH Key")?;
+    println!("Please ensure a PC/SC-compatible PIV simulator is running before starting SSH key operations.");
 
     println!("=== Personal SSH Key Operations ===");
     // Insert personal SSH card
@@ -828,14 +815,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("========================================");
 
     // Check if simulator JAR exists
-    let simulator_jar = "smartcard-sim/target/smartcard-sim-1.0.0-SNAPSHOT.jar";
-    if !std::path::Path::new(simulator_jar).exists() {
-        println!("Warning: Simulator JAR not found at {}", simulator_jar);
-        println!("Please build the simulator first using:");
-        println!("  cd smartcard-sim && ./run-simulator.sh package");
-        println!("");
-        println!("Running examples in simulation mode...");
-        println!("");
+    println!("Warning: This example assumes a PC/SC-compatible PIV simulator is running.");
+    println!("Running examples in simulation mode...");
+    println!("");
 
         // Run simulation-only demo to showcase new features
         println!("0. Card Management Simulation Demo:");
@@ -873,14 +855,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 pub fn card_management_example() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Card Management Example ===");
 
-    let simulator_jar = "smartcard-sim/target/smartcard-sim-1.0.0-SNAPSHOT.jar";
-    let mut simulator = SmartCardSimulatorInterface::new(simulator_jar);
-
-    // Start the simulator
-    simulator.start()?;
-
-    // Create multiple virtual cards
-    let card1_id = simulator.create_virtual_card("Development Card")?;
+    println!("Please ensure a PC/SC-compatible PIV simulator is running before starting card management example.");
     let card2_id = simulator.create_virtual_card("Testing Card")?;
     let card3_id = simulator.create_virtual_card("Production Card")?;
 
