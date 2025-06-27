@@ -11,7 +11,7 @@ set -e
 JCARDSIM_JAR="jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar"
 PIVAPPLET_CLASSES="PivApplet/classes"
 JC_API_JAR="javacard-sdk/jc305u3_kit/lib/api_classic.jar"
-JCARDSIM_CFG="jcardsim/jcardsim.cfg"
+JCARDSIM_CFG="jcardsim.cfg"
 
 # Check dependencies
 for f in "$JCARDSIM_JAR" "$JC_API_JAR" "$JCARDSIM_CFG"; do
