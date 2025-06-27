@@ -1065,6 +1065,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
 }
 
 /// Errors that can occur when saving a certificate
+#[derive(Debug)]
 pub enum CertificateSaveError {
     /// Unable to save for some reason
     FailedToSave,
@@ -1812,10 +1813,14 @@ impl CaCertificate {
     }
 
     /// Save this certificate to the storage medium
-    pub async fn save_to_medium(&self, ca: &mut Ca, password: &str) {
+    pub async fn save_to_medium(
+        &self,
+        ca: &mut Ca,
+        password: &str,
+    ) -> Result<(), CertificateSaveError> {
         self.medium
             .save_to_medium(ca, self.to_owned(), password)
-            .await;
+            .await
     }
 
     /// Sign a csr with the certificate, if possible
@@ -2024,11 +2029,11 @@ impl PkiConfigurationEnum {
         match self {
             PkiConfigurationEnum::Pki(pki) => {
                 for (_k, a) in pki.local_ca.iter_mut() {
-                    a.path.remove_relative_paths().await;
+                    let _ = a.path.remove_relative_paths().await;
                 }
             }
             PkiConfigurationEnum::Ca(ca) => {
-                ca.path.remove_relative_paths().await;
+                let _ = ca.path.remove_relative_paths().await;
             }
         }
     }
@@ -2189,6 +2194,8 @@ pub enum CaLoadError {
     FailedToCreateKeypair(String),
     /// Failed to build ocsp responder url
     FailedToBuildOcspUrl,
+    /// Failed to save to medium
+    FailedToSaveToMedium(CertificateSaveError),
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -2432,7 +2439,7 @@ impl PkiInstance {
     ) -> Result<Self, PkiLoadError> {
         match &settings.pki {
             PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::load(hsm, pki_config, settings).await?;
+                let pki = crate::ca::Pki::load(hsm, &pki_config, settings).await?;
                 Ok(Self::Pki(pki))
             }
             PkiConfigurationEnum::Ca(ca_config) => {
@@ -2684,7 +2691,10 @@ impl Ca {
                         todo!("Intermediate certificate authority generation not possible");
                     };
 
-                    rootcert.save_to_medium(&mut ca, "").await;
+                    rootcert
+                        .save_to_medium(&mut ca, "")
+                        .await
+                        .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                     ca.root_cert = Ok(rootcert);
                 }
                 service::log::info!("Generating OCSP responder certificate");
@@ -2721,7 +2731,10 @@ impl Ca {
                     )
                     .unwrap();
                 ocsp_cert.medium = ca.medium.clone();
-                ocsp_cert.save_to_medium(&mut ca, "").await;
+                ocsp_cert
+                    .save_to_medium(&mut ca, "")
+                    .await
+                    .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                 ca.ocsp_signer = Ok(ocsp_cert);
 
                 let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_CLIENT_AUTH.to_owned()];
@@ -2760,7 +2773,10 @@ impl Ca {
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
                         service::log::debug!("Saving admin cert to medium");
-                        admin_cert.save_to_medium(&mut ca, &p).await;
+                        admin_cert
+                            .save_to_medium(&mut ca, &p)
+                            .await
+                            .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                         admin_cert
                     }
                     CertificateType::SmartCard(p) => {
@@ -2786,7 +2802,10 @@ impl Ca {
                             )
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
-                        admin_cert.save_to_medium(&mut ca, &p).await;
+                        admin_cert
+                            .save_to_medium(&mut ca, &p)
+                            .await
+                            .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                         admin_cert
                     }
                 };
@@ -2824,7 +2843,9 @@ impl Ca {
                         "root".to_string(),
                         0,
                     );
-                    root.save_to_medium(&mut ca, "").await;
+                    root.save_to_medium(&mut ca, "")
+                        .await
+                        .map_err(CaLoadError::FailedToSaveToMedium)?;
                     ca.root_cert = Ok(root);
                 } else if let Some(_superior) = superior {
                     todo!("Intermediate certificate authority generation not implemented");
@@ -3090,7 +3111,9 @@ impl Ca {
                         stmt.execute([rejection.to_sql().unwrap()])
                     })
                     .await;
-                self.mark_csr_done(id).await;
+                self.mark_csr_done(id)
+                    .await
+                    .map_err(|_| CertificateSigningError::FailedToDeleteRequest)?;
                 match s {
                     Err(_) => Err(CertificateSigningError::FailedToDeleteRequest),
                     Ok(_) => Ok(()),

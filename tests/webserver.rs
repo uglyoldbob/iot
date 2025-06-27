@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(unused)]
 
 //! Web server functionality testing suite
 //!

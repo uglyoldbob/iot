@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
 #![warn(unused_extern_crates)]
+#![allow(unused)]
 
 //! This program is for managing iot devices.
 

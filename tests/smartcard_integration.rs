@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::process::Command;
 
 /// Minimal PIV integration test using jcardsim directly.

@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
 #![warn(unused_extern_crates)]
+#![allow(unused)]
 
 //! This binary is used to construct the elements necessary to operate an iot instance.
 
@@ -270,7 +271,9 @@ library.reset_on_fork = false
         tokio::fs::DirBuilder::create(&builder, &token_path)
             .await
             .expect("Failed to create token directory");
-        options.set_owner(&token_path, 0o700);
+        options
+            .set_owner(&token_path, 0o700)
+            .expect("Failed to set file owner and permissions");
     }
 
     let service_args = vec![
@@ -344,7 +347,9 @@ library.reset_on_fork = false
         fpw.write_all(password.to_string().as_bytes())
             .await
             .expect("Failed to write credentials");
-        options.set_owner(&p, 0o400);
+        options
+            .set_owner(&p, 0o400)
+            .expect("Failed to set file owner and permissions");
         tpm2::encrypt(config_data.as_bytes(), password_combined)
     };
 
@@ -373,7 +378,9 @@ library.reset_on_fork = false
             f2.write_all(&tpmblob.data())
                 .await
                 .expect("Failed to write protected password");
-            options.set_owner(&p, 0o400);
+            options
+                .set_owner(&p, 0o400)
+                .expect("Failed to set file owner and permissions");
             econfig
         } else {
             service::log::error!("TPM2 NOT DETECTED!!!");

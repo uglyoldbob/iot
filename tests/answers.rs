@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(unused)]
 
 //! Smart Card PIN serialization and deserialization testing
 //!

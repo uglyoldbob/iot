@@ -70,18 +70,6 @@ pub struct AdminSettings {
     pub p: u32,
 }
 
-impl AdminSettings {
-    /// Construct a blank Self
-    fn new() -> Self {
-        Self {
-            pass: userprompt::Password2::new("".into()),
-            n: 1,
-            r: 1,
-            p: 1,
-        }
-    }
-}
-
 /// The http configuration for the application
 #[derive(
     Clone,
@@ -95,13 +83,6 @@ impl AdminSettings {
 pub struct HttpSettings {
     /// The port number to listen on
     pub port: u16,
-}
-
-impl HttpSettings {
-    /// Construct a blank Self
-    fn new() -> Self {
-        Self { port: 3 }
-    }
 }
 
 /// The location of a https certificate. If it is specified as `New`, it will be created by a specified ca.
@@ -284,19 +265,6 @@ impl Default for HttpsCertificateLocation {
 }
 
 impl HttpsCertificateLocation {
-    /// Retrieves the path for the certificate, not checking to see if the file actually exists
-    fn path(self) -> Option<std::path::PathBuf> {
-        match self {
-            HttpsCertificateLocation::HsmGenerated => None,
-            HttpsCertificateLocation::Existing { path, password: _ } => Some(path),
-            HttpsCertificateLocation::New {
-                path,
-                ca_name: _,
-                password: _,
-            } => Some(path),
-        }
-    }
-
     /// Returns true if the certificate exists
     pub fn exists(&self) -> bool {
         match self {
@@ -357,17 +325,6 @@ pub struct HttpsSettingsAnswers {
     pub require_certificate: bool,
 }
 
-impl HttpsSettingsAnswers {
-    /// Construct a blank Self
-    fn new() -> Self {
-        Self {
-            certificate: HttpsCertificateLocationAnswers::default(),
-            port: 4,
-            require_certificate: false,
-        }
-    }
-}
-
 impl From<HttpsSettingsAnswers> for HttpsSettings {
     fn from(value: HttpsSettingsAnswers) -> Self {
         Self {
@@ -387,17 +344,6 @@ pub struct HttpsSettings {
     pub port: u16,
     /// True when a user certificate should be required to access the system
     pub require_certificate: bool,
-}
-
-impl HttpsSettings {
-    /// Construct a blank Self
-    fn new() -> Self {
-        Self {
-            certificate: HttpsCertificateLocation::default(),
-            port: 4,
-            require_certificate: false,
-        }
-    }
 }
 
 /// The database configuration for the application

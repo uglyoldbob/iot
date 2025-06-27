@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(unused)]
 
 //! Comprehensive Certificate Authority (CA) and SSH key generation testing suite
 //!

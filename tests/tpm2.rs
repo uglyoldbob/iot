@@ -1,5 +1,5 @@
 #![warn(missing_docs)]
-
+#![allow(unused)]
 //! TPM 2.0 (Trusted Platform Module) hardware security testing suite
 //!
 //! This test module validates TPM 2.0 hardware integration for secure data encryption

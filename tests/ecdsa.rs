@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(unused)]
 
 //! ECDSA (Elliptic Curve Digital Signature Algorithm) cryptographic testing suite
 //!
