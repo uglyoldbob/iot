@@ -44,3 +44,29 @@ pub fn pkcs15_sha256(total_size: usize, hash: &[u8]) -> Vec<u8> {
     total.append(&mut der_hash);
     total
 }
+
+pub struct DroppingProcess {
+    c: std::process::Child,
+}
+
+impl Drop for DroppingProcess {
+    fn drop(&mut self) {
+        self.c.kill();
+        self.c.wait();
+    }
+}
+
+/// Runs the java smartcard simulator
+pub fn run_smartcard_sim() -> Option<DroppingProcess> {
+    let mut p = std::process::Command::new("java");
+    let a = p.args([
+        "-classpath", 
+        "jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar:javacard-sdk/jc305u3_kit/lib/api_classic.jar:PivApplet/classes", 
+        "com.licel.jcardsim.remote.VSmartCard", 
+        "jcardsim.cfg"]).spawn();
+    if let Ok(a) = a {
+        Some(DroppingProcess { c: a })
+    } else {
+        None
+    }
+}

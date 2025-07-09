@@ -46,10 +46,16 @@ pub enum Response {
 
 /// The struct for the root window
 pub struct RootWindow {
+    /// We are expecting a response from the async
     expecting_response: bool,
+    /// The erase status of the smartcard
     erase_status: EraseStatus,
+    /// The keypair of the smartcard
     keypair: Option<card::KeyPair>,
+    /// Notes to present to the user
     notes: Vec<String>,
+    /// The optional smartcard simulator
+    simulator: Option<crate::utility::DroppingProcess>,
 }
 
 impl RootWindow {
@@ -65,6 +71,7 @@ impl RootWindow {
                 erase_status: EraseStatus::Idle,
                 keypair: None,
                 notes: Vec::new(),
+                simulator: None,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -106,6 +113,11 @@ impl TrackedWindow for RootWindow {
         true
     }
 
+    fn can_quit(&mut self, c: &mut crate::AppCommon) -> bool {
+        let _ = c.send.blocking_send(Message::Exit);
+        true
+    }
+
     fn set_root(&mut self, _root: bool) {}
 
     fn redraw(
@@ -120,6 +132,7 @@ impl TrackedWindow for RootWindow {
         let windows_to_create = vec![];
 
         if self.expecting_response {
+            egui.egui_ctx.request_repaint();
             match c.recv.try_recv() {
                 Ok(response) => {
                     self.expecting_response = false;
@@ -148,6 +161,18 @@ impl TrackedWindow for RootWindow {
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     ui.label("I am groot");
+                    match &self.simulator {
+                        Some(sim) => {
+                            if ui.button("End simulator").clicked() {
+                                self.simulator.take();
+                            }
+                        }
+                        None => {
+                            if ui.button("Start simulator").clicked() {
+                                self.simulator = crate::utility::run_smartcard_sim();
+                            }
+                        }
+                    }
                     if card::is_card_present().is_some() {
                         ui.label("Card is present");
                         match self.erase_status {

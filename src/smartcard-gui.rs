@@ -65,14 +65,22 @@ async fn handle_card_stuff(
                 let erased = ::card::with_current_valid_piv_card(|card| {
                     let mut cw = card.to_writer();
                     cw.erase_card().is_ok()
-                }).await;
+                })
+                .await;
                 send.send(smartcard_root::Response::Erased(erased))
                     .await
                     .unwrap();
             }
             smartcard_root::Message::GenerateKeypair => {
-                let keypair = card::KeyPair::generate_with_smartcard(::card::PIV_PIN_KEY_DEFAULT.to_vec(), "TEST KEYPAIR", false).await;
-                let _ = send.send(smartcard_root::Response::KeypairGenerated(keypair)).await;
+                let keypair = card::KeyPair::generate_with_smartcard(
+                    ::card::PIV_PIN_KEY_DEFAULT.to_vec(),
+                    "TEST KEYPAIR",
+                    false,
+                )
+                .await;
+                let _ = send
+                    .send(smartcard_root::Response::KeypairGenerated(keypair))
+                    .await;
             }
             _ => {}
         }
@@ -80,6 +88,8 @@ async fn handle_card_stuff(
 }
 
 fn main() {
+    let service = service::Service::new("smartcard-gui".to_string());
+    service.new_log(service::LogLevel::Debug);
     let mut event_loop = egui_multiwin::winit::event_loop::EventLoopBuilder::with_user_event();
     let event_loop = event_loop.build().unwrap();
     let mut multi_window: MultiWindow = MultiWindow::new();
