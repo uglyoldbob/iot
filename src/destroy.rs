@@ -8,7 +8,6 @@
 #[path = "ca/ca_common.rs"]
 /// The ca module, with code used to destroy a ca
 mod ca;
-mod card;
 mod hsm2;
 mod main_config;
 mod tpm2;

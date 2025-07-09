@@ -17,9 +17,6 @@ pub use main_config::MainConfiguration;
 #[path = "../src/utility.rs"]
 mod utility;
 
-#[path = "../src/card.rs"]
-mod card;
-
 async fn start_smartcard_sim() -> Result<std::process::Child, Box<dyn std::error::Error>> {
     let a = tokio::task::spawn_blocking(|| {
         let mut p = std::process::Command::new("./run-piv-pcsc-sim.sh");

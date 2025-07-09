@@ -68,7 +68,8 @@ version = "0.6.6"
 features = [ "rsa", "ed25519", "encryption" ]
 
 [dependencies.cert-common]
-path = "../cert-common"
+version = "0.1.0"
+git = "https://github.com/uglyoldbob/cert-common.git"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"

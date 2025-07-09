@@ -31,9 +31,6 @@ pub use main_config::MainConfiguration;
 #[path = "../src/utility.rs"]
 mod utility;
 
-#[path = "../src/card.rs"]
-mod card;
-
 #[path = "../src/webserver/mod.rs"]
 mod webserver;
 

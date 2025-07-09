@@ -1293,14 +1293,14 @@ pub enum Keypair {
     /// A keypair contained in the hsm
     Hsm(crate::hsm2::KeyPair),
     /// A keypair contained in a smartcard
-    SmartCard(crate::card::KeyPair),
+    SmartCard(card::KeyPair),
     /// A keypair not contained in the hsm
     NotHsm(Zeroizing<Vec<u8>>),
 }
 
 impl Keypair {
     /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+    fn smartcard(&self) -> Option<&card::KeyPair> {
         if let Keypair::SmartCard(sc) = self {
             Some(sc)
         } else {
@@ -1361,7 +1361,7 @@ pub struct HttpsCertificate {
 }
 
 impl CertificateDataTrait for HttpsCertificate {
-    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+    fn smartcard(&self) -> Option<&card::KeyPair> {
         self.keypair.as_ref().and_then(|kp| kp.smartcard())
     }
 
@@ -1543,7 +1543,7 @@ pub struct SshCertificate {
 }
 
 impl CertificateDataTrait for SshCertificate {
-    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+    fn smartcard(&self) -> Option<&card::KeyPair> {
         todo!()
     }
 
@@ -1656,7 +1656,7 @@ impl Signature {
 #[enum_dispatch::enum_dispatch]
 pub trait CertificateDataTrait {
     /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&crate::card::KeyPair>;
+    fn smartcard(&self) -> Option<&card::KeyPair>;
     /// Try to get the hsm handle for the certificate
     fn hsm_label(&self) -> Option<String>;
     /// Erase the private key from the certificate
@@ -1719,7 +1719,7 @@ pub struct CaCertificate {
 
 impl CaCertificate {
     /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&crate::card::KeyPair> {
+    fn smartcard(&self) -> Option<&card::KeyPair> {
         self.data.smartcard()
     }
 
@@ -2781,7 +2781,7 @@ impl Ca {
                     }
                     CertificateType::SmartCard(p) => {
                         let label = format!("{}-admin", ca.config.common_name);
-                        let keypair = crate::card::KeyPair::generate_with_smartcard(
+                        let keypair = card::KeyPair::generate_with_smartcard(
                             p.as_bytes().to_vec(),
                             &label,
                             true,
@@ -4193,7 +4193,7 @@ pub struct SigningRequestParams {
     /// The hsm to used when using the hsm to generate a certificate
     pub hsm: Option<Arc<crate::hsm2::Hsm>>,
     /// The smartcard keypair to use when using a certifcate for a smartcard
-    pub smartcard: Option<crate::card::KeyPair>,
+    pub smartcard: Option<card::KeyPair>,
     /// The signing method
     pub t: HttpsSigningMethod,
     /// The name of the certificate

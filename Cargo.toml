@@ -59,7 +59,8 @@ zeroize = "1.7.0"
 git = "https://github.com/uglyoldbob/smartcard.git"
 
 [dependencies.cert-common]
-path = "./cert-common"
+version = "0.1.0"
+git = "https://github.com/uglyoldbob/cert-common.git"
 
 [dependencies.clap]
 version = "4.5.3"
@@ -186,3 +187,7 @@ path = "src/construct-gui.rs"
 [[bin]]
 name = "rust-iot-destroy"
 path = "src/destroy.rs"
+
+[[bin]]
+name = "smartcard-gui"
+path = "src/smartcard-gui.rs"

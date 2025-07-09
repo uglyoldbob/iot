@@ -20,9 +20,6 @@ mod main_config;
 #[path = "../src/utility.rs"]
 mod utility;
 
-#[path = "../src/card.rs"]
-mod card;
-
 use ca::SmartCardPin2;
 pub use main_config::MainConfiguration;
 use serde::{Deserialize, Serialize};

@@ -29,9 +29,6 @@ mod main_config;
 #[path = "../src/utility.rs"]
 mod utility;
 
-#[path = "../src/card.rs"]
-mod card;
-
 use std::collections::HashMap;
 use std::future::IntoFuture;
 use std::str::FromStr;
