@@ -78,8 +78,10 @@ async fn handle_card_stuff(
                     false,
                 )
                 .await;
+                let kp = keypair.map(|a| a.rcgen());
+                service::log::info!("Got the keypair");
                 let _ = send
-                    .send(smartcard_root::Response::KeypairGenerated(keypair))
+                    .send(smartcard_root::Response::KeypairGenerated(kp))
                     .await;
             }
             _ => {}

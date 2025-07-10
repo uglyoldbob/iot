@@ -41,7 +41,35 @@ pub enum Response {
     /// The card was erased with the given status, true if successful
     Erased(bool),
     /// A keypair generated
-    KeypairGenerated(Option<card::KeyPair>),
+    KeypairGenerated(Option<rcgen::KeyPair>),
+}
+
+#[derive(Default)]
+struct CsrFormData {
+    /// The name of the person
+    name: String,
+    /// The email of the person
+    email: String,
+    /// The phone of the person
+    phone: String,
+    /// The country for the user
+    country: String,
+    /// The state for the user
+    state: String,
+    /// locality for the user
+    locality: String,
+    /// Organization for the user
+    organization: String,
+    /// organizational unit for the user
+    ou: String,
+    /// The card will be used for identifying the user (false might be dumb here)
+    client_id: bool,
+    /// The card will be used to sign code
+    code_usage: bool,
+    /// The challenge password
+    cpassword: String,
+    /// The challenge name
+    challenge_name: String,
 }
 
 /// The struct for the root window
@@ -51,11 +79,15 @@ pub struct RootWindow {
     /// The erase status of the smartcard
     erase_status: EraseStatus,
     /// The keypair of the smartcard
-    keypair: Option<card::KeyPair>,
+    keypair: Option<rcgen::KeyPair>,
+    /// Waiting on the keypair to be generated
+    keypair_generating: bool,
     /// Notes to present to the user
     notes: Vec<String>,
     /// The optional smartcard simulator
     simulator: Option<crate::utility::DroppingProcess>,
+    /// The csr form data
+    csr_data: CsrFormData,
 }
 
 impl RootWindow {
@@ -70,8 +102,10 @@ impl RootWindow {
                 expecting_response: false,
                 erase_status: EraseStatus::Idle,
                 keypair: None,
+                keypair_generating: false,
                 notes: Vec::new(),
                 simulator: None,
+                csr_data: CsrFormData::default(),
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -86,6 +120,69 @@ impl RootWindow {
             },
             egui_multiwin::multi_window::new_id(),
         )
+    }
+
+    fn build_params(&self, params: &mut rcgen::CertificateParams) {
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        if !self.csr_data.name.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, &self.csr_data.name);
+        }
+        if !self.csr_data.country.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CountryName, &self.csr_data.country);
+        }
+        if !self.csr_data.state.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::StateOrProvinceName, &self.csr_data.state);
+        }
+        if !self.csr_data.locality.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::LocalityName, &self.csr_data.locality);
+        }
+        if !self.csr_data.organization.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::OrganizationName, &self.csr_data.organization);
+        }
+        if !self.csr_data.ou.is_empty() {
+            params
+                .distinguished_name
+                .push(rcgen::DnType::OrganizationalUnitName, &self.csr_data.ou);
+        }
+
+        // These values are ignored
+        params.not_before = rcgen::date_time_ymd(1975, 1, 1);
+        params.not_after = rcgen::date_time_ymd(4096, 1, 1);
+
+        if self.csr_data.client_id {
+            params
+                .extended_key_usages
+                .push(rcgen::ExtendedKeyUsagePurpose::ClientAuth);
+        }
+        if self.csr_data.code_usage {
+            params
+                .extended_key_usages
+                .push(rcgen::ExtendedKeyUsagePurpose::CodeSigning);
+        }
+
+        if !self.csr_data.cpassword.is_empty() {
+            let s: &String = &self.csr_data.cpassword;
+            let attr = cert_common::CsrAttribute::ChallengePassword(s.to_owned());
+            if let Some(a) = attr.to_custom_attribute() {
+                params.extra_attributes.push(a);
+            }
+        }
+        if !self.csr_data.challenge_name.is_empty() {
+            let attr = cert_common::CsrAttribute::UnstructuredName(self.csr_data.challenge_name.clone());
+            if let Some(a) = attr.to_custom_attribute() {
+                params.extra_attributes.push(a);
+            }
+        }
     }
 }
 
@@ -144,8 +241,10 @@ impl TrackedWindow for RootWindow {
                                 self.erase_status = EraseStatus::Failed;
                             }
                         }
-                        Response::KeypairGenerated(_s) => {
+                        Response::KeypairGenerated(s) => {
                             self.notes.push("Keypair generated".to_string());
+                            self.keypair = s;
+                            self.keypair_generating = false;
                         }
                         Response::Done => {
                             quit = true;
@@ -188,6 +287,7 @@ impl TrackedWindow for RootWindow {
                                 }
                                 if ui.button("Yes").clicked() {
                                     if c.send.blocking_send(Message::ErasePivCard).is_ok() {
+                                        self.expecting_response = true;
                                         self.erase_status = EraseStatus::Erasing;
                                     }
                                 }
@@ -202,12 +302,63 @@ impl TrackedWindow for RootWindow {
                                 ui.label("Failed to erase smartcard");
                             }
                         }
-                        if ui.button("Generate a keypair").clicked() {
-                            c.send.blocking_send(Message::GenerateKeypair);
+                        if !self.keypair_generating {
+                            if ui.button("Generate a keypair").clicked() {
+                                c.send.blocking_send(Message::GenerateKeypair);
+                                self.expecting_response = true;
+                                self.keypair_generating = true;
+                            }
+                        }
+                        if let Some(kp) = &self.keypair {
+                            ui.label("Cardholder Name");
+                            ui.text_edit_singleline(&mut self.csr_data.name);
+                            ui.label("Cardholder email");
+                            ui.text_edit_singleline(&mut self.csr_data.email);
+                            ui.label("Cardholder phone");
+                            ui.text_edit_singleline(&mut self.csr_data.phone);
+                            ui.label("Cardholder country");
+                            ui.text_edit_singleline(&mut self.csr_data.country);
+                            ui.label("Cardholder state");
+                            ui.text_edit_singleline(&mut self.csr_data.state);
+                            ui.label("Cardholder locality");
+                            ui.text_edit_singleline(&mut self.csr_data.locality);
+                            ui.label("Cardholder organization");
+                            ui.text_edit_singleline(&mut self.csr_data.organization);
+                            ui.label("Cardholder organizational unit");
+                            ui.text_edit_singleline(&mut self.csr_data.ou);
+                            ui.label("Challenge password");
+                            let mut te = egui_multiwin::egui::widgets::TextEdit::singleline(&mut self.csr_data.cpassword).password(true);
+                            ui.add(te);
+                            ui.label("Challenge name");
+                            ui.text_edit_singleline(&mut self.csr_data.challenge_name);
+                            if ui.button("Generate CSR for cardholder").clicked() {
+                                let mut csrp = rcgen::CertificateParams::new(vec![self.csr_data.name.clone()]);
+                                if let Ok(mut csrp) = csrp {
+                                    self.build_params(&mut csrp);
+                                    let pem = csrp.serialize_request(kp);
+                                    if let Ok(pem) = pem {
+                                        match pem.pem() {
+                                            Ok(pem) => {
+                                                self.notes.push(pem);
+                                            }
+                                            Err(e) => {
+                                                self.notes.push(format!("Failed to build csr pem: {:?}", e));
+                                            }
+                                        }
+                                    }
+                                    else {
+                                        self.notes.push(format!("Failed to build csr: {:?}", pem.err()));
+                                    }
+                                }
+                                else {
+                                    self.notes.push(format!("Failed to build csr params: {:?}", csrp.err()));
+                                }
+                            }
                         }
                     } else {
                         ui.label("Card is not present");
                         self.keypair = None;
+                        self.csr_data = CsrFormData::default();
                         self.notes.clear();
                     }
                     if ui.button("Clear notes").clicked() {

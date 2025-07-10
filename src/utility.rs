@@ -65,6 +65,17 @@ pub fn run_smartcard_sim() -> Option<DroppingProcess> {
         "com.licel.jcardsim.remote.VSmartCard", 
         "jcardsim.cfg"]).spawn();
     if let Ok(a) = a {
+        let mut b = std::process::Command::new("opensc-tool");
+        let mut p = b.args([
+            "--card-driver",
+            "default",
+            "--send-apdu",
+            "80b80000120ba000000308000010000100050000020F0F7f",
+        ]);
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        let asdf = p.output()
+            .expect("Failed to initialize smartcard simulator");
+        service::log::info!("Initialize output is {}", String::from_utf8(asdf.stdout).unwrap());
         Some(DroppingProcess { c: a })
     } else {
         None
