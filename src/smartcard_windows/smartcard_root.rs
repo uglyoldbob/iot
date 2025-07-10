@@ -88,6 +88,8 @@ pub struct RootWindow {
     simulator: Option<crate::utility::DroppingProcess>,
     /// The csr form data
     csr_data: CsrFormData,
+    /// The ca index selected
+    selected_ca_index: usize,
 }
 
 impl RootWindow {
@@ -106,6 +108,7 @@ impl RootWindow {
                 notes: Vec::new(),
                 simulator: None,
                 csr_data: CsrFormData::default(),
+                selected_ca_index: 0,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -259,7 +262,18 @@ impl TrackedWindow for RootWindow {
             egui_multiwin::egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.label("I am groot");
+                    {
+                        egui_multiwin::egui::ComboBox::from_label("Select a server to register with")
+                            .selected_text(format!("{:?}", c.config.ca_urls[self.selected_ca_index]))
+                            .show_ui(ui, |ui| {
+                                for (i, e) in c.config.ca_urls.iter().enumerate() {
+                                    ui.selectable_value(&mut self.selected_ca_index, i, e);
+                                }
+                            }
+                        );
+                    }
+                    let server_url = &c.config.ca_urls[self.selected_ca_index];
+                    ui.label(server_url);
                     match &self.simulator {
                         Some(sim) => {
                             if ui.button("End simulator").clicked() {

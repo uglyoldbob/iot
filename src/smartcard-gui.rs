@@ -42,6 +42,15 @@ pub struct AppCommon {
     pub send: tokio::sync::mpsc::Sender<smartcard_root::Message>,
     /// object to receive messages from the async code
     pub recv: tokio::sync::mpsc::Receiver<smartcard_root::Response>,
+    /// The configuration
+    pub config: SmartCardGuiConfig,
+}
+
+/// The configuration file contents for the gui
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct SmartCardGuiConfig {
+    /// The list of urls to use for smartcart certificate registration
+    ca_urls: Vec<String>,
 }
 
 impl AppCommon {
@@ -105,9 +114,23 @@ fn main() {
     let ch2 = tokio::sync::mpsc::channel(10);
     let asdf = runtime.spawn(handle_card_stuff(ch.1, ch2.0));
 
+    let config = {
+        use std::io::Read;
+        let mut settings_con = Vec::new();
+        let pb = "./smartcard-gui.toml";
+        service::log::debug!("Opening {}", pb);
+        let mut f = std::fs::File::open(pb).unwrap();
+        f.read_to_end(&mut settings_con).unwrap();
+        let c : SmartCardGuiConfig = toml::from_str(std::str::from_utf8(&settings_con).unwrap()).unwrap();
+        c
+    };
+
+    service::log::info!("The urls for smartcard registering are {:?}", config.ca_urls);
+
     let mut ac = AppCommon {
         send: ch.0,
         recv: ch2.1,
+        config,
     };
 
     let _e = multi_window.add(root_window, &mut ac, &event_loop);
