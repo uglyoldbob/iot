@@ -1650,14 +1650,31 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
         }
     }
 
-    let body = if let Some(cert) = cert {
-        http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+    if let Some(_sc) = s.get.get("smartcard") {
+        let mut bm = Vec::new();
+        if let Some(cert) = cert {
+            bm.push(("cert", String::from_utf8(cert).unwrap()));
+        }
+        let bm2 : Vec<(&str, &str)> = bm.as_slice().iter().map(|(i, a)| (*i, a.as_str())).collect();
+        let bm = url_encoded_data::stringify(bm2.as_slice());
+
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from(bm));
+        WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        }
     } else {
-        http_body_util::Full::new(hyper::body::Bytes::from("missing"))
-    };
-    WebResponse {
-        response: hyper::http::Response::from_parts(response, body),
-        cookie: s.logincookie.clone(),
+        let body = if let Some(cert) = cert {
+            http_body_util::Full::new(hyper::body::Bytes::copy_from_slice(&cert))
+        } else {
+            http_body_util::Full::new(hyper::body::Bytes::from("missing"))
+        };
+        WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        }
     }
 }
 

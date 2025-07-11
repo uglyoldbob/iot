@@ -37,8 +37,13 @@ pub enum Message {
         /// The phone number for the contact regarding the csr
         phone: String,
     },
-    /// Check on a status of a submitted csr
-    CheckCsrStatus,
+    /// Check on a status of a submitted csr, includes server url where to check
+    CheckCsrStatus {
+        /// The url to query
+        server: String,
+        /// The id of the certificate
+        id: usize,
+    },
     /// Write certificate to smartcard
     WriteCertificate(String),
 }
@@ -87,6 +92,8 @@ pub enum Response {
     CsrStatus(CsrStatus),
     /// The status of saving the certificate to the card
     CertificateStored(Result<(), card::Error>),
+    /// The newly created certificate in pem format
+    CertificateCreated(String),
 }
 
 #[derive(Default)]
@@ -316,6 +323,10 @@ impl TrackedWindow for RootWindow {
                         Response::CsrStatus(s) => {
                             self.csr_status = Some(s);
                         }
+                        Response::CertificateCreated(cert) => {
+                            c.send.blocking_send(Message::WriteCertificate(cert));
+                            self.expecting_response = true;
+                        }
                         Response::CertificateStored(s) => {
                             if s.is_ok() {
                                 self.notes.push("Certificate saved to card".to_string());
@@ -423,7 +434,10 @@ impl TrackedWindow for RootWindow {
                                 ui.label("CSR submitted for signing");
                                 if let Some(id) = self.csr_id {
                                     if ui.button("Check CSR status").clicked() {
-                                        c.send.blocking_send(Message::CheckCsrStatus);
+                                        c.send.blocking_send(Message::CheckCsrStatus {
+                                            server: c.config.ca_urls[self.selected_ca_index].clone(),
+                                            id,
+                                        });
                                         self.expecting_response = true;
                                     }
                                 }

@@ -106,12 +106,29 @@ async fn handle_card_stuff(
                     .await
                     .unwrap();
             }
-            smartcard_root::Message::SubmitCsr { csr, server, name, email, phone } => {
-                {
-                    use std::io::Write;
-                    let mut f = std::fs::File::create("./cert.pem").unwrap();
-                    f.write_all(csr.as_bytes());
+            smartcard_root::Message::CheckCsrStatus { server, id } => {
+                let mut client = reqwest::ClientBuilder::new();
+                for s in &ca_certs {
+                    service::log::info!("Trying to register server cert: -{}-", s);
+                    let cert = reqwest::Certificate::from_pem(s.as_bytes()).unwrap();
+                    service::log::info!("CERT IS {:?}", cert);
+                    client = client.add_root_certificate(cert);
                 }
+                let client = client.danger_accept_invalid_hostnames(true).use_rustls_tls().build().unwrap();
+                let url_get = url_encoded_data::stringify(&[("id", id.to_string().as_str()), ("smartcard", "1"), ("type", "pem")]);
+                let url = format!("{}/ca/get_cert.rs?{}", server, url_get);
+                let res = client.get(url).send().await;
+                if let Ok(r) = res {
+                    let data = r.bytes().await.unwrap().to_vec();
+                    let h = url_encoded_data::UrlEncodedData::parse_str(str::from_utf8(&data).unwrap());
+                    let cert = h.get("cert");
+                    if let Some(cert) = cert {
+                        let cert = cert.first().unwrap().to_string();
+                        let _ = send.send(smartcard_root::Response::CertificateCreated(cert)).await;
+                    }
+                }
+            }
+            smartcard_root::Message::SubmitCsr { csr, server, name, email, phone } => {
                 let mut client = reqwest::ClientBuilder::new();
                 for s in &ca_certs {
                     service::log::info!("Trying to register server cert: -{}-", s);
