@@ -96,6 +96,16 @@ async fn handle_card_stuff(
                     .send(smartcard_root::Response::KeypairGenerated(kp))
                     .await;
             }
+            smartcard_root::Message::WriteCertificate(s) => {
+                let cert_saved = ::card::with_current_valid_piv_card(|card| {
+                    let mut cw = card.to_writer();
+                    cw.store_x509_cert(::card::MANAGEMENT_KEY_DEFAULT, s.as_bytes(), 0x9A)
+                })
+                .await;
+                send.send(smartcard_root::Response::CertificateStored(cert_saved))
+                    .await
+                    .unwrap();
+            }
             smartcard_root::Message::SubmitCsr { csr, server, name, email, phone } => {
                 {
                     use std::io::Write;
@@ -116,15 +126,27 @@ async fn handle_card_stuff(
                 form.insert("name", name);
                 form.insert("email", email);
                 form.insert("phone", phone);
+                form.insert("smartcard", "1".to_string());
                 let res = client.post(url)
                     .form(&form)
                     .send()
                     .await;
                 if let Ok(res) = res {
-                    service::log::info!("Response to submit csr is: {}", String::from_utf8(res.bytes().await.unwrap().to_vec()).unwrap());
+                    let d = String::from_utf8(res.bytes().await.unwrap().to_vec()).unwrap();
+                    let h = url_encoded_data::UrlEncodedData::parse_str(&d);
+                    let id = h.get("id");
+                    if let Some(id) = id {
+                        let id = id.first().unwrap().parse::<usize>().unwrap();
+                        service::log::info!("The id is {:?}", id);
+                        let _ = send.send(smartcard_root::Response::CsrSubmitStatus(Some(id))).await;
+                    }
+                    else {
+                        let _ = send.send(smartcard_root::Response::CsrSubmitStatus(None)).await;
+                    }
                 }
                 else {
                     service::log::error!("Error submitting csr: {:?}", res.err());
+                    let _ = send.send(smartcard_root::Response::CsrSubmitStatus(None)).await;
                 }
             }
             _ => {}

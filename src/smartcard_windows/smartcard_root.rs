@@ -36,7 +36,11 @@ pub enum Message {
         email: String,
         /// The phone number for the contact regarding the csr
         phone: String,
-    }
+    },
+    /// Check on a status of a submitted csr
+    CheckCsrStatus,
+    /// Write certificate to smartcard
+    WriteCertificate(String),
 }
 
 /// A multi-state status for an element
@@ -57,6 +61,18 @@ enum EraseStatus {
     Failed,
 }
 
+/// Potential status for a submitted csr
+enum CsrStatus {
+    /// The csr is invalid
+    Invalid,
+    /// Waiting for signed certificate
+    WaitingForCertificate,
+    /// Received the certificate
+    ReceivedCertificate(String),
+    /// The csr was rejected
+    Rejected(String),
+}
+
 /// A response from the async code
 pub enum Response {
     /// The async code is about to exit
@@ -65,8 +81,12 @@ pub enum Response {
     Erased(bool),
     /// A keypair generated
     KeypairGenerated(Option<rcgen::KeyPair>),
-    /// Csr Sbumit status
-    CsrSubmitStatus(bool),
+    /// Csr Submit status, request id if it was successfully submitted
+    CsrSubmitStatus(Option<usize>),
+    /// Csr status
+    CsrStatus(CsrStatus),
+    /// The status of saving the certificate to the card
+    CertificateStored(Result<(), card::Error>),
 }
 
 #[derive(Default)]
@@ -117,6 +137,10 @@ pub struct RootWindow {
     selected_ca_index: usize,
     /// Has a csr been submitted
     csr_submitted: Status,
+    /// The submitted csr id
+    csr_id: Option<usize>,
+    /// The csr status
+    csr_status: Option<CsrStatus>,
 }
 
 impl RootWindow {
@@ -137,6 +161,8 @@ impl RootWindow {
                 csr_data: CsrFormData::default(),
                 selected_ca_index: 0,
                 csr_submitted: Status::Idle,
+                csr_id: None,
+                csr_status: None,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -284,7 +310,16 @@ impl TrackedWindow for RootWindow {
                             self.keypair_generating = false;
                         }
                         Response::CsrSubmitStatus(s) => {
-                            self.csr_submitted = Status::Known(s);
+                            self.csr_submitted = Status::Known(s.is_some());
+                            self.csr_id = s;
+                        }
+                        Response::CsrStatus(s) => {
+                            self.csr_status = Some(s);
+                        }
+                        Response::CertificateStored(s) => {
+                            if s.is_ok() {
+                                self.notes.push("Certificate saved to card".to_string());
+                            }
                         }
                         Response::Done => {
                             quit = true;
@@ -365,7 +400,33 @@ impl TrackedWindow for RootWindow {
                                 ui.label("Submitting csr for user");
                             }
                             Status::Known(true) => {
+                                if let Some(s) = &self.csr_status {
+                                    match s {
+                                        CsrStatus::Invalid => {
+                                            ui.label("The csr was invalid for some reasion");
+                                        }
+                                        CsrStatus::WaitingForCertificate => {
+                                            ui.label("Waiting for certificate");
+                                        }
+                                        CsrStatus::ReceivedCertificate(cs) => {
+                                            ui.label(format!("The certificate was accepted: {}", cs));
+                                            if ui.button("Write certificate to smartcard").clicked() {
+                                                c.send.blocking_send(Message::WriteCertificate(cs.to_owned()));
+                                                self.expecting_response = true;
+                                            }
+                                        }
+                                        CsrStatus::Rejected(r) => {
+                                            ui.label(format!("The certificate was rejected: {}", r));
+                                        }
+                                    }
+                                }
                                 ui.label("CSR submitted for signing");
+                                if let Some(id) = self.csr_id {
+                                    if ui.button("Check CSR status").clicked() {
+                                        c.send.blocking_send(Message::CheckCsrStatus);
+                                        self.expecting_response = true;
+                                    }
+                                }
                             }
                             Status::Idle | Status::Known(false) => {
                                 if let Some(kp) = &self.keypair {
@@ -428,6 +489,8 @@ impl TrackedWindow for RootWindow {
                         self.keypair = None;
                         self.csr_data = CsrFormData::default();
                         self.csr_submitted = Status::Idle;
+                        self.csr_id = None;
+                        self.csr_status = None;
                         self.notes.clear();
                     }
                     if ui.button("Clear notes").clicked() {

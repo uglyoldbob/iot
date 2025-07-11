@@ -15,9 +15,13 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
     let mut valid_csr = false;
     let mut mycsr_pem = None;
     let mut id = None;
+    let mut smartcard_response = false;
 
     let f = s.post.form();
     if let Some(form) = f {
+        if let Some(a) = form.get_first("smartcard") {
+            smartcard_response = true;
+        }
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_) => {
                 if let Some(pem) = form.get_first("csr") {
@@ -74,34 +78,54 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
         }
     }
 
-    let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
-        .body(|b| {
-            if valid_csr {
-                b.text("Your request has been submitted").line_break(|f| f);
-                b.anchor(|ab| {
-                    ab.text("View status of request");
-                    ab.href(format!("view_cert.rs?id={}", id.unwrap()));
-                    ab
-                });
-                b.line_break(|lb| lb);
-            } else {
-                b.text("Your request was considered invalid")
-                    .line_break(|f| f);
-                if let Some(pem) = mycsr_pem {
-                    b.preformatted_text(|c| c.text(pem)).line_break(|a| a);
+    if !smartcard_response {
+        let mut html = html::root::Html::builder();
+        html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+            .body(|b| {
+                if valid_csr {
+                    b.text("Your request has been submitted").line_break(|f| f);
+                    b.anchor(|ab| {
+                        ab.text("View status of request");
+                        ab.href(format!("view_cert.rs?id={}", id.unwrap()));
+                        ab
+                    });
+                    b.line_break(|lb| lb);
+                } else {
+                    b.text("Your request was considered invalid")
+                        .line_break(|f| f);
+                    if let Some(pem) = mycsr_pem {
+                        b.preformatted_text(|c| c.text(pem)).line_break(|a| a);
+                    }
                 }
-            }
-            b
-        });
-    let html = html.build();
+                b
+            });
+        let html = html.build();
 
-    let response = hyper::Response::new("dummy");
-    let (response, _dummybody) = response.into_parts();
-    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
-    WebResponse {
-        response: hyper::http::Response::from_parts(response, body),
-        cookie: s.logincookie.clone(),
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+        WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        }
+    }
+    else {
+        let mut bm = Vec::new();
+        if valid_csr {
+            if let Some(id) = id {
+                bm.push(("id", id.to_string()));
+            }
+        }
+        let bm2 : Vec<(&str, &str)> = bm.as_slice().iter().map(|(i, a)| (*i, a.as_str())).collect();
+        let bm = url_encoded_data::stringify(bm2.as_slice());
+
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from(bm));
+        WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        }
     }
 }
 
