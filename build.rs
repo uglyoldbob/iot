@@ -26,7 +26,7 @@ fn main() {
 
         // Build jcardsim JAR using Maven, setting JC_CLASSIC_HOME to javacard-sdk/jc305u3_kit
         let mut jcardsim_cmd = std::process::Command::new("mvn");
-        jcardsim_cmd.arg("package").current_dir("./jcardsim");
+        jcardsim_cmd.args(["package", "-e"]).current_dir("./jcardsim");
         jcardsim_cmd.env("JC_CLASSIC_HOME", "../javacard-sdk/jc305u3_kit");
         let jcardsim_build = jcardsim_cmd
             .output()

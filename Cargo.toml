@@ -32,6 +32,7 @@ pem = "3.0.4"
 pin-project-lite = "0.2.13"
 pkcs5 = "0.7.1"
 rand = "0.8.5"
+reqwest = { version = "0.12.22", features = ["rustls-tls"] }
 ring = "0.17.8"
 rpassword = "7.3.1"
 rsa = "0.9.6"

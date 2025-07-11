@@ -24,6 +24,29 @@ pub enum Message {
     ErasePivCard,
     /// Generate a keypair
     GenerateKeypair,
+    /// Submit csr
+    SubmitCsr {
+        /// The csr in pem format
+        csr: String,
+        /// The server to submit to
+        server: String,
+        /// The name for contact regarding the csr
+        name: String,
+        /// The email for the contact regarding the csr
+        email: String,
+        /// The phone number for the contact regarding the csr
+        phone: String,
+    }
+}
+
+/// A multi-state status for an element
+enum Status {
+    /// The status is in the idle state
+    Idle,
+    /// The status is waiting on something to happen
+    Waiting,
+    /// The status is now known
+    Known(bool),
 }
 
 enum EraseStatus {
@@ -42,6 +65,8 @@ pub enum Response {
     Erased(bool),
     /// A keypair generated
     KeypairGenerated(Option<rcgen::KeyPair>),
+    /// Csr Sbumit status
+    CsrSubmitStatus(bool),
 }
 
 #[derive(Default)]
@@ -90,6 +115,8 @@ pub struct RootWindow {
     csr_data: CsrFormData,
     /// The ca index selected
     selected_ca_index: usize,
+    /// Has a csr been submitted
+    csr_submitted: Status,
 }
 
 impl RootWindow {
@@ -109,6 +136,7 @@ impl RootWindow {
                 simulator: None,
                 csr_data: CsrFormData::default(),
                 selected_ca_index: 0,
+                csr_submitted: Status::Idle,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -125,6 +153,12 @@ impl RootWindow {
         )
     }
 
+    /// Send the csr to the server
+    fn send_request(&self, pem: &String, srv: &String) {
+        
+    }
+
+    /// Update the given certificateparams object with the fields input by the user.
     fn build_params(&self, params: &mut rcgen::CertificateParams) {
         params.distinguished_name = rcgen::DistinguishedName::new();
         if !self.csr_data.name.is_empty() {
@@ -249,6 +283,9 @@ impl TrackedWindow for RootWindow {
                             self.keypair = s;
                             self.keypair_generating = false;
                         }
+                        Response::CsrSubmitStatus(s) => {
+                            self.csr_submitted = Status::Known(s);
+                        }
                         Response::Done => {
                             quit = true;
                         }
@@ -323,49 +360,66 @@ impl TrackedWindow for RootWindow {
                                 self.keypair_generating = true;
                             }
                         }
-                        if let Some(kp) = &self.keypair {
-                            ui.label("Cardholder Name");
-                            ui.text_edit_singleline(&mut self.csr_data.name);
-                            ui.label("Cardholder email");
-                            ui.text_edit_singleline(&mut self.csr_data.email);
-                            ui.label("Cardholder phone");
-                            ui.text_edit_singleline(&mut self.csr_data.phone);
-                            ui.label("Cardholder country");
-                            ui.text_edit_singleline(&mut self.csr_data.country);
-                            ui.label("Cardholder state");
-                            ui.text_edit_singleline(&mut self.csr_data.state);
-                            ui.label("Cardholder locality");
-                            ui.text_edit_singleline(&mut self.csr_data.locality);
-                            ui.label("Cardholder organization");
-                            ui.text_edit_singleline(&mut self.csr_data.organization);
-                            ui.label("Cardholder organizational unit");
-                            ui.text_edit_singleline(&mut self.csr_data.ou);
-                            ui.label("Challenge password");
-                            let mut te = egui_multiwin::egui::widgets::TextEdit::singleline(&mut self.csr_data.cpassword).password(true);
-                            ui.add(te);
-                            ui.label("Challenge name");
-                            ui.text_edit_singleline(&mut self.csr_data.challenge_name);
-                            if ui.button("Generate CSR for cardholder").clicked() {
-                                let mut csrp = rcgen::CertificateParams::new(vec![self.csr_data.name.clone()]);
-                                if let Ok(mut csrp) = csrp {
-                                    self.build_params(&mut csrp);
-                                    let pem = csrp.serialize_request(kp);
-                                    if let Ok(pem) = pem {
-                                        match pem.pem() {
-                                            Ok(pem) => {
-                                                self.notes.push(pem);
+                        match self.csr_submitted {
+                            Status::Waiting => {
+                                ui.label("Submitting csr for user");
+                            }
+                            Status::Known(true) => {
+                                ui.label("CSR submitted for signing");
+                            }
+                            Status::Idle | Status::Known(false) => {
+                                if let Some(kp) = &self.keypair {
+                                    ui.label("Cardholder Name");
+                                    ui.text_edit_singleline(&mut self.csr_data.name);
+                                    ui.label("Cardholder email");
+                                    ui.text_edit_singleline(&mut self.csr_data.email);
+                                    ui.label("Cardholder phone");
+                                    ui.text_edit_singleline(&mut self.csr_data.phone);
+                                    ui.label("Cardholder country");
+                                    ui.text_edit_singleline(&mut self.csr_data.country);
+                                    ui.label("Cardholder state");
+                                    ui.text_edit_singleline(&mut self.csr_data.state);
+                                    ui.label("Cardholder locality");
+                                    ui.text_edit_singleline(&mut self.csr_data.locality);
+                                    ui.label("Cardholder organization");
+                                    ui.text_edit_singleline(&mut self.csr_data.organization);
+                                    ui.label("Cardholder organizational unit");
+                                    ui.text_edit_singleline(&mut self.csr_data.ou);
+                                    ui.label("Challenge password");
+                                    let mut te = egui_multiwin::egui::widgets::TextEdit::singleline(&mut self.csr_data.cpassword).password(true);
+                                    ui.add(te);
+                                    ui.label("Challenge name");
+                                    ui.text_edit_singleline(&mut self.csr_data.challenge_name);
+                                    if ui.button("Generate CSR for cardholder").clicked() {
+                                        let mut csrp = rcgen::CertificateParams::new(vec![self.csr_data.name.clone()]);
+                                        if let Ok(mut csrp) = csrp {
+                                            self.build_params(&mut csrp);
+                                            let pem = csrp.serialize_request(kp);
+                                            if let Ok(pem) = pem {
+                                                match pem.pem() {
+                                                    Ok(pem) => {
+                                                        c.send.blocking_send(Message::SubmitCsr { 
+                                                            csr: pem, 
+                                                            server: c.config.ca_urls[self.selected_ca_index].clone(),
+                                                            name: self.csr_data.name.clone(),
+                                                            email: self.csr_data.email.clone(),
+                                                            phone: self.csr_data.phone.clone(),
+                                                        });
+                                                        self.expecting_response = true;
+                                                    }
+                                                    Err(e) => {
+                                                        self.notes.push(format!("Failed to build csr pem: {:?}", e));
+                                                    }
+                                                }
                                             }
-                                            Err(e) => {
-                                                self.notes.push(format!("Failed to build csr pem: {:?}", e));
+                                            else {
+                                                self.notes.push(format!("Failed to build csr: {:?}", pem.err()));
                                             }
                                         }
+                                        else {
+                                            self.notes.push(format!("Failed to build csr params: {:?}", csrp.err()));
+                                        }
                                     }
-                                    else {
-                                        self.notes.push(format!("Failed to build csr: {:?}", pem.err()));
-                                    }
-                                }
-                                else {
-                                    self.notes.push(format!("Failed to build csr params: {:?}", csrp.err()));
                                 }
                             }
                         }
@@ -373,6 +427,7 @@ impl TrackedWindow for RootWindow {
                         ui.label("Card is not present");
                         self.keypair = None;
                         self.csr_data = CsrFormData::default();
+                        self.csr_submitted = Status::Idle;
                         self.notes.clear();
                     }
                     if ui.button("Clear notes").clicked() {

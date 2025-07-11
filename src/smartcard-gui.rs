@@ -51,6 +51,8 @@ pub struct AppCommon {
 pub struct SmartCardGuiConfig {
     /// The list of urls to use for smartcart certificate registration
     ca_urls: Vec<String>,
+    /// The list of valid server certificates, all in pem format
+    ca_certs: Vec<String>,
 }
 
 impl AppCommon {
@@ -63,6 +65,7 @@ impl AppCommon {
 async fn handle_card_stuff(
     mut recv: tokio::sync::mpsc::Receiver<smartcard_root::Message>,
     send: tokio::sync::mpsc::Sender<smartcard_root::Response>,
+    ca_certs: Vec<String>,
 ) {
     while let Some(m) = recv.recv().await {
         match m {
@@ -93,6 +96,37 @@ async fn handle_card_stuff(
                     .send(smartcard_root::Response::KeypairGenerated(kp))
                     .await;
             }
+            smartcard_root::Message::SubmitCsr { csr, server, name, email, phone } => {
+                {
+                    use std::io::Write;
+                    let mut f = std::fs::File::create("./cert.pem").unwrap();
+                    f.write_all(csr.as_bytes());
+                }
+                let mut client = reqwest::ClientBuilder::new();
+                for s in &ca_certs {
+                    service::log::info!("Trying to register server cert: -{}-", s);
+                    let cert = reqwest::Certificate::from_pem(s.as_bytes()).unwrap();
+                    service::log::info!("CERT IS {:?}", cert);
+                    client = client.add_root_certificate(cert);
+                }
+                let client = client.danger_accept_invalid_hostnames(true).use_rustls_tls().build().unwrap();
+                let url = format!("{}/ca/submit_request.rs", server);
+                let mut form = std::collections::HashMap::new();
+                form.insert("csr", csr);
+                form.insert("name", name);
+                form.insert("email", email);
+                form.insert("phone", phone);
+                let res = client.post(url)
+                    .form(&form)
+                    .send()
+                    .await;
+                if let Ok(res) = res {
+                    service::log::info!("Response to submit csr is: {}", String::from_utf8(res.bytes().await.unwrap().to_vec()).unwrap());
+                }
+                else {
+                    service::log::error!("Error submitting csr: {:?}", res.err());
+                }
+            }
             _ => {}
         }
     }
@@ -112,7 +146,6 @@ fn main() {
         .unwrap();
     let ch = tokio::sync::mpsc::channel(10);
     let ch2 = tokio::sync::mpsc::channel(10);
-    let asdf = runtime.spawn(handle_card_stuff(ch.1, ch2.0));
 
     let config = {
         use std::io::Read;
@@ -124,6 +157,8 @@ fn main() {
         let c : SmartCardGuiConfig = toml::from_str(std::str::from_utf8(&settings_con).unwrap()).unwrap();
         c
     };
+
+    let asdf = runtime.spawn(handle_card_stuff(ch.1, ch2.0, config.ca_certs.clone()));
 
     service::log::info!("The urls for smartcard registering are {:?}", config.ca_urls);
 

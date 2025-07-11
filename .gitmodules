@@ -1,6 +1,6 @@
 [submodule "jcardsim"]
 	path = jcardsim
-	url = https://github.com/uglyoldbob/jcardsim.git
+	url = https://github.com/arekinath/jcardsim.git
 [submodule "vsmartcard"]
 	path = vsmartcard
 	url = https://github.com/frankmorgner/vsmartcard.git
