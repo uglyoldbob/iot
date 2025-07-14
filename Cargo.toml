@@ -192,3 +192,6 @@ path = "src/destroy.rs"
 [[bin]]
 name = "smartcard-gui"
 path = "src/smartcard-gui.rs"
+
+#[patch."https://github.com/uglyoldbob/smartcard.git"]
+#card = { path = "../smartcard" }

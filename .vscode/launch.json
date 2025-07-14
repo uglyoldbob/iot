@@ -12,10 +12,10 @@
                 "args": [
                     "build",
                     "--bin",
-                    "rust-iot"
+                    "smartcard-gui"
                 ],
                 "filter": {
-                    "name": "rust-iot",
+                    "name": "smartcard-gui",
                     "kind": "bin"
                 }
             },
