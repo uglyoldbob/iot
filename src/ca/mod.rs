@@ -496,8 +496,14 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
 /// The main page for a certificate authority
 async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
+    let mut user = None;
     let cs = s.user_certs.all_certs();
     for cert in cs {
+        if user.is_none() {
+            let a : Vec<String> = cert.tbs_certificate.subject.0.iter().map(|l| l.to_string()).collect();
+            let a = a.join(",");
+            user = Some(a);
+        }
         if ca.is_admin(cert).await {
             admin = true;
         }
@@ -508,6 +514,9 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         .body(|b| {
             if admin {
                 b.text("You are admin").line_break(|a| a);
+            }
+            if let Some(u) = &user {
+                b.text(format!("Welcome {}", u)).line_break(|a| a);
             }
             match &ca.config.sign_method {
                 CertificateSigningMethod::Https(_m) => {
