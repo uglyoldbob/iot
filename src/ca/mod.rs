@@ -477,8 +477,11 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
     let (mut response, _dummybody) = response.into_parts();
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = format!("{}/pki", s.proxy);
-    service::log::debug!("Redirect to {}", url);
+    let url = match &s.settings.pki {
+        PkiConfigurationEnum::Pki(pki_configuration) => format!("{}pki", s.proxy),
+        PkiConfigurationEnum::Ca(standalone_ca_configuration) => format!("{}ca", s.proxy),
+    };
+    service::log::debug!("Redirect1 to {}", url);
     response
         .headers
         .insert("Location", HeaderValue::from_str(&url).unwrap());
@@ -629,9 +632,12 @@ async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let (mut response, _dummybody) = response.into_parts();
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = s.get_absolute_url(pki, "ca");
+    let url = match &s.settings.pki {
+        PkiConfigurationEnum::Pki(pki_configuration) => s.get_absolute_url(pki, "ca"),
+        PkiConfigurationEnum::Ca(standalone_ca_configuration) => s.get_absolute_url(pki, "ca"),
+    };
 
-    service::log::debug!("Redirect to {}", url);
+    service::log::debug!("Redirect2 to {}", url);
     response
         .headers
         .insert("Location", HeaderValue::from_str(&url).unwrap());

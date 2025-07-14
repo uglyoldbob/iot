@@ -80,8 +80,12 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
+    let url = match &s.settings.pki {
+        ca::PkiConfigurationEnum::Pki(pki_configuration) => format!("{}pki", s.proxy),
+        ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => format!("{}ca", s.proxy),
+    };
+
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
-    let url = format!("{}pki", s.proxy);
     response
         .headers
         .insert("Location", HeaderValue::from_str(&url).unwrap());

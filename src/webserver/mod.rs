@@ -152,11 +152,23 @@ pub struct WebPageContext {
 impl WebPageContext {
     /// Build an absolute url
     pub fn get_absolute_url(&self, sd: &str, url: &str) -> String {
-        if self.https {
-            format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
-        } else {
-            format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+        match &self.settings.pki {
+            crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
+                if self.https {
+                    format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                } else {
+                    format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                }
+            }
+            crate::ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                if self.https {
+                    format!("https://{}/{}{}", self.domain, self.proxy, url)
+                } else {
+                    format!("http://{}/{}{}", self.domain, self.proxy, url)
+                }
+            }
         }
+        
     }
 }
 
