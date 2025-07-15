@@ -2503,8 +2503,13 @@ impl TryFrom<DbEntry<'_>> for RevokeData {
     fn try_from(value: DbEntry<'_>) -> Result<Self, Self::Error> {
         let ts: String = value.row_data.get(0)?;
         let tsa: Vec<u32> = ts.split(';').map(|a| a.parse::<u32>().unwrap()).collect();
-        let tstring = format!("{:04};{:02};{:02};{:02};{:02};{:02}", tsa[0], tsa[1], tsa[2], tsa[3], tsa[4], tsa[5]);
-        let datetime = chrono::NaiveDateTime::parse_from_str(&tstring, "%Y;%m;%d;%H;%M;%S").unwrap().and_utc();
+        let tstring = format!(
+            "{:04};{:02};{:02};{:02};{:02};{:02}",
+            tsa[0], tsa[1], tsa[2], tsa[3], tsa[4], tsa[5]
+        );
+        let datetime = chrono::NaiveDateTime::parse_from_str(&tstring, "%Y;%m;%d;%H;%M;%S")
+            .unwrap()
+            .and_utc();
         let t = ocsp::common::asn1::GeneralizedTime::new(
             tsa[0] as i32,
             tsa[1],
@@ -3033,8 +3038,12 @@ impl Ca {
     }
 
     /// Performs an iteration of all certificates, processing them with the given closure.
-    pub async fn certificate_processing<'a, F>(&'a self, mut process: F)
-    where
+    pub async fn certificate_processing<'a, F>(
+        &'a self,
+        num_results: usize,
+        offset: usize,
+        mut process: F,
+    ) where
         F: FnMut(CertificateInfo) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
@@ -3048,7 +3057,7 @@ impl Ca {
                     p.conn(move |conn| {
                         let mut stmt = conn
                             .prepare(
-                                "SELECT * from certs LEFT JOIN revoked ON certs.id = revoked.id",
+                                &format!("SELECT * from certs LEFT JOIN revoked ON certs.id = revoked.id LIMIT {} OFFSET {}", num_results, offset),
                             )
                             .unwrap();
                         let mut rows = stmt.query([]).unwrap();
@@ -3235,7 +3244,8 @@ impl Ca {
                         )
                     })
                     .await;
-                cert.inspect_err(|a| service::log::info!("USER CERT ERR IS {:?}", a)).ok()
+                cert.inspect_err(|a| service::log::info!("USER CERT ERR IS {:?}", a))
+                    .ok()
             }
         }
     }

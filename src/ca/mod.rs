@@ -1319,9 +1319,22 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
         }
     }
 
+    const RESULTS_PER_PAGE: usize = 10;
+
+    let page = if let Some(p) = s.get.get("page") {
+        if let Ok(p) = p.parse::<usize>() {
+            p
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let offset = page * RESULTS_PER_PAGE;
+
     let mut csr_list: Vec<CertificateInfo> = Vec::new();
     if admin {
-        ca.certificate_processing(|ci| {
+        ca.certificate_processing(RESULTS_PER_PAGE, offset, |ci| {
             csr_list.push(ci);
         })
         .await;
@@ -1357,6 +1370,21 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                 }
             }
             b.thematic_break(|a| a);
+            if page > 0 {
+                b.anchor(|ab| {
+                    ab.text("Prev page");
+                    ab.href(format!("./view_all_certs.rs?page={}", page - 1));
+                    ab
+                })
+                .line_break(|a| a);
+            }
+            b.anchor(|ab| {
+                ab.text("Next page");
+                ab.href(format!("./view_all_certs.rs?page={}", page + 1));
+                ab
+            })
+            .line_break(|a| a);
+            b.line_break(|lb| lb);
             b.anchor(|ab| {
                 ab.text("Back to main page");
                 ab.href(".");
@@ -1449,7 +1477,8 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                     if let Some(r) = ci.revoked {
                         b.text("CERTIFICATE IS REVOKED").line_break(|a| a);
                         do_show_revoked(b, r.data.revocation_reason);
-                        b.text(format!("Revoked at {}", r.revoked.to_rfc2822())).line_break(|a| a);
+                        b.text(format!("Revoked at {}", r.revoked.to_rfc2822()))
+                            .line_break(|a| a);
                     }
                     let csr_names: Vec<String> = cert
                         .tbs_certificate
