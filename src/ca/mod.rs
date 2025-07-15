@@ -573,6 +573,12 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                     ab
                 });
                 b.line_break(|lb| lb);
+                b.anchor(|ab| {
+                    ab.text("Refresh certificate search");
+                    ab.href("ca/refresh_certificate_search.rs");
+                    ab
+                });
+                b.line_break(|lb| lb);
             }
             b
         });
@@ -1367,6 +1373,11 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     });
                     b.line_break(|lb| lb);
                     do_show_revoked(b, c.revoked);
+                    b.text(format!(
+                        "{:?}",
+                        ca_common::CertificateSearchable::try_from(&c.cert)
+                    ))
+                    .line_break(|a| a);
                 }
             }
             b.thematic_break(|a| a);
@@ -2297,6 +2308,94 @@ async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
     }
 }
 
+/// Run an ocsp response for a ca
+async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    const RESULTS_PER_PAGE: usize = 100;
+
+    let page = if let Some(p) = s.get.get("page") {
+        if let Ok(p) = p.parse::<usize>() {
+            p
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let offset = page * RESULTS_PER_PAGE;
+
+    let mut list: Vec<CertificateInfo> = Vec::new();
+    if admin {
+        ca.certificate_processing(RESULTS_PER_PAGE, offset, |ci| {
+            list.push(ci);
+        })
+        .await;
+    }
+
+    let count_worked = list.len();
+    for cert in list {
+        ca.insert_searchable(&cert.cert, cert.id).await;
+    }
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+        .body(|b| {
+            if admin {
+                b.anchor(|ab| {
+                    ab.text("Back to main page");
+                    ab.href(".");
+                    ab
+                })
+                .line_break(|a| a);
+                b.text(format!(
+                    "Updated {} certificate search elements",
+                    count_worked
+                ))
+                .line_break(|a| a);
+                if count_worked > 0 {
+                    b.anchor(|ab| {
+                        ab.text("Process next page");
+                        ab.href(format!("./refresh_certificate_search.rs?page={}", page + 1));
+                        ab
+                    })
+                    .line_break(|a| a);
+                }
+            }
+            b
+        });
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.build().to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// Run the refresh process that rebuilds the search table
+async fn ca_refresh_certificate_search(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_refresh_certificate_search(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_refresh_certificate_search(ca, &s).await,
+    }
+}
+
 /// Add elements for a generic header in the ca code.
 /// # Arguments
 /// * h - The `html::metadata::builders::HeadBuilder` to modify
@@ -2387,6 +2486,10 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
         router.register(&format!("{}/ca/request_sign.rs", name), ca_sign_request);
         router.register(&format!("{}/ca/request_reject.rs", name), ca_reject_request);
         router.register(&format!("{}/ca/get_admin.rs", name), ca_get_admin);
+        router.register(
+            &format!("{}/ca/refresh_certificate_search.rs", name),
+            ca_refresh_certificate_search,
+        );
         router.register(
             &format!("{}/ca/revoke_cert.rs", name),
             ca_revoke_certificate,

@@ -14,6 +14,7 @@ use cert_common::SshSigningMethod;
 use chrono::Datelike;
 use chrono::Timelike;
 use der::asn1::UtcTime;
+use der::Decode;
 use ocsp::response::RevokedInfo;
 use rcgen::RemoteKeyPair;
 use x509_cert::ext::pkix::AccessDescription;
@@ -1086,6 +1087,10 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(p) => {
                 p.conn(move |conn| {
                     conn.execute("CREATE TABLE IF NOT EXISTS revoked ( id INTEGER PRIMARY KEY, date TEXT, reason INTEGER)", [])
+                })
+                .await.map_err(|_|())?;
+                p.conn(move |conn| {
+                    conn.execute("CREATE TABLE IF NOT EXISTS searchable ( id INTEGER PRIMARY KEY, cn TEXT, country TEXT, state TEXT, locality TEXT, organization TEXT, ou TEXT)", [])
                 })
                 .await.map_err(|_|())?;
             }
@@ -2583,6 +2588,86 @@ pub struct CertificateInfo {
     pub revoked: Option<ocsp::response::CrlReason>,
 }
 
+/// A structure containining the things that might be searched for in a certificate
+#[derive(Debug, Default)]
+pub struct CertificateSearchable {
+    /// THe CN field of the subject
+    common_name: Option<String>,
+    /// The country field
+    country: Option<String>,
+    /// the state field
+    state: Option<String>,
+    /// The locality field
+    locality: Option<String>,
+    /// The organization field
+    organization: Option<String>,
+    /// The organizational unit field
+    ou: Option<String>,
+}
+
+impl TryFrom<&x509_cert::Certificate> for CertificateSearchable {
+    type Error = String;
+    fn try_from(value: &x509_cert::Certificate) -> Result<Self, Self::Error> {
+        let s = &value.tbs_certificate.subject;
+        let mut searchable = CertificateSearchable::default();
+        for item in &s.0 {
+            for l in item.0.iter() {
+                let v = String::from_utf8(l.value.value().to_vec());
+                if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 3]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.common_name = v.ok();
+                } else if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 6]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.country = v.ok();
+                } else if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 8]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.state = v.ok();
+                } else if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 7]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.locality = v.ok();
+                } else if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 10]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.organization = v.ok();
+                } else if l.oid
+                    == cert_common::oid::Oid::from_const(
+                        const_oid::ObjectIdentifier::from_arcs([2, 5, 4, 11]).unwrap(),
+                    )
+                    .to_const()
+                {
+                    searchable.ou = v.ok();
+                } else {
+                    if let Ok(v) = v {
+                        return Err(format!("UNHANDLED OID: {} - {}", l.oid, v));
+                    } else {
+                        return Err(format!("UNHANDLED OID: {} - ?", l.oid));
+                    }
+                }
+            }
+        }
+        Ok(searchable)
+    }
+}
+
 impl Ca {
     /// Set the shutdown sender
     pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
@@ -3478,8 +3563,41 @@ impl Ca {
         Ok(())
     }
 
+    pub async fn insert_searchable(&mut self, cert: &x509_cert::Certificate, id: u64) {
+        let searchable = CertificateSearchable::try_from(cert);
+        if let Ok(s) = searchable {
+            // destructure to make it obvious that items were missed if they are added in the future
+            let CertificateSearchable {
+                common_name,
+                country,
+                state,
+                locality,
+                organization,
+                ou,
+            } = s;
+            match &self.medium {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::Sqlite(p) => {
+                    p.conn(move |conn| {
+                        let mut stmt = conn
+                            .prepare("REPLACE INTO searchable (id, cn, country, state, locality, organization, ou) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
+                            .expect("Failed to build prepared statement");
+                        stmt.execute([id.to_sql().unwrap(),
+                            common_name.to_sql().unwrap(),
+                            country.to_sql().unwrap(),
+                            state.to_sql().unwrap(),
+                            locality.to_sql().unwrap(),
+                            organization.to_sql().unwrap(),
+                            ou.to_sql().unwrap()])
+                    }).await.expect("Failed to insert");
+                }
+            }
+        }
+    }
+
     /// Save the user cert of the specified index to storage
     pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: &[u8]) {
+        let decoded_cert = x509_cert::Certificate::from_der(der);
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::Sqlite(p) => {
@@ -3501,6 +3619,9 @@ impl Ca {
                 })
                 .await
                 .expect("Failed to insert serial number for certificate");
+                if let Ok(cert) = decoded_cert {
+                    self.insert_searchable(&cert, id).await;
+                }
             }
         }
     }

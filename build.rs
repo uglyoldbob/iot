@@ -23,19 +23,6 @@ fn main() {
             eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
             panic!("build failed");
         }
-
-        // Build jcardsim JAR using Maven, setting JC_CLASSIC_HOME to javacard-sdk/jc305u3_kit
-        let mut jcardsim_cmd = std::process::Command::new("mvn");
-        jcardsim_cmd.args(["package", "-e"]).current_dir("./jcardsim");
-        jcardsim_cmd.env("JC_CLASSIC_HOME", "../javacard-sdk/jc305u3_kit");
-        let jcardsim_build = jcardsim_cmd
-            .output()
-            .expect("Failed to run mvn package for jcardsim");
-        if !jcardsim_build.status.success() {
-            println!("{}", String::from_utf8_lossy(&jcardsim_build.stdout));
-            eprintln!("{}", String::from_utf8_lossy(&jcardsim_build.stderr));
-            panic!("jcardsim build failed");
-        }
     }
 
     // false - run npm out of the source directory
@@ -111,88 +98,4 @@ fn main() {
             }
         }
     }
-
-    // Build the vsmartcard/virtualsmartcard/src/vpcd project using autotools and make
-    let vsmartcard_dir = source_path.join("vsmartcard/virtualsmartcard");
-
-    // --- Build PivApplet Java classes if present ---
-    let pivapplet_src = source_path.join("PivApplet/src/net/cooperi/pivapplet");
-    let pivapplet_out = source_path.join("PivApplet/classes");
-    let jcardsim_jar = source_path.join("target/dependency/jcardsim-3.0.6.0.jar");
-
-    if pivapplet_src.exists() {
-        std::fs::create_dir_all(&pivapplet_out)
-            .expect("Failed to create PivApplet/classes directory");
-
-        // Enumerate all .java files and pass them individually to javac
-        let java_files: Vec<_> = std::fs::read_dir(&pivapplet_src)
-            .expect("Failed to read PivApplet source directory")
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let path = entry.path();
-                if path.extension()? == "java" {
-                    Some(path)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if java_files.is_empty() {
-            panic!("No Java files found in PivApplet source directory");
-        }
-
-        // Add JavaCard SDK api_classic.jar to classpath
-        let javacard_api_jar = source_path.join("javacard-sdk/jc305u3_kit/lib/api_classic.jar");
-        let classpath = format!("{}:{}", jcardsim_jar.display(), javacard_api_jar.display());
-
-        let mut javac_cmd = std::process::Command::new("javac");
-        javac_cmd
-            .arg("-d")
-            .arg(&pivapplet_out)
-            .arg("-classpath")
-            .arg(&classpath);
-
-        for file in &java_files {
-            javac_cmd.arg(file);
-        }
-
-        let javac_status = javac_cmd
-            .status()
-            .expect("Failed to run javac for PivApplet");
-
-        if !javac_status.success() {
-            panic!("javac failed to build PivApplet");
-        } else {
-            println!("cargo:warning=PivApplet built successfully");
-        }
-    } else {
-        println!("cargo:warning=PivApplet source not found, skipping Java build");
-    }
-    // Run autoreconf -vis
-    let autoreconf_status = std::process::Command::new("autoreconf")
-        .arg("-vis")
-        .current_dir(&vsmartcard_dir)
-        .status()
-        .expect("Failed to run autoreconf for vsmartcard/virtualsmartcard");
-    if !autoreconf_status.success() {
-        panic!("autoreconf for vsmartcard/virtualsmartcard failed");
-    }
-    // Run ./configure
-    let configure_status = std::process::Command::new("./configure")
-        .current_dir(&vsmartcard_dir)
-        .status()
-        .expect("Failed to run configure for vsmartcard/virtualsmartcard");
-    if !configure_status.success() {
-        panic!("configure for vsmartcard/virtualsmartcard failed");
-    }
-    // Run make
-    let make_status = std::process::Command::new("make")
-        .current_dir(&vsmartcard_dir)
-        .status()
-        .expect("Failed to run make for vsmartcard/virtualsmartcard");
-    if !make_status.success() {
-        panic!("make for vsmartcard/virtualsmartcard failed");
-    }
-    println!("cargo::rerun-if-changed=vsmartcard/virtualsmartcard");
 }
