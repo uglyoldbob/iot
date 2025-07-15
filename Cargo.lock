@@ -4812,6 +4812,7 @@ dependencies = [
  "bincode",
  "card",
  "cert-common",
+ "chrono",
  "clap",
  "cms",
  "const-oid",

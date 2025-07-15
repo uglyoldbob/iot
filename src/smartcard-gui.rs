@@ -117,21 +117,38 @@ async fn handle_card_stuff(
                     service::log::info!("CERT IS {:?}", cert);
                     client = client.add_root_certificate(cert);
                 }
-                let client = client.danger_accept_invalid_hostnames(true).use_rustls_tls().build().unwrap();
-                let url_get = url_encoded_data::stringify(&[("id", id.to_string().as_str()), ("smartcard", "1"), ("type", "pem")]);
+                let client = client
+                    .danger_accept_invalid_hostnames(true)
+                    .use_rustls_tls()
+                    .build()
+                    .unwrap();
+                let url_get = url_encoded_data::stringify(&[
+                    ("id", id.to_string().as_str()),
+                    ("smartcard", "1"),
+                    ("type", "pem"),
+                ]);
                 let url = format!("{}/ca/get_cert.rs?{}", server, url_get);
                 let res = client.get(url).send().await;
                 if let Ok(r) = res {
                     let data = r.bytes().await.unwrap().to_vec();
-                    let h = url_encoded_data::UrlEncodedData::parse_str(str::from_utf8(&data).unwrap());
+                    let h =
+                        url_encoded_data::UrlEncodedData::parse_str(str::from_utf8(&data).unwrap());
                     let cert = h.get("cert");
                     if let Some(cert) = cert {
                         let cert = cert.first().unwrap().to_string();
-                        let _ = send.send(smartcard_root::Response::CertificateCreated(cert)).await;
+                        let _ = send
+                            .send(smartcard_root::Response::CertificateCreated(cert))
+                            .await;
                     }
                 }
             }
-            smartcard_root::Message::SubmitCsr { csr, server, name, email, phone } => {
+            smartcard_root::Message::SubmitCsr {
+                csr,
+                server,
+                name,
+                email,
+                phone,
+            } => {
                 let mut client = reqwest::ClientBuilder::new();
                 for s in &ca_certs {
                     service::log::info!("Trying to register server cert: -{}-", s);
@@ -139,7 +156,11 @@ async fn handle_card_stuff(
                     service::log::info!("CERT IS {:?}", cert);
                     client = client.add_root_certificate(cert);
                 }
-                let client = client.danger_accept_invalid_hostnames(true).use_rustls_tls().build().unwrap();
+                let client = client
+                    .danger_accept_invalid_hostnames(true)
+                    .use_rustls_tls()
+                    .build()
+                    .unwrap();
                 let url = format!("{}/ca/submit_request.rs", server);
                 let mut form = std::collections::HashMap::new();
                 form.insert("csr", csr);
@@ -147,10 +168,7 @@ async fn handle_card_stuff(
                 form.insert("email", email);
                 form.insert("phone", phone);
                 form.insert("smartcard", "1".to_string());
-                let res = client.post(url)
-                    .form(&form)
-                    .send()
-                    .await;
+                let res = client.post(url).form(&form).send().await;
                 if let Ok(res) = res {
                     let d = String::from_utf8(res.bytes().await.unwrap().to_vec()).unwrap();
                     let h = url_encoded_data::UrlEncodedData::parse_str(&d);
@@ -158,15 +176,19 @@ async fn handle_card_stuff(
                     if let Some(id) = id {
                         let id = id.first().unwrap().parse::<usize>().unwrap();
                         service::log::info!("The id is {:?}", id);
-                        let _ = send.send(smartcard_root::Response::CsrSubmitStatus(Some(id))).await;
+                        let _ = send
+                            .send(smartcard_root::Response::CsrSubmitStatus(Some(id)))
+                            .await;
+                    } else {
+                        let _ = send
+                            .send(smartcard_root::Response::CsrSubmitStatus(None))
+                            .await;
                     }
-                    else {
-                        let _ = send.send(smartcard_root::Response::CsrSubmitStatus(None)).await;
-                    }
-                }
-                else {
+                } else {
                     service::log::error!("Error submitting csr: {:?}", res.err());
-                    let _ = send.send(smartcard_root::Response::CsrSubmitStatus(None)).await;
+                    let _ = send
+                        .send(smartcard_root::Response::CsrSubmitStatus(None))
+                        .await;
                 }
             }
             _ => {}
@@ -196,13 +218,17 @@ fn main() {
         service::log::debug!("Opening {}", pb);
         let mut f = std::fs::File::open(pb).unwrap();
         f.read_to_end(&mut settings_con).unwrap();
-        let c : SmartCardGuiConfig = toml::from_str(std::str::from_utf8(&settings_con).unwrap()).unwrap();
+        let c: SmartCardGuiConfig =
+            toml::from_str(std::str::from_utf8(&settings_con).unwrap()).unwrap();
         c
     };
 
     let asdf = runtime.spawn(handle_card_stuff(ch.1, ch2.0, config.ca_certs.clone()));
 
-    service::log::info!("The urls for smartcard registering are {:?}", config.ca_urls);
+    service::log::info!(
+        "The urls for smartcard registering are {:?}",
+        config.ca_urls
+    );
 
     let mut ac = AppCommon {
         send: ch.0,

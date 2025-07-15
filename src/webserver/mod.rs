@@ -168,7 +168,6 @@ impl WebPageContext {
                 }
             }
         }
-        
     }
 }
 

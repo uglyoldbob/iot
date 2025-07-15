@@ -11,7 +11,10 @@ use cert_common::pkcs12::ProtectedPkcs12;
 use cert_common::CertificateSigningMethod;
 use cert_common::HttpsSigningMethod;
 use cert_common::SshSigningMethod;
+use chrono::Datelike;
+use chrono::Timelike;
 use der::asn1::UtcTime;
+use ocsp::response::RevokedInfo;
 use rcgen::RemoteKeyPair;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
@@ -1074,6 +1077,22 @@ pub enum CertificateSaveError {
 }
 
 impl CaCertificateStorage {
+    /// Perform any needed in place updates to the database
+    /// This prevents the need to build a new ca for database additions.
+    pub async fn validate(&mut self) -> Result<(), ()> {
+        service::log::info!("Validating database tables");
+        match self {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    conn.execute("CREATE TABLE IF NOT EXISTS revoked ( id INTEGER PRIMARY KEY, date TEXT, reason INTEGER)", [])
+                })
+                .await.map_err(|_|())?;
+            }
+        }
+        Ok(())
+    }
+
     /// Initialize the storage medium
     pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) -> Result<(), ()> {
         let sign_method = settings.sign_method;
@@ -1110,6 +1129,7 @@ impl CaCertificateStorage {
                 .await.map_err(|_|())?;
             }
         }
+        self.validate().await?;
         Ok(())
     }
 
@@ -2454,6 +2474,55 @@ impl PkiInstance {
     }
 }
 
+/// The structure containing revokation data for a certificate
+pub struct RevokeData {
+    /// The raw revoked info data
+    pub data: ocsp::response::RevokedInfo,
+    /// More usable form of when the certificate was revoked
+    pub revoked: chrono::DateTime<chrono::Utc>,
+}
+
+fn match_crl_reason(cr: i32) -> Option<ocsp::response::CrlReason> {
+    match cr {
+        0 => Some(ocsp::response::CrlReason::OcspRevokeUnspecified),
+        1 => Some(ocsp::response::CrlReason::OcspRevokeKeyCompromise),
+        2 => Some(ocsp::response::CrlReason::OcspRevokeCaCompromise),
+        3 => Some(ocsp::response::CrlReason::OcspRevokeAffChanged),
+        4 => Some(ocsp::response::CrlReason::OcspRevokeSuperseded),
+        5 => Some(ocsp::response::CrlReason::OcspRevokeCessOperation),
+        6 => Some(ocsp::response::CrlReason::OcspRevokeCertHold),
+        8 => Some(ocsp::response::CrlReason::OcspRevokeRemoveFromCrl),
+        9 => Some(ocsp::response::CrlReason::OcspRevokePrivWithdrawn),
+        10 => Some(ocsp::response::CrlReason::OcspRevokeAaCompromise),
+        _ => None,
+    }
+}
+
+impl TryFrom<DbEntry<'_>> for RevokeData {
+    type Error = async_sqlite::rusqlite::Error;
+    fn try_from(value: DbEntry<'_>) -> Result<Self, Self::Error> {
+        let ts: String = value.row_data.get(0)?;
+        let tsa: Vec<u32> = ts.split(';').map(|a| a.parse::<u32>().unwrap()).collect();
+        let tstring = format!("{:04};{:02};{:02};{:02};{:02};{:02}", tsa[0], tsa[1], tsa[2], tsa[3], tsa[4], tsa[5]);
+        let datetime = chrono::NaiveDateTime::parse_from_str(&tstring, "%Y;%m;%d;%H;%M;%S").unwrap().and_utc();
+        let t = ocsp::common::asn1::GeneralizedTime::new(
+            tsa[0] as i32,
+            tsa[1],
+            tsa[2],
+            tsa[3],
+            tsa[4],
+            tsa[5],
+        )
+        .unwrap();
+        let cr = value.row_data.get(1)?;
+        let r = match_crl_reason(cr);
+        Ok(Self {
+            data: ocsp::response::RevokedInfo::new(t, r),
+            revoked: datetime.into(),
+        })
+    }
+}
+
 /// The actual ca object
 #[derive(Debug)]
 pub struct Ca {
@@ -2479,10 +2548,71 @@ pub struct Ca {
     pub shutdown: Option<tokio::sync::mpsc::UnboundedSender<()>>,
 }
 
+/// The data submitted by the user or admin for revoking a certificate
+pub struct RevokeFormData {
+    /// The id of the certificate to revoke
+    pub id: usize,
+    /// The numeric code for revoking the certificate. see RFC 5280 or ocsp::response::CrlReason
+    pub reason: u8,
+}
+
+/// A structure holding the raw der contents of a certificate, like CertificateInfo
+pub struct RawCertificateInfo {
+    /// The certificate in der format
+    pub cert: Vec<u8>,
+    /// The id of the certificate
+    pub id: u64,
+    /// The revocation status
+    pub revoked: Option<RevokeData>,
+}
+
+/// A structure used when iterating over certificates for the front end
+pub struct CertificateInfo {
+    /// The index of the certificate
+    index: usize,
+    /// The certificate
+    pub cert: x509_cert::certificate::CertificateInner,
+    /// The id of the certificate
+    pub id: u64,
+    /// The revocation status
+    pub revoked: Option<ocsp::response::CrlReason>,
+}
+
 impl Ca {
     /// Set the shutdown sender
     pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
         self.shutdown = Some(sd);
+    }
+
+    pub async fn revoke_certificate(&mut self, form: RevokeFormData) -> Result<(), ()> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let date = chrono::Utc::now();
+                    let dates = format!(
+                        "{};{};{};{};{};{}",
+                        date.year(),
+                        date.month(),
+                        date.day(),
+                        date.hour(),
+                        date.minute(),
+                        date.second()
+                    );
+                    let mut stmt =
+                        conn.prepare("INSERT INTO revoked (id, date, reason) VALUES (?1, ?2, ?3)")?;
+                    stmt.execute([
+                        form.id.to_sql().unwrap(),
+                        dates.to_sql().unwrap(),
+                        form.reason.to_sql().unwrap(),
+                    ])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
     }
 
     /// Check to see if the https certifiate should be created
@@ -2905,7 +3035,7 @@ impl Ca {
     /// Performs an iteration of all certificates, processing them with the given closure.
     pub async fn certificate_processing<'a, F>(&'a self, mut process: F)
     where
-        F: FnMut(usize, x509_cert::Certificate, u64) + Send + 'a,
+        F: FnMut(CertificateInfo) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
 
@@ -2916,15 +3046,60 @@ impl Ca {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
-                        let mut stmt = conn.prepare("SELECT * from certs").unwrap();
+                        let mut stmt = conn
+                            .prepare(
+                                "SELECT * from certs LEFT JOIN revoked ON certs.id = revoked.id",
+                            )
+                            .unwrap();
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
                             let id = r.get(0).unwrap();
                             let der: Vec<u8> = r.get(1).unwrap();
+                            let date: Option<String> = r.get(3).ok();
+                            let reason: Option<u32> = r.get(4).ok();
+                            let revoked = if let Some(date) = date {
+                                if let Some(reason) = reason {
+                                    match reason {
+                                        0 => Some(ocsp::response::CrlReason::OcspRevokeUnspecified),
+                                        1 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokeKeyCompromise)
+                                        }
+                                        2 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokeCaCompromise)
+                                        }
+                                        3 => Some(ocsp::response::CrlReason::OcspRevokeAffChanged),
+                                        4 => Some(ocsp::response::CrlReason::OcspRevokeSuperseded),
+                                        5 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokeCessOperation)
+                                        }
+                                        6 => Some(ocsp::response::CrlReason::OcspRevokeCertHold),
+                                        8 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokeRemoveFromCrl)
+                                        }
+                                        9 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokePrivWithdrawn)
+                                        }
+                                        10 => {
+                                            Some(ocsp::response::CrlReason::OcspRevokeAaCompromise)
+                                        }
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            };
                             let cert: x509_cert::Certificate =
                                 x509_cert::Certificate::from_der(&der).unwrap();
-                            s.send((index, cert, id)).unwrap();
+                            let ci = CertificateInfo {
+                                index,
+                                cert,
+                                id,
+                                revoked,
+                            };
+                            s.send(ci).unwrap();
                             index += 1;
                         }
                         Ok(())
@@ -2934,8 +3109,8 @@ impl Ca {
                 }
             }
         });
-        while let Some((index, csr, id)) = r.recv().await {
-            process(index, csr, id);
+        while let Some(c) = r.recv().await {
+            process(c);
         }
     }
 
@@ -3010,23 +3185,57 @@ impl Ca {
     }
 
     /// Retrieve the specified index of user certificate
-    pub async fn get_user_cert(&self, id: u64) -> Option<Vec<u8>> {
+    pub async fn get_user_cert(&self, id: u64) -> Option<RawCertificateInfo> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
-                let cert: Result<Vec<u8>, async_sqlite::Error> = p
+                let cert: Result<RawCertificateInfo, async_sqlite::Error> = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT der FROM certs WHERE id='{}'", id),
+                            &format!("SELECT der, reason, date FROM certs LEFT JOIN revoked on certs.id=revoked.id WHERE certs.id='{}'", id),
                             [],
-                            |r| r.get(0),
+                            |r| {
+                                let cert = r.get(0)?;
+                                let reason: Option<u32> = r.get(1).ok();
+                                let reason = reason.map(|r| match_crl_reason(r as i32)).flatten();
+                                let ts: Option<String> = r.get(2).ok();
+                                let t = if let Some(ts) = &ts {
+                                    let tsa: Vec<u32> = ts.split(';').map(|a| a.parse::<u32>().unwrap()).collect();
+                                    ocsp::common::asn1::GeneralizedTime::new(
+                                        tsa[0] as i32,
+                                        tsa[1],
+                                        tsa[2],
+                                        tsa[3],
+                                        tsa[4],
+                                        tsa[5],
+                                    ).ok()
+                                } else {
+                                    None
+                                };
+                                let data = if let Some(t) = t {
+                                    let tstring = ts.unwrap();
+                                    let tsa: Vec<u32> = tstring.split(';').map(|a| a.parse::<u32>().unwrap()).collect();
+                                    let tstring = format!("{:04};{:02};{:02};{:02};{:02};{:02}", tsa[0], tsa[1], tsa[2], tsa[3], tsa[4], tsa[5]);
+                                    service::log::info!("Parsing revoke string {:?}", tstring);
+                                    let datetime = chrono::NaiveDateTime::parse_from_str(&tstring, "%Y;%m;%d;%H;%M;%S").unwrap().and_utc();
+                                    let a = RevokedInfo::new(t, reason);
+                                    Some(RevokeData {
+                                        data: a,
+                                        revoked: datetime,
+                                    })
+                                } else {
+                                    None
+                                };
+                                Ok(RawCertificateInfo {
+                                    cert,
+                                    id,
+                                    revoked: data,
+                                })
+                            }
                         )
                     })
                     .await;
-                match cert {
-                    Ok(c) => Some(c),
-                    Err(_e) => None,
-                }
+                cert.inspect_err(|a| service::log::info!("USER CERT ERR IS {:?}", a)).ok()
             }
         }
     }
@@ -3342,25 +3551,45 @@ impl Ca {
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::Sqlite(p) => {
+                let s2_str = s_str.clone();
                 let cert: Result<Vec<u8>, async_sqlite::Error> = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s_str),
+                            &format!("SELECT der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str),
                             [],
                             |r| r.get(0),
                         )
                     })
                     .await;
+
+                let revoke_query = p
+                .conn(move |conn| {
+                    conn.query_row(
+                        &format!("SELECT date, reason FROM revoked INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s_str),
+                        [],
+                        |r| {
+                            let dbentry = DbEntry::new(r);
+                            let revoke_data = RevokeData::try_from(dbentry);
+                            revoke_data
+                        }
+                    )
+                });
                 match cert {
                     Ok(c) => {
-                        use der::Decode;
-                        let c = x509_cert::Certificate::from_der(&c);
-                        match c {
-                            Ok(c) => {
-                                service::log::info!("Found the cert");
-                                MaybeError::Ok(c)
+                        let revoked = revoke_query.await;
+                        match revoked {
+                            Ok(revoked) => MaybeError::Err(revoked.data),
+                            Err(_) => {
+                                use der::Decode;
+                                let c = x509_cert::Certificate::from_der(&c);
+                                match c {
+                                    Ok(c) => {
+                                        service::log::info!("Found the cert");
+                                        MaybeError::Ok(c)
+                                    }
+                                    Err(_e) => MaybeError::None,
+                                }
                             }
-                            Err(_e) => MaybeError::None,
                         }
                     }
                     Err(e) => {
@@ -3597,11 +3826,12 @@ impl Ca {
 
     /// Create a Self from the application configuration
     pub async fn from_config(settings: &crate::ca::CaConfiguration) -> Result<Self, CaLoadError> {
-        let medium = settings
+        let mut medium = settings
             .path
             .build()
             .await
             .map_err(|e| CaLoadError::StorageError(e))?;
+        medium.validate().await;
         Ok(Self {
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist("root".to_string())),

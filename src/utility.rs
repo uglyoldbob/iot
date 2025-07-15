@@ -73,9 +73,13 @@ pub fn run_smartcard_sim() -> Option<DroppingProcess> {
             "80b80000120ba000000308000010000100050000020F0F7f",
         ]);
         std::thread::sleep(std::time::Duration::from_secs(5));
-        let asdf = p.output()
+        let asdf = p
+            .output()
             .expect("Failed to initialize smartcard simulator");
-        service::log::info!("Initialize output is {}", String::from_utf8(asdf.stdout).unwrap());
+        service::log::info!(
+            "Initialize output is {}",
+            String::from_utf8(asdf.stdout).unwrap()
+        );
         Some(DroppingProcess { c: a })
     } else {
         None

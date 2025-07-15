@@ -108,15 +108,18 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
             response: hyper::http::Response::from_parts(response, body),
             cookie: s.logincookie.clone(),
         }
-    }
-    else {
+    } else {
         let mut bm = Vec::new();
         if valid_csr {
             if let Some(id) = id {
                 bm.push(("id", id.to_string()));
             }
         }
-        let bm2 : Vec<(&str, &str)> = bm.as_slice().iter().map(|(i, a)| (*i, a.as_str())).collect();
+        let bm2: Vec<(&str, &str)> = bm
+            .as_slice()
+            .iter()
+            .map(|(i, a)| (*i, a.as_str()))
+            .collect();
         let bm = url_encoded_data::stringify(bm2.as_slice());
 
         let response = hyper::Response::new("dummy");
@@ -500,7 +503,13 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let cs = s.user_certs.all_certs();
     for cert in cs {
         if user.is_none() {
-            let a : Vec<String> = cert.tbs_certificate.subject.0.iter().map(|l| l.to_string()).collect();
+            let a: Vec<String> = cert
+                .tbs_certificate
+                .subject
+                .0
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
             let a = a.join(",");
             user = Some(a);
         }
@@ -674,6 +683,80 @@ async fn ca_main_page2(s: WebPageContext) -> WebResponse {
 }
 
 /// Reject a specified request for a certificate authority
+async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    let pki = ca.config.get_pki_name().to_owned();
+    let mut admin = false;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let mut allowed_to_revoke = false;
+
+    if admin {
+        allowed_to_revoke = true;
+    }
+
+    let mut revoked = false;
+
+    if allowed_to_revoke {
+        let p = &s.post;
+        if let Some(form) = p.form() {
+            if let Some(ids) = form.get_first("id") {
+                if let Ok(id) = ids.parse::<usize>() {
+                    if let Some(reasona) = form.get_first("reason") {
+                        if let Ok(reason) = reasona.parse::<u8>() {
+                            let form_data = ca_common::RevokeFormData { id, reason };
+                            revoked = ca.revoke_certificate(form_data).await.is_ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
+        .body(|b| {
+            if !allowed_to_revoke {
+                b.text("You are not allowed to revoke this certificate")
+                    .line_break(|a| a);
+            } else {
+                if revoked {
+                    b.text("Certificate revoked").line_break(|a| a);
+                } else {
+                    b.text("Failed to revoke certificate").line_break(|a| a);
+                }
+                b.anchor(|ab| {
+                    ab.text("Back to all certificates");
+                    ab.href("./view_all_certs.rs");
+                    ab
+                })
+                .line_break(|a| a);
+                b.anchor(|ab| {
+                    ab.text("Back to main page");
+                    ab.href(".");
+                    ab
+                })
+                .line_break(|a| a);
+            }
+            b
+        });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// Reject a specified request for a certificate authority
 async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
@@ -742,6 +825,22 @@ async fn ca_reject_request(s: WebPageContext) -> WebResponse {
             handle_ca_reject_request(ca, &s).await
         }
         PkiInstance::Ca(ca) => handle_ca_reject_request(ca, &s).await,
+    }
+}
+
+/// Revoke a certificate
+async fn ca_revoke_certificate(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.roots.get_mut(name).unwrap();
+            handle_ca_revoke_certificate(ca, &s).await
+        }
+        PkiInstance::Ca(ca) => handle_ca_revoke_certificate(ca, &s).await,
     }
 }
 
@@ -1170,6 +1269,46 @@ async fn ca_list_ssh_requests(s: WebPageContext) -> WebResponse {
     }
 }
 
+fn do_show_revoked(
+    b: &mut html::root::builders::BodyBuilder,
+    r: Option<ocsp::response::CrlReason>,
+) {
+    if let Some(r) = r {
+        match r {
+            ocsp::response::CrlReason::OcspRevokeUnspecified => {
+                b.text("REVOKED: Unspecified reason").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeKeyCompromise => {
+                b.text("REVOKED: Key compromised").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCaCompromise => {
+                b.text("REVOKED: Ca compromised").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeAffChanged => {
+                b.text("REVOKED: Affinity changed").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeSuperseded => {
+                b.text("REVOKED: Superseded").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCessOperation => {
+                b.text("REVOKED: Cessation of operations").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCertHold => {
+                b.text("REVOKED: Certificate hold").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeRemoveFromCrl => {
+                b.text("REVOKED: Removed from crl").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokePrivWithdrawn => {
+                b.text("REVOKED: Privilege withdrawn").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeAaCompromise => {
+                b.text("REVOKED: AA Compromised").line_break(|a| a);
+            }
+        }
+    }
+}
+
 /// View all certificates for a certificate authority
 async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
@@ -1180,10 +1319,10 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
         }
     }
 
-    let mut csr_list: Vec<(x509_cert::Certificate, u64)> = Vec::new();
+    let mut csr_list: Vec<CertificateInfo> = Vec::new();
     if admin {
-        ca.certificate_processing(|_index, cert, id| {
-            csr_list.push((cert, id));
+        ca.certificate_processing(|ci| {
+            csr_list.push(ci);
         })
         .await;
     }
@@ -1199,18 +1338,22 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     .line_break(|a| a);
                 for c in csr_list {
                     b.thematic_break(|a| a);
-                    b.text(format!("Issued by: {}", c.0.tbs_certificate.issuer))
+                    b.text(format!("Issued by: {}", c.cert.tbs_certificate.issuer))
                         .line_break(|a| a);
-                    b.text(format!("Serial #: {}", c.0.tbs_certificate.serial_number))
-                        .line_break(|a| a);
-                    b.text(format!("Subject: {}", c.0.tbs_certificate.subject))
+                    b.text(format!(
+                        "Serial #: {}",
+                        c.cert.tbs_certificate.serial_number
+                    ))
+                    .line_break(|a| a);
+                    b.text(format!("Subject: {}", c.cert.tbs_certificate.subject))
                         .line_break(|a| a);
                     b.anchor(|ab| {
                         ab.text("View details");
-                        ab.href(format!("view_cert.rs?id={}", c.1));
+                        ab.href(format!("view_cert.rs?id={}", c.id));
                         ab
                     });
                     b.line_break(|lb| lb);
+                    do_show_revoked(b, c.revoked);
                 }
             }
             b.thematic_break(|a| a);
@@ -1261,7 +1404,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
 
-    let mut cert: Option<Vec<u8>> = None;
+    let mut cert: Option<RawCertificateInfo> = None;
     let mut csr = None;
     let mut rejection = None;
     let mut myid = 0;
@@ -1296,12 +1439,18 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                 .text("}\n")
                 .text("run();\n")
         });
-        if let Some(cert_der) = cert {
+        if let Some(ci) = cert {
+            let cert_der = ci.cert;
             use der::Decode;
             let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
                 x509_cert::Certificate::from_der(&cert_der);
             match cert {
                 Ok(cert) => {
+                    if let Some(r) = ci.revoked {
+                        b.text("CERTIFICATE IS REVOKED").line_break(|a| a);
+                        do_show_revoked(b, r.data.revocation_reason);
+                        b.text(format!("Revoked at {}", r.revoked.to_rfc2822())).line_break(|a| a);
+                    }
                     let csr_names: Vec<String> = cert
                         .tbs_certificate
                         .subject
@@ -1385,6 +1534,35 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                             }
                         }
                     }
+                    b.form(|f| {
+                        f.method("post");
+                        f.text("Reason to revoke").line_break(|a| a);
+                        f.select(|s| {
+                            s.option(|o| o.value("0").text("Unspecified"));
+                            s.option(|o| o.value("1").text("Key compromise"));
+                            s.option(|o| o.value("2").text("Ca Compromise"));
+                            s.option(|o| o.value("3").text("Affiliation changed"));
+                            s.option(|o| o.value("4").text("Superseded"));
+                            s.option(|o| o.value("5").text("Cessation of operation"));
+                            s.option(|o| o.value("6").text("Certificate hold"));
+                            s.option(|o| o.value("8").text("Remove from crl"));
+                            s.option(|o| o.value("9").text("Privilege withdrawn"));
+                            s.option(|o| o.value("10").text("AA Compromise"));
+                            s.id("reason").name("reason");
+                            s
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .id("id")
+                                .name("id")
+                                .value(myid.to_string())
+                        });
+                        f.input(|i| i.type_("submit").value("REVOKE"))
+                            .line_break(|a| a);
+                        f.action("./revoke_cert.rs");
+                        f
+                    })
+                    .line_break(|a| a);
                     b.button(|b| {
                         b.text("Build certificate")
                             .onclick("wasm_bindgen.build_cert()")
@@ -1488,7 +1666,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
     let response = hyper::Response::new("dummy");
     let (response, _dummybody) = response.into_parts();
 
-    let mut cert: Option<Vec<u8>> = None;
+    let mut cert: Option<RawCertificateInfo> = None;
     let mut csr = None;
     let mut rejection = None;
     let mut myid = 0;
@@ -1624,7 +1802,8 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
     if let Some(id) = s.get.get("id") {
         let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
         if let Ok(id) = id {
-            if let Some(cert_der) = ca.get_user_cert(id).await {
+            if let Some(rci) = ca.get_user_cert(id).await {
+                let cert_der = rci.cert;
                 let ty = if s.get.contains_key("type") {
                     s.get.get("type").unwrap().to_owned()
                 } else {
@@ -1670,7 +1849,11 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
         if let Some(cert) = cert {
             bm.push(("cert", String::from_utf8(cert).unwrap()));
         }
-        let bm2 : Vec<(&str, &str)> = bm.as_slice().iter().map(|(i, a)| (*i, a.as_str())).collect();
+        let bm2: Vec<(&str, &str)> = bm
+            .as_slice()
+            .iter()
+            .map(|(i, a)| (*i, a.as_str()))
+            .collect();
         let bm = url_encoded_data::stringify(bm2.as_slice());
 
         let response = hyper::Response::new("dummy");
@@ -2175,6 +2358,10 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
         router.register(&format!("{}/ca/request_sign.rs", name), ca_sign_request);
         router.register(&format!("{}/ca/request_reject.rs", name), ca_reject_request);
         router.register(&format!("{}/ca/get_admin.rs", name), ca_get_admin);
+        router.register(
+            &format!("{}/ca/revoke_cert.rs", name),
+            ca_revoke_certificate,
+        );
         match &ca.config.sign_method {
             CertificateSigningMethod::Https(_) => {
                 router.register(

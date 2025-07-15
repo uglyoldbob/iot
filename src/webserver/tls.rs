@@ -56,8 +56,9 @@ pub fn load_certificate(
     pki: &Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
     require_cert: bool,
 ) -> Result<Arc<ServerConfig>, Error> {
-
-    tokio_rustls::rustls::crypto::ring::default_provider().install_default().unwrap();
+    tokio_rustls::rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
 
     let pkey_der = https
         .get_private()
