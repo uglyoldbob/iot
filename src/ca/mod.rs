@@ -41,6 +41,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                                 email: form.get_first("email").unwrap().to_string(),
                                 phone: form.get_first("phone").unwrap().to_string(),
                                 id: newid,
+                                sn: CaCertificateToBeSigned::calc_sn().0.to_vec(),
                             };
                             let _ = ca.save_csr(&csrr).await;
                         }
@@ -877,7 +878,6 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
                                 Ok(csr) => {
                                     service::log::info!("Ready to sign the csr");
                                     let ca_cert = ca.root_ca_cert().unwrap();
-                                    let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
                                     if let CertificateSigningMethod::Https(m) =
                                         ca.config.sign_method
                                     {
@@ -900,7 +900,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
                                         let der = cert.contents();
                                         if let Ok(der) = der {
                                             if ca.mark_csr_done(id).await.is_ok() {
-                                                ca.save_user_cert(id, &der, &snb).await;
+                                                ca.save_user_cert(id, &der, None).await;
                                                 csr_check = Ok(der);
                                             }
                                         }

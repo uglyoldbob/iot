@@ -990,12 +990,10 @@ pub struct CaCertificateToBeSigned {
 }
 
 impl CaCertificateToBeSigned {
-    /// Calculate a serial for a certificate from an id.
-    pub fn calc_sn(id: u64) -> ([u8; 20], rcgen::SerialNumber) {
+    /// Generate a random serial number. 20 bytes should be enough to never have a collision.
+    pub fn calc_sn() -> ([u8; 20], rcgen::SerialNumber) {
         let mut snb = [0; 20];
-        for (i, b) in id.to_le_bytes().iter().enumerate() {
-            snb[i] = *b;
-        }
+        snb = rand::random();
         let sn = rcgen::SerialNumber::from_slice(&snb);
         (snb, sn)
     }
@@ -1161,9 +1159,11 @@ impl CaCertificateStorage {
         ca.save_user_cert(
             cert.id,
             cert_der,
-            &cert
-                .get_snb()
-                .map_err(|_| CertificateSaveError::FailedToParseCertificate)?,
+            Some(
+                &cert
+                    .get_snb()
+                    .map_err(|_| CertificateSaveError::FailedToParseCertificate)?,
+            ),
         )
         .await;
         if let Some(label) = cert.data.hsm_label() {
@@ -1867,7 +1867,7 @@ impl CaCertificate {
 
         the_csr.params.not_before = time::OffsetDateTime::now_utc();
         the_csr.params.not_after = the_csr.params.not_before + duration;
-        let (_snb, sn) = CaCertificateToBeSigned::calc_sn(id);
+        let (_snb, sn) = CaCertificateToBeSigned::calc_sn();
         the_csr.params.serial_number = Some(sn);
 
         self.data.sign_csr(csr).ok()
@@ -2770,8 +2770,8 @@ impl Ca {
                 .sign_csr(csr, self, id, time::Duration::days(self.config.days as i64))
                 .unwrap();
             cert.medium = self.medium.clone();
-            let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
-            self.save_user_cert(id, &cert.contents().map_err(|_| ())?, &snb)
+            let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
+            self.save_user_cert(id, &cert.contents().map_err(|_| ())?, Some(&snb))
                 .await;
             let p12 = cert.try_p12(password).unwrap();
             tokio::fs::write(destination, p12).await.unwrap();
@@ -2895,14 +2895,14 @@ impl Ca {
                                 time::Duration::days(ca.config.days as i64),
                             )
                             .unwrap();
-                        let (snb, _sn) = CaCertificateToBeSigned::calc_sn(id);
+                        let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
                         superior
                             .save_user_cert(
                                 id,
                                 &root_cert.contents().map_err(|_| {
                                     CaLoadError::FailedToSaveCertificate("root".to_string())
                                 })?,
-                                &snb,
+                                Some(&snb),
                             )
                             .await;
                         root_cert.medium = ca.medium.clone();
@@ -3221,13 +3221,13 @@ impl Ca {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
-                        let mut stmt = conn.prepare("SELECT * from csr WHERE done='0'").unwrap();
+                        let mut stmt = conn.prepare("SELECT * from csr INNER JOIN serials ON csr.id = serials.id WHERE done='0'").unwrap();
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
                             let id = r.get(0).unwrap();
                             let dbentry = DbEntry::new(r);
-                            let csr = dbentry.into();
+                            let csr : CsrRequest = dbentry.into();
                             s.send((index, csr, id)).unwrap();
                             index += 1;
                         }
@@ -3433,7 +3433,7 @@ impl Ca {
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<CsrRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row(&format!("SELECT * FROM csr WHERE id='{}'", id), [], |r| {
+                        conn.query_row(&format!("SELECT * FROM csr INNER JOIN serials ON csr.id = serials.id WHERE csr.id='{}'", id), [], |r| {
                             let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
                             Ok(csr)
@@ -3504,19 +3504,31 @@ impl Ca {
 
     /// Save the csr to the storage medium
     pub async fn save_csr(&mut self, csr: &CsrRequest) -> Result<(), ()> {
+        let CsrRequest {
+            cert,
+            name,
+            email,
+            phone,
+            id,
+            sn,
+        } = csr.to_owned();
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
-                let csr = csr.to_owned();
                 p.conn(move |conn| {
                     let mut stmt = conn.prepare("INSERT INTO csr (id, requestor, email, phone, pem) VALUES (?1, ?2, ?3, ?4, ?5)").expect("Failed to build statement");
                     stmt.execute([
-                        csr.id.to_sql().unwrap(),
-                        csr.name.to_sql().unwrap(),
-                        csr.email.to_sql().unwrap(),
-                        csr.phone.to_sql().unwrap(),
-                        csr.cert.to_sql().unwrap(),
+                        id.to_sql().unwrap(),
+                        name.to_sql().unwrap(),
+                        email.to_sql().unwrap(),
+                        phone.to_sql().unwrap(),
+                        cert.to_sql().unwrap(),
                     ]).expect("Failed to insert csr");
+                    let mut stmt = conn.prepare("INSERT INTO serials (id, serial) VALUES (?1, ?2)").expect("Failed to build statement");
+                    stmt.execute([
+                        id.to_sql().unwrap(),
+                        sn.to_sql().unwrap(),
+                    ]).expect("Failed to insert csr serial");
                     Ok(())
                 }).await.expect("Failed to insert csr");
                 Ok(())
@@ -3596,7 +3608,7 @@ impl Ca {
     }
 
     /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: &[u8]) {
+    pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: Option<&[u8]>) {
         let decoded_cert = x509_cert::Certificate::from_der(der);
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
@@ -3610,15 +3622,17 @@ impl Ca {
                 })
                 .await
                 .expect("Failed to insert certificate");
-                let serial = sn.to_owned();
-                p.conn(move |conn| {
-                    let mut stmt = conn
-                        .prepare("INSERT INTO serials (id, serial) VALUES (?1, ?2)")
-                        .expect("Failed to build prepared statement");
-                    stmt.execute([id.to_sql().unwrap(), serial.to_sql().unwrap()])
-                })
-                .await
-                .expect("Failed to insert serial number for certificate");
+                if let Some(sn) = sn {
+                    let serial = sn.to_owned();
+                    p.conn(move |conn| {
+                        let mut stmt = conn
+                            .prepare("INSERT INTO serials (id, serial) VALUES (?1, ?2)")
+                            .expect("Failed to build prepared statement");
+                        stmt.execute([id.to_sql().unwrap(), serial.to_sql().unwrap()])
+                    })
+                    .await
+                    .expect("Failed to insert serial number for certificate");
+                }
                 if let Ok(cert) = decoded_cert {
                     self.insert_searchable(&cert, id).await;
                 }
@@ -4278,6 +4292,7 @@ impl<'a> From<DbEntry<'a>> for CsrRequest {
             email: val.row_data.get(2).unwrap(),
             phone: val.row_data.get(3).unwrap(),
             id: val.row_data.get(0).unwrap(),
+            sn: val.row_data.get(8).unwrap(),
         }
     }
 }
@@ -4434,6 +4449,8 @@ pub struct CsrRequest {
     pub phone: String,
     /// The id of the request
     pub id: u64,
+    /// The serial number of the certificate request
+    pub sn: Vec<u8>,
 }
 
 /// The ways to hash data for the certificate checks
