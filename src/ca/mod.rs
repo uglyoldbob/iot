@@ -767,11 +767,14 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
 async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
-    if let Some(id) = s.get.get("id") {
-        let id = str::parse::<u64>(id);
-        let reject = s.get.get("rejection").unwrap();
-        if let Ok(id) = id {
-            csr_check = ca.reject_csr_by_id(id, reject).await;
+    
+    let mut myserial = String::new();
+
+    if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            let reject = s.get.get("rejection").unwrap();
+            csr_check = ca.reject_csr_by_serial(serial, reject).await;
         }
     }
 
@@ -863,12 +866,12 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
 
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if admin {
-        if let Some(id) = s.get.get("id") {
-            let id = str::parse::<u64>(id);
-            if let Ok(id) = id {
+        if let Some(serialhex) = s.get.get("serial") {
+            let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+            if let Ok(serial) = serial {
                 match &ca.config.sign_method {
                     CertificateSigningMethod::Https(_) => {
-                        if let Some(csrr) = ca.get_csr_by_id(id).await {
+                        if let Some(csrr) = ca.get_csr_by_serial(serial.clone()).await {
                             use der::Encode;
                             let (_, der) = der::Document::from_pem(&csrr.cert).unwrap();
                             let der = der.to_der().unwrap();
@@ -887,16 +890,17 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
                                             csr,
                                             keypair: None,
                                             name: "".into(),
-                                            id,
+                                            serial: serial.clone(),
                                         };
                                         let cert = ca_cert
                                             .sign_csr(
                                                 cert_to_sign,
                                                 ca,
-                                                id,
+                                                serial.clone(),
                                                 time::Duration::days(365),
                                             )
                                             .unwrap();
+                                        let id = ca.get_id_from_serial(serial.clone()).await.unwrap();
                                         let der = cert.contents();
                                         if let Ok(der) = der {
                                             if ca.mark_csr_done(id).await.is_ok() {
@@ -988,10 +992,10 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
         }
     }
 
-    let csrr = if let Some(id) = s.get.get("id") {
-        let id = str::parse::<u64>(id);
-        if let Ok(id) = id {
-            ca.get_csr_by_id(id).await
+    let csrr = if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            ca.get_csr_by_serial(serial).await
         } else {
             None
         }
@@ -1162,10 +1166,10 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
         }
     }
 
-    let csrr = if let Some(id) = s.get.get("id") {
-        let id = str::parse::<u64>(id);
-        if let Ok(id) = id {
-            ca.get_ssh_request_by_id(id).await
+    let csrr = if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            ca.get_ssh_request_by_serial(serial).await
         } else {
             None
         }
@@ -1366,9 +1370,11 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     .line_break(|a| a);
                     b.text(format!("Subject: {}", c.cert.tbs_certificate.subject))
                         .line_break(|a| a);
+                    let serhex: Vec<String> = c.serial.iter().map(|e| format!("{:02x}", e)).collect();
+                    let serial = serhex.join("");
                     b.anchor(|ab| {
                         ab.text("View details");
-                        ab.href(format!("view_cert.rs?id={}", c.id));
+                        ab.href(format!("view_cert.rs?serial={}", serial));
                         ab
                     });
                     b.line_break(|lb| lb);
@@ -1446,19 +1452,20 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
     let mut cert: Option<RawCertificateInfo> = None;
     let mut csr = None;
     let mut rejection = None;
-    let mut myid = 0;
+    let mut myserial = String::new();
 
-    if let Some(id) = s.get.get("id") {
-        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
-        if let Ok(id) = id {
-            cert = ca.get_user_cert(id).await;
+    if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            cert = ca.get_user_cert(serial.clone()).await;
             if cert.is_none() {
-                csr = ca.get_csr_by_id(id).await;
+                csr = ca.get_csr_by_serial(serial.clone()).await;
             }
             if csr.is_none() {
-                rejection = Some(ca.get_rejection_reason_by_id(id).await);
+                rejection = Some(ca.get_rejection_reason_by_serial(serial.clone()).await);
             }
-            myid = id;
+            let serialhex: Vec<String> = serial.iter().map(|e| format!("{:02x}", e)).collect();
+            myserial = serialhex.join("");
         }
     }
 
@@ -1591,11 +1598,12 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                             s.id("reason").name("reason");
                             s
                         });
+                        let myserial2 = myserial.clone();
                         f.input(|i| {
                             i.type_("hidden")
                                 .id("id")
-                                .name("id")
-                                .value(myid.to_string())
+                                .name("serial")
+                                .value(myserial2)
                         });
                         f.input(|i| i.type_("submit").value("REVOKE"))
                             .line_break(|a| a);
@@ -1618,11 +1626,12 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                         form.line_break(|a| a);
                         form
                     });
+                    let myserial2 = myserial.clone();
                     b.division(|div| {
                         div.class("hidden");
                         div.anchor(|a| {
                             a.id("get_request")
-                                .text(format!("get_cert.rs?id={}&type=pem", myid))
+                                .text(format!("get_cert.rs?serial={}&type=pem", myserial2))
                         });
                         div
                     });
@@ -1709,19 +1718,19 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
     let mut cert: Option<RawCertificateInfo> = None;
     let mut csr = None;
     let mut rejection = None;
-    let mut myid = 0;
+    let mut myserial = Vec::new();
 
-    if let Some(id) = s.get.get("id") {
-        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
-        if let Ok(id) = id {
-            cert = ca.get_user_cert(id).await;
+    if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            cert = ca.get_user_cert(serial.clone()).await;
             if cert.is_none() {
-                csr = ca.get_ssh_request_by_id(id).await;
+                csr = ca.get_ssh_request_by_serial(serial.clone()).await;
             }
             if csr.is_none() {
-                rejection = Some(ca.get_rejection_reason_by_id(id).await);
+                rejection = Some(ca.get_rejection_reason_by_serial(serial.clone()).await);
             }
-            myid = id;
+            myserial = serial;
         }
     }
 
@@ -1761,12 +1770,14 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
                 form.line_break(|a| a);
                 form
             });
+            let serhex: Vec<String> = myserial.iter().map(|e| format!("{:02x}", e)).collect();
+            let serials = serhex.join("");
             b.division(|div| {
                 div.class("hidden");
                 div.anchor(|a| {
                     a.id("get_request").text(format!(
-                        "{}{}ca/get_cert.rs?id={}&type=pem",
-                        s.proxy, pki, myid
+                        "{}{}ca/get_cert.rs?serial={}&type=pem",
+                        s.proxy, pki, serials
                     ))
                 });
                 div
@@ -1839,24 +1850,25 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
 
     let mut cert: Option<Vec<u8>> = None;
 
-    if let Some(id) = s.get.get("id") {
-        let id: Result<u64, std::num::ParseIntError> = str::parse(id.as_str());
-        if let Ok(id) = id {
-            if let Some(rci) = ca.get_user_cert(id).await {
+    if let Some(serialhex) = s.get.get("serial") {
+        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        if let Ok(serial) = serial {
+            if let Some(rci) = ca.get_user_cert(serial.clone()).await {
                 let cert_der = rci.cert;
                 let ty = if s.get.contains_key("type") {
                     s.get.get("type").unwrap().to_owned()
                 } else {
                     "der".to_string()
                 };
-
+                let serhex: Vec<String> = serial.iter().map(|e| format!("{:02x}", e)).collect();
+                let serials = serhex.join("");
                 match ty.as_str() {
                     "der" => {
                         response.headers.append(
                             "Content-Type",
                             HeaderValue::from_static("application/x509-ca-cert"),
                         );
-                        let name = format!("attachment; filename={}.der", id);
+                        let name = format!("attachment; filename={}.der", serials);
                         response
                             .headers
                             .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
@@ -1868,7 +1880,7 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
                             "Content-Type",
                             HeaderValue::from_static("application/x-pem-file"),
                         );
-                        let name = format!("attachment; filename={}.pem", id);
+                        let name = format!("attachment; filename={}.pem", serials);
                         response
                             .headers
                             .append("Content-Disposition", HeaderValue::from_str(&name).unwrap());
@@ -2341,7 +2353,8 @@ async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -
 
     let count_worked = list.len();
     for cert in list {
-        ca.insert_searchable(&cert.cert, cert.id).await;
+        let id = ca.get_id_from_serial(cert.serial).await.unwrap();
+        ca.insert_searchable(&cert.cert, id).await;
     }
 
     let response = hyper::Response::new("dummy");

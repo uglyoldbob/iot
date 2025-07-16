@@ -542,7 +542,7 @@ pub fn build_cert() {
                                                     "User Certificate".to_string(),
                                                 ), //TODO
                                             ],
-                                            id: 42,
+                                            serial: Vec::new(),
                                         };
                                         let p12 = pkcs12.get_pkcs12(&certificate_password.unwrap());
                                         let file = build_file(&p12);

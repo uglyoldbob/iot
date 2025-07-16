@@ -985,8 +985,8 @@ pub struct CaCertificateToBeSigned {
     pub keypair: Option<Keypair>,
     /// The certificate name to use for storage
     pub name: String,
-    /// The id of the certificate to be signed
-    pub id: u64,
+    /// The serial of the certificate to be signed
+    pub serial: Vec<u8>,
 }
 
 impl CaCertificateToBeSigned {
@@ -1018,6 +1018,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
             use der::Decode;
             x509_cert::Certificate::from_der(&cert_der)
         };
+        let mut serial = None;
         if let Ok(x509_cert) = cert {
             let mut name = "whatever".to_string();
             for a in &value.attributes {
@@ -1027,6 +1028,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
                 }
             }
             let algorithm = x509_cert.signature_algorithm;
+            serial = Some(x509_cert.tbs_certificate.serial_number.as_bytes().to_vec());
             return Ok(Self {
                 medium: CaCertificateStorage::Nowhere,
                 data: CertificateData::Https(HttpsCertificate {
@@ -1036,7 +1038,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
                     attributes: value.attributes.clone(),
                 }),
                 name,
-                id: value.id,
+                serial: x509_cert.tbs_certificate.serial_number.as_bytes().to_vec(),
             });
         }
         use ssh_encoding::Decode;
@@ -1059,7 +1061,7 @@ impl TryFrom<cert_common::pkcs12::Pkcs12> for CaCertificate {
                     cert,
                 }),
                 name: "whatever".to_string(),
-                id: value.id,
+                serial: serial.unwrap(),
             });
         }
         Err(Pkcs12ImportError::InvalidCertificate)
@@ -1137,7 +1139,6 @@ impl CaCertificateStorage {
     }
 
     /// Save this certificate to the storage medium
-    /// TODO Return a Result with an error
     pub async fn save_to_medium(
         &self,
         ca: &mut Ca,
@@ -1145,11 +1146,12 @@ impl CaCertificateStorage {
         password: &str,
     ) -> Result<(), CertificateSaveError> {
         service::log::debug!(
-            "Save {} {} to medium {:?}",
-            cert.id,
+            "Save {:02x?} {} to medium {:?}",
+            cert.serial,
             cert.name,
             cert.data.hsm_label()
         );
+        let id = ca.get_id_from_serial(cert.serial.clone()).await.unwrap();
         let cert_der = &cert
             .contents()
             .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
@@ -1157,7 +1159,7 @@ impl CaCertificateStorage {
             let _ = card.save_cert_to_card(cert_der);
         }
         ca.save_user_cert(
-            cert.id,
+            id,
             cert_der,
             Some(
                 &cert
@@ -1170,12 +1172,12 @@ impl CaCertificateStorage {
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
-                    service::log::info!("Inserting hsm data for {}", cert.id);
+                    service::log::info!("Inserting hsm data for {}", id);
                     p.conn(move |conn| {
                         let mut stmt = conn
                             .prepare("INSERT INTO hsm_labels (id, label) VALUES (?1, ?2)")
                             .expect("Failed to build prepared statement");
-                        stmt.execute([cert.id.to_sql().unwrap(), label.to_sql().unwrap()])
+                        stmt.execute([id.to_sql().unwrap(), label.to_sql().unwrap()])
                     })
                     .await
                     .map_err(|_| CertificateSaveError::FailedToSave)?;
@@ -1183,7 +1185,7 @@ impl CaCertificateStorage {
             }
         }
         if let Some(p12) = cert.try_p12(password) {
-            service::log::info!("Inserting p12 data {:02X?} for {}", p12, cert.id);
+            service::log::info!("Inserting p12 data {:02X?} for {}", p12, id);
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
@@ -1191,7 +1193,7 @@ impl CaCertificateStorage {
                         let mut stmt = conn
                             .prepare("INSERT INTO p12 (id, der) VALUES (?1, ?2)")
                             .expect("Failed to build prepared statement");
-                        stmt.execute([cert.id.to_sql().unwrap(), p12.to_sql().unwrap()])
+                        stmt.execute([id.to_sql().unwrap(), p12.to_sql().unwrap()])
                     })
                     .await
                     .map_err(|_| CertificateSaveError::FailedToSave)?;
@@ -1215,10 +1217,10 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(p) => {
                 let name = name.to_owned();
                 let name2 = name.to_owned();
-                let id = p
+                let serial: Vec<u8> = p
                     .conn(move |conn| {
                         conn.query_row(
-                            &format!("SELECT id FROM hsm_labels WHERE label='{}'", name2),
+                            &format!("SELECT serial FROM hsm_labels LEFT JOIN serials ON hsm_labels.id=serials.id WHERE label='{}'", name2),
                             [],
                             |r| Ok(r.get(0).unwrap()),
                         )
@@ -1228,11 +1230,11 @@ impl CaCertificateStorage {
                         service::log::debug!("Cannot load cert {}", name);
                         CertificateLoadingError::DoesNotExist(name.to_string())
                     })?;
+                let serial2 = serial.clone();
                 let cert = p
                     .conn(move |conn| {
-                        conn.query_row(
-                            &format!("SELECT der FROM certs WHERE id='{}'", id),
-                            [],
+                        let mut stmt = conn.prepare("SELECT der FROM certs LEFT JOIN serials on certs.id=serials.id WHERE serials.serial=?1")?;
+                        stmt.query_row([serial.clone()],
                             |r| Ok(r.get(0).unwrap()),
                         )
                     })
@@ -1260,7 +1262,7 @@ impl CaCertificateStorage {
                     medium: self.clone(),
                     data: CertificateData::Https(hcert),
                     name: name.to_owned(),
-                    id,
+                    serial: serial2,
                 };
                 Ok(cert)
             }
@@ -1451,12 +1453,12 @@ impl CertificateDataTrait for HttpsCertificate {
                 cert: der,
                 keypair: csr.keypair,
                 attributes: vec![
-                    BagAttribute::LocalKeyId(local_key_id),
+                    BagAttribute::LocalKeyId(local_key_id.clone()),
                     BagAttribute::FriendlyName(csr.name.clone()),
                 ],
             }),
             name: csr.name.clone(),
-            id: csr.id,
+            serial: local_key_id,
         })
     }
 
@@ -1464,7 +1466,7 @@ impl CertificateDataTrait for HttpsCertificate {
         self.attributes.clone()
     }
 
-    fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+    fn try_p12(&self, serial: Vec<u8>, password: &str) -> Option<Vec<u8>> {
         self.keypair.as_ref().and_then(|kp| {
             let keypair = kp.private();
             keypair.map(|kp| {
@@ -1472,7 +1474,7 @@ impl CertificateDataTrait for HttpsCertificate {
                     cert: self.cert.clone(),
                     pkey: kp.to_owned(),
                     attributes: self.attributes.clone(),
-                    id,
+                    serial,
                 };
                 p12.get_pkcs12(password)
             })
@@ -1483,7 +1485,7 @@ impl CertificateDataTrait for HttpsCertificate {
         CertificateSigningMethod::Https(self.algorithm)
     }
 
-    fn get_snb(&self, _id: u64) -> Result<Vec<u8>, der::Error> {
+    fn get_snb(&self, _serial: Vec<u8>) -> Result<Vec<u8>, der::Error> {
         let x509 = self.x509_cert()?;
         Ok(x509.tbs_certificate.serial_number.as_bytes().to_vec())
     }
@@ -1595,7 +1597,7 @@ impl CertificateDataTrait for SshCertificate {
         todo!()
     }
 
-    fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>> {
+    fn try_p12(&self, serial: Vec<u8>, password: &str) -> Option<Vec<u8>> {
         use ssh_encoding::Encode;
         let public_contents = self.cert.to_bytes().unwrap();
         if let Some(keypair) = &self.keypair {
@@ -1605,7 +1607,7 @@ impl CertificateDataTrait for SshCertificate {
                 cert: public_contents,
                 pkey: Zeroizing::new(con),
                 attributes: Vec::new(),
-                id,
+                serial,
             };
             let p12_der = p12.get_pkcs12(password);
             Some(p12_der)
@@ -1618,8 +1620,8 @@ impl CertificateDataTrait for SshCertificate {
         CertificateSigningMethod::Ssh(self.algorithm)
     }
 
-    fn get_snb(&self, id: u64) -> Result<Vec<u8>, der::Error> {
-        Ok(u64::to_le_bytes(id).to_vec())
+    fn get_snb(&self, serial: Vec<u8>) -> Result<Vec<u8>, der::Error> {
+        Ok(serial)
     }
 
     fn contents(&self) -> Result<Vec<u8>, ()> {
@@ -1696,11 +1698,11 @@ pub trait CertificateDataTrait {
     /// Get the list of bag attributes for the certificate data
     fn get_attributes(&self) -> Vec<cert_common::pkcs12::BagAttribute>;
     /// Attempt to build a p12 document
-    fn try_p12(&self, id: u64, password: &str) -> Option<Vec<u8>>;
+    fn try_p12(&self, serial: Vec<u8>, password: &str) -> Option<Vec<u8>>;
     /// Get the algorithm
     fn algorithm(&self) -> CertificateSigningMethod;
     /// Retrieve the serial number as a vector
-    fn get_snb(&self, id: u64) -> Result<Vec<u8>, der::Error>;
+    fn get_snb(&self, serial: Vec<u8>) -> Result<Vec<u8>, der::Error>;
     /// Retrieve the contents of the certificate data in a storable format
     fn contents(&self) -> Result<Vec<u8>, ()>;
     /// Attempt to sign the specified data
@@ -1738,8 +1740,8 @@ pub struct CaCertificate {
     data: CertificateData,
     /// The certificate name to use for storage
     pub name: String,
-    /// The id of the certificate
-    pub id: u64,
+    /// The serial of the certificate
+    pub serial: Vec<u8>,
 }
 
 impl CaCertificate {
@@ -1765,7 +1767,7 @@ impl CaCertificate {
 
     /// Retrieve the certificate serial number
     pub fn get_snb(&self) -> Result<Vec<u8>, der::Error> {
-        self.data.get_snb(self.id)
+        self.data.get_snb(self.serial.clone())
     }
 
     /// Retrieve the contents of the certificate data in a storable format
@@ -1775,7 +1777,7 @@ impl CaCertificate {
 
     /// Attempt to build a p12 document
     pub fn try_p12(&self, password: &str) -> Option<Vec<u8>> {
-        self.data.try_p12(self.id, password)
+        self.data.try_p12(self.serial.clone(), password)
     }
 
     /// Load an ssh certificate
@@ -1783,13 +1785,13 @@ impl CaCertificate {
         medium: CaCertificateStorage,
         cert: SshCertificate,
         name: String,
-        id: u64,
+        serial: Vec<u8>,
     ) -> Self {
         Self {
             medium,
             data: CertificateData::Ssh(cert),
             name,
-            id,
+            serial,
         }
     }
 
@@ -1800,7 +1802,7 @@ impl CaCertificate {
         der: &[u8],
         keypair: Keypair,
         name: String,
-        id: u64,
+        _id: u64,
     ) -> Self {
         use der::Decode;
         let x509 = x509_cert::Certificate::from_der(der).unwrap();
@@ -1818,7 +1820,7 @@ impl CaCertificate {
                 ],
             }),
             name: name.clone(),
-            id,
+            serial: x509.tbs_certificate.serial_number.as_bytes().to_vec(),
         }
     }
 
@@ -1853,7 +1855,7 @@ impl CaCertificate {
         &self,
         mut csr: CaCertificateToBeSigned,
         ca: &Ca,
-        id: u64,
+        serial: Vec<u8>,
         duration: time::Duration,
     ) -> Option<CaCertificate> {
         let the_csr = &mut csr.csr;
@@ -1867,7 +1869,7 @@ impl CaCertificate {
 
         the_csr.params.not_before = time::OffsetDateTime::now_utc();
         the_csr.params.not_after = the_csr.params.not_before + duration;
-        let (_snb, sn) = CaCertificateToBeSigned::calc_sn();
+        let sn = rcgen::SerialNumber::from_slice(&serial);
         the_csr.params.serial_number = Some(sn);
 
         self.data.sign_csr(csr).ok()
@@ -2570,8 +2572,8 @@ pub struct RevokeFormData {
 pub struct RawCertificateInfo {
     /// The certificate in der format
     pub cert: Vec<u8>,
-    /// The id of the certificate
-    pub id: u64,
+    /// The serial number of the certificate
+    pub serial: Vec<u8>,
     /// The revocation status
     pub revoked: Option<RevokeData>,
 }
@@ -2582,8 +2584,8 @@ pub struct CertificateInfo {
     index: usize,
     /// The certificate
     pub cert: x509_cert::certificate::CertificateInner,
-    /// The id of the certificate
-    pub id: u64,
+    /// The serial number of the certificate
+    pub serial: Vec<u8>,
     /// The revocation status
     pub revoked: Option<ocsp::response::CrlReason>,
 }
@@ -2766,11 +2768,11 @@ impl Ca {
             };
             let csr = https_options.generate_request();
             let root_cert = self.root_cert.as_ref().unwrap();
+            let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
             let mut cert = root_cert
-                .sign_csr(csr, self, id, time::Duration::days(self.config.days as i64))
+                .sign_csr(csr, self, snb.to_vec(), time::Duration::days(self.config.days as i64))
                 .unwrap();
             cert.medium = self.medium.clone();
-            let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
             self.save_user_cert(id, &cert.contents().map_err(|_| ())?, Some(&snb))
                 .await;
             let p12 = cert.try_p12(password).unwrap();
@@ -2884,6 +2886,7 @@ impl Ca {
                             days_valid: ca.config.days,
                         };
                         let root_csr = root_options.generate_request();
+                        let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
                         let mut root_cert = superior
                             .root_cert
                             .as_ref()
@@ -2891,11 +2894,10 @@ impl Ca {
                             .sign_csr(
                                 root_csr,
                                 &ca,
-                                id,
+                                snb.to_vec(),
                                 time::Duration::days(ca.config.days as i64),
                             )
                             .unwrap();
-                        let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
                         superior
                             .save_user_cert(
                                 id,
@@ -2946,7 +2948,7 @@ impl Ca {
                     .sign_csr(
                         ocsp_csr,
                         &ca,
-                        id,
+                        CaCertificateToBeSigned::calc_sn().0.to_vec(),
                         time::Duration::days(ca.config.days as i64),
                     )
                     .unwrap();
@@ -2987,7 +2989,7 @@ impl Ca {
                             .sign_csr(
                                 admin_csr,
                                 &ca,
-                                id,
+                                CaCertificateToBeSigned::calc_sn().0.to_vec(),
                                 time::Duration::days(ca.config.days as i64),
                             )
                             .unwrap();
@@ -3017,7 +3019,7 @@ impl Ca {
                             .sign_csr(
                                 admin_csr,
                                 &ca,
-                                id,
+                                CaCertificateToBeSigned::calc_sn().0.to_vec(),
                                 time::Duration::days(ca.config.days as i64),
                             )
                             .unwrap();
@@ -3061,7 +3063,7 @@ impl Ca {
                         ca.medium.clone(),
                         sshc,
                         "root".to_string(),
-                        0,
+                        CaCertificateToBeSigned::calc_sn().0.to_vec(),
                     );
                     root.save_to_medium(&mut ca, "")
                         .await
@@ -3142,16 +3144,16 @@ impl Ca {
                     p.conn(move |conn| {
                         let mut stmt = conn
                             .prepare(
-                                &format!("SELECT * from certs LEFT JOIN revoked ON certs.id = revoked.id LIMIT {} OFFSET {}", num_results, offset),
+                                &format!("SELECT certs.*, revoked.*, serials.serial from certs LEFT JOIN revoked ON certs.id = revoked.id LEFT JOIN serials ON certs.id=serials.id LIMIT {} OFFSET {}", num_results, offset),
                             )
                             .unwrap();
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
-                            let id = r.get(0).unwrap();
                             let der: Vec<u8> = r.get(1).unwrap();
                             let date: Option<String> = r.get(3).ok();
                             let reason: Option<u32> = r.get(4).ok();
+                            let serial: Vec<u8> = r.get(5).unwrap();
                             let revoked = if let Some(date) = date {
                                 if let Some(reason) = reason {
                                     match reason {
@@ -3190,7 +3192,7 @@ impl Ca {
                             let ci = CertificateInfo {
                                 index,
                                 cert,
-                                id,
+                                serial,
                                 revoked,
                             };
                             s.send(ci).unwrap();
@@ -3278,16 +3280,16 @@ impl Ca {
         }
     }
 
-    /// Retrieve the specified index of user certificate
-    pub async fn get_user_cert(&self, id: u64) -> Option<RawCertificateInfo> {
+    /// Retrieve the specified serial number of user certificate
+    pub async fn get_user_cert(&self, serial: Vec<u8>) -> Option<RawCertificateInfo> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<RawCertificateInfo, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row(
-                            &format!("SELECT der, reason, date FROM certs LEFT JOIN revoked on certs.id=revoked.id WHERE certs.id='{}'", id),
-                            [],
+                        let mut stmt = conn.prepare("SELECT der, reason, date FROM certs LEFT JOIN revoked on certs.id=revoked.id LEFT JOIN serials on certs.id=serials.id WHERE serials.serial=?1")?;
+                        stmt.query_row(
+                            [serial.clone()],
                             |r| {
                                 let cert = r.get(0)?;
                                 let reason: Option<u32> = r.get(1).ok();
@@ -3322,7 +3324,7 @@ impl Ca {
                                 };
                                 Ok(RawCertificateInfo {
                                     cert,
-                                    id,
+                                    serial,
                                     revoked: data,
                                 })
                             }
@@ -3336,16 +3338,16 @@ impl Ca {
     }
 
     /// Retrieve the reason the csr was rejected
-    pub async fn get_rejection_reason_by_id(&self, id: u64) -> Option<String> {
+    pub async fn get_rejection_reason_by_serial(&self, serial: Vec<u8>) -> Option<String> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => match &self.config.sign_method {
                 cert_common::CertificateSigningMethod::Https(_) => {
                     let cert: Result<CsrRejection, async_sqlite::Error> = p
                         .conn(move |conn| {
-                            conn.query_row(
-                                &format!("SELECT * FROM csr WHERE id='{}'", id),
-                                [],
+                            let mut stmt = conn.prepare("SELECT csr.*, serials.serial FROM csr LEFT JOIN serials ON csr.id=serials.id WHERE serials.serial=?1")?;
+                            stmt.query_row(
+                                [&serial],
                                 |r| {
                                     let dbentry = DbEntry::new(r);
                                     let csr = dbentry.into();
@@ -3360,9 +3362,9 @@ impl Ca {
                 cert_common::CertificateSigningMethod::Ssh(_) => {
                     let cert: Result<SshRejection, async_sqlite::Error> = p
                         .conn(move |conn| {
-                            conn.query_row(
-                                &format!("SELECT * FROM sshr WHERE id='{}'", id),
-                                [],
+                            let mut stmt = conn.prepare("SELECT * FROM sshr WHERE id=?1")?;
+                            stmt.query_row(
+                                [&serial],
                                 |r| {
                                     let dbentry = DbEntry::new(r);
                                     let csr = dbentry.into();
@@ -3379,12 +3381,12 @@ impl Ca {
     }
 
     /// Reject an existing certificate signing request by id.
-    pub async fn reject_csr_by_id(
+    pub async fn reject_csr_by_serial(
         &mut self,
-        id: u64,
+        serial: Vec<u8>,
         reason: &String,
     ) -> Result<(), CertificateSigningError> {
-        let csr = self.get_csr_by_id(id).await;
+        let csr = self.get_csr_by_serial(serial).await;
         if csr.is_none() {
             return Err(CertificateSigningError::CsrDoesNotExist);
         }
@@ -3399,11 +3401,11 @@ impl Ca {
         &mut self,
         reject: &CsrRejection,
     ) -> Result<(), CertificateSigningError> {
+        let id = self.get_id_from_serial(reject.serial.clone()).await.unwrap();
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
                 let rejection = reject.rejection.to_owned();
-                let id = reject.id;
                 let s = p
                     .conn(move |conn| {
                         let mut stmt = conn
@@ -3427,13 +3429,14 @@ impl Ca {
     }
 
     /// Retrieve a https certificate signing request by id, if it exists
-    pub async fn get_csr_by_id(&self, id: u64) -> Option<CsrRequest> {
+    pub async fn get_csr_by_serial(&self, sn: Vec<u8>) -> Option<CsrRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<CsrRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row(&format!("SELECT * FROM csr INNER JOIN serials ON csr.id = serials.id WHERE csr.id='{}'", id), [], |r| {
+                        let mut stmt = conn.prepare("SELECT * FROM csr INNER JOIN serials ON csr.id = serials.id WHERE serials.sn=?1")?;
+                        stmt.query_row([sn.to_sql().unwrap()], |r| {
                             let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
                             Ok(csr)
@@ -3452,13 +3455,14 @@ impl Ca {
     }
 
     /// Retrieve a ssh certificate signing request by id, if it exists
-    pub async fn get_ssh_request_by_id(&self, id: u64) -> Option<SshRequest> {
+    pub async fn get_ssh_request_by_serial(&self, serial: Vec<u8>) -> Option<SshRequest> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<SshRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        conn.query_row(&format!("SELECT * FROM sshr WHERE id='{}'", id), [], |r| {
+                        let mut stmt = conn.prepare("SELECT sshr.* FROM sshr LEFT JOIN serials on sshr.id=serials.id WHERE serial=?1")?;
+                        stmt.query_row([&serial], |r| {
                             let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
                             Ok(csr)
@@ -3573,6 +3577,24 @@ impl Ca {
             }
         }
         Ok(())
+    }
+
+    /// Looks up the certificate id from the serial number
+    pub async fn get_id_from_serial(&mut self, serial: Vec<u8>) -> Option<u64> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn
+                        .prepare("SELECT serial from serials where id=?1")
+                        .expect("Failed to build prepared statement");
+                    stmt.query_row([&serial], |r|{
+                        let cert = r.get(0)?;
+                        Ok(cert)
+                    })
+                }).await.expect("Failed to insert")
+            }
+        }
     }
 
     pub async fn insert_searchable(&mut self, cert: &x509_cert::Certificate, id: u64) {
@@ -3765,11 +3787,12 @@ impl Ca {
                         let c = x509_cert::Certificate::from_der(&c).map_err(|_| {
                             CertificateLoadingError::InvalidCert(format!("ID: {}", id))
                         })?;
+                        let serial = c.tbs_certificate.serial_number.as_bytes().to_vec();
                         let cac = CaCertificate {
                             medium: self.medium.clone(),
                             data: CertificateData::from_x509(c)?,
                             name: "".to_string(), //TODO fill this in with data from the certificate subject name
-                            id,
+                            serial,
                         };
                         service::log::info!("Found the cert");
                         Ok(cac)
@@ -3806,12 +3829,13 @@ impl Ca {
                 use der::Decode;
                 let x509 = x509_cert::Certificate::from_der(&rc.contents)
                     .map_err(|_| CertificateLoadingError::InvalidCert(name.to_string()))?;
+                let serial = x509.tbs_certificate.serial_number.as_bytes().to_vec();
                 let cert = CaCertificate {
                     medium: self.medium.clone(),
                     data: CertificateData::from_x509(x509)
                         .map_err(|_| CertificateLoadingError::InvalidCert(name.to_string()))?,
                     name: hsm_name.clone(),
-                    id: rc.id,
+                    serial,
                 };
                 Ok(cert)
             }
@@ -4218,8 +4242,8 @@ pub struct CsrRejection {
     phone: String,
     /// The reason for rejection
     pub rejection: String,
-    /// The id for the csr
-    pub id: u64,
+    /// The serial number for the csr
+    pub serial: Vec<u8>,
 }
 
 impl CsrRejection {
@@ -4232,7 +4256,7 @@ impl CsrRejection {
             email: csr.email,
             phone: csr.phone,
             rejection: reason.to_owned(),
-            id: csr.id,
+            serial: csr.sn,
         }
     }
 }
@@ -4323,7 +4347,7 @@ impl<'a> From<DbEntry<'a>> for CsrRejection {
             email: val.row_data.get(2).unwrap(),
             phone: val.row_data.get(3).unwrap(),
             rejection: val.row_data.get(5).unwrap(),
-            id: val.row_data.get(0).unwrap(),
+            serial: val.row_data.get(6).unwrap(),
         }
     }
 }
@@ -4613,8 +4637,8 @@ impl SigningRequestParams {
             let csr = params.serialize_request(&rckeypair).unwrap();
             let csr_der = csr.der();
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-            let sn = rcgen::SerialNumber::from_slice(&sn);
-            csr.params.serial_number = Some(sn);
+            let snr = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(snr);
 
             CaCertificateToBeSigned {
                 algorithm: self.t,
@@ -4622,14 +4646,14 @@ impl SigningRequestParams {
                 csr,
                 keypair: Some(Keypair::Hsm(keypair)),
                 name: self.name.clone(),
-                id: self.id,
+                serial: sn.to_vec(),
             }
         } else if let Some(keypair) = &self.smartcard {
             let csr = params.serialize_request(&keypair.rcgen()).unwrap();
             let csr_der = csr.der();
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-            let sn = rcgen::SerialNumber::from_slice(&sn);
-            csr.params.serial_number = Some(sn);
+            let snr = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(snr);
 
             CaCertificateToBeSigned {
                 algorithm: self.t,
@@ -4637,15 +4661,15 @@ impl SigningRequestParams {
                 csr,
                 keypair: Some(Keypair::SmartCard(keypair.clone())),
                 name: self.name.clone(),
-                id: self.id,
+                serial: sn.to_vec(),
             }
         } else {
             let (keypair, priva) = self.t.generate_keypair(4096).unwrap();
             let csr = params.serialize_request(&keypair).unwrap();
             let csr_der = csr.der();
             let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-            let sn = rcgen::SerialNumber::from_slice(&sn);
-            csr.params.serial_number = Some(sn);
+            let snr = rcgen::SerialNumber::from_slice(&sn);
+            csr.params.serial_number = Some(snr);
 
             CaCertificateToBeSigned {
                 algorithm: self.t,
@@ -4653,7 +4677,7 @@ impl SigningRequestParams {
                 csr,
                 keypair: Some(Keypair::NotHsm(priva)),
                 name: self.name.clone(),
-                id: self.id,
+                serial: sn.to_vec(),
             }
         }
     }
