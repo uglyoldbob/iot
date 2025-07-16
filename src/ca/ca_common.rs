@@ -3129,24 +3129,28 @@ impl Ca {
         false
     }
 
-    /// Performs an iteration of all certificates, processing them with the given closure.
+    /// Performs an iteration of all certificates, processing them with the given closure. It returns the number of certificates total
     pub async fn certificate_processing<'a, F>(
         &'a self,
         num_results: usize,
         offset: usize,
         mut process: F,
-    ) where
+    ) -> usize
+    where
         F: FnMut(CertificateInfo) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
-
+        
         let self2_medium = self.medium.to_owned();
-        tokio::spawn(async move {
+        let a = tokio::spawn(async move {
             use der::Decode;
             match self2_medium {
-                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::Nowhere => 0,
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
+                        let counti : usize = conn.query_row("SELECT COUNT(*) from certs", [], |r| {
+                            r.get(0)
+                        }).unwrap();
                         let mut stmt = conn
                             .prepare(
                                 &format!("SELECT certs.*, revoked.*, serials.serial from certs LEFT JOIN revoked ON certs.id = revoked.id LEFT JOIN serials ON certs.id=serials.id LIMIT {} OFFSET {}", num_results, offset),
@@ -3203,16 +3207,17 @@ impl Ca {
                             s.send(ci).unwrap();
                             index += 1;
                         }
-                        Ok(())
+                        Ok(counti)
                     })
                     .await
-                    .unwrap();
+                    .unwrap()
                 }
             }
         });
         while let Some(c) = r.recv().await {
             process(c);
         }
+        a.await.unwrap()
     }
 
     /// Performs an iteration of all csr that are not done, processing them with the given closure.
