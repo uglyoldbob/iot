@@ -767,11 +767,12 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
 async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let pki = ca.config.get_pki_name().to_owned();
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
-    
+
     let mut myserial = String::new();
 
     if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             let reject = s.get.get("rejection").unwrap();
             csr_check = ca.reject_csr_by_serial(serial, reject).await;
@@ -867,7 +868,8 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
     let mut csr_check = Err(CertificateSigningError::CsrDoesNotExist);
     if admin {
         if let Some(serialhex) = s.get.get("serial") {
-            let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+            let serial: Result<Vec<u8>, std::num::ParseIntError> =
+                crate::utility::decode_hex(serialhex.as_str());
             if let Ok(serial) = serial {
                 match &ca.config.sign_method {
                     CertificateSigningMethod::Https(_) => {
@@ -900,7 +902,8 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
                                                 time::Duration::days(365),
                                             )
                                             .unwrap();
-                                        let id = ca.get_id_from_serial(serial.clone()).await.unwrap();
+                                        let id =
+                                            ca.get_id_from_serial(serial.clone()).await.unwrap();
                                         let der = cert.contents();
                                         if let Ok(der) = der {
                                             if ca.mark_csr_done(id).await.is_ok() {
@@ -993,7 +996,8 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
     }
 
     let csrr = if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             ca.get_csr_by_serial(serial).await
         } else {
@@ -1003,17 +1007,20 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
         None
     };
 
-    let mut csr_list: Vec<(CsrRequest, u64)> = Vec::new();
-    ca.csr_processing(|_index, csr, id| {
-        csr_list.push((csr, id));
+    let mut csr_list: Vec<(CsrRequest, Vec<u8>)> = Vec::new();
+    ca.csr_processing(|_index, csr, serial| {
+        csr_list.push((csr, serial));
     })
     .await;
 
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
         .body(|b| {
-            if let Some(id) = s.get.get("id") {
+            if let Some(serial) = s.get.get("serial") {
                 if let Some(csrr) = csrr {
+                    let serhex: Vec<String> =
+                        csrr.sn.iter().map(|e| format!("{:02x}", e)).collect();
+                    let serials = serhex.join("");
                     use der::DecodePem;
                     let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
                     if let Ok(csr) = csr {
@@ -1069,7 +1076,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         }
                         b.anchor(|ab| {
                             ab.text("Sign this request");
-                            ab.href(format!("request_sign.rs?id={}", id));
+                            ab.href(format!("request_sign.rs?serial={}", serials));
                             ab
                         })
                         .line_break(|a| a);
@@ -1078,7 +1085,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                             f.text("Reject reason")
                                 .line_break(|a| a)
                                 .input(|i| {
-                                    i.type_("hidden").id("id").name("id").value(id.to_string())
+                                    i.type_("hidden").id("serial").name("serial").value(serials)
                                 })
                                 .input(|i| i.type_("text").id("rejection").name("rejection"))
                                 .line_break(|a| a);
@@ -1092,7 +1099,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                 b.text("List all pending requests");
                 b.line_break(|a| a);
                 let mut index_shown = 0;
-                for (csrr, id) in csr_list {
+                for (csrr, serial) in csr_list {
                     use der::DecodePem;
                     let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
                     if let Ok(csr) = csr {
@@ -1108,9 +1115,12 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                             .map(|n| format!("{}", n))
                             .collect();
                         let t = csr_names.join(", ");
+                        let serhex: Vec<String> =
+                            serial.iter().map(|e| format!("{:02x}", e)).collect();
+                        let serials = serhex.join("");
                         b.anchor(|ab| {
                             ab.text("View this request");
-                            ab.href(format!("list.rs?id={}", id));
+                            ab.href(format!("list.rs?serial={}", serials));
                             ab
                         })
                         .line_break(|a| a);
@@ -1167,7 +1177,8 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
     }
 
     let csrr = if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             ca.get_ssh_request_by_serial(serial).await
         } else {
@@ -1370,7 +1381,8 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     .line_break(|a| a);
                     b.text(format!("Subject: {}", c.cert.tbs_certificate.subject))
                         .line_break(|a| a);
-                    let serhex: Vec<String> = c.serial.iter().map(|e| format!("{:02x}", e)).collect();
+                    let serhex: Vec<String> =
+                        c.serial.iter().map(|e| format!("{:02x}", e)).collect();
                     let serial = serhex.join("");
                     b.anchor(|ab| {
                         ab.text("View details");
@@ -1455,7 +1467,8 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
     let mut myserial = String::new();
 
     if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             cert = ca.get_user_cert(serial.clone()).await;
             if cert.is_none() {
@@ -1599,12 +1612,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                             s
                         });
                         let myserial2 = myserial.clone();
-                        f.input(|i| {
-                            i.type_("hidden")
-                                .id("id")
-                                .name("serial")
-                                .value(myserial2)
-                        });
+                        f.input(|i| i.type_("hidden").id("id").name("serial").value(myserial2));
                         f.input(|i| i.type_("submit").value("REVOKE"))
                             .line_break(|a| a);
                         f.action("./revoke_cert.rs");
@@ -1721,7 +1729,8 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
     let mut myserial = Vec::new();
 
     if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             cert = ca.get_user_cert(serial.clone()).await;
             if cert.is_none() {
@@ -1851,7 +1860,8 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
     let mut cert: Option<Vec<u8>> = None;
 
     if let Some(serialhex) = s.get.get("serial") {
-        let serial: Result<Vec<u8>, std::num::ParseIntError> = crate::utility::decode_hex(serialhex.as_str());
+        let serial: Result<Vec<u8>, std::num::ParseIntError> =
+            crate::utility::decode_hex(serialhex.as_str());
         if let Ok(serial) = serial {
             if let Some(rci) = ca.get_user_cert(serial.clone()).await {
                 let cert_der = rci.cert;

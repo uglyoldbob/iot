@@ -2770,7 +2770,12 @@ impl Ca {
             let root_cert = self.root_cert.as_ref().unwrap();
             let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
             let mut cert = root_cert
-                .sign_csr(csr, self, snb.to_vec(), time::Duration::days(self.config.days as i64))
+                .sign_csr(
+                    csr,
+                    self,
+                    snb.to_vec(),
+                    time::Duration::days(self.config.days as i64),
+                )
                 .unwrap();
             cert.medium = self.medium.clone();
             self.save_user_cert(id, &cert.contents().map_err(|_| ())?, Some(&snb))
@@ -3213,7 +3218,7 @@ impl Ca {
     /// Performs an iteration of all csr that are not done, processing them with the given closure.
     pub async fn csr_processing<'a, F>(&'a self, mut process: F)
     where
-        F: FnMut(usize, CsrRequest, u64) + Send + 'a,
+        F: FnMut(usize, CsrRequest, Vec<u8>) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
 
@@ -3227,10 +3232,10 @@ impl Ca {
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
-                            let id = r.get(0).unwrap();
+                            let serial = r.get(8).unwrap();
                             let dbentry = DbEntry::new(r);
                             let csr : CsrRequest = dbentry.into();
-                            s.send((index, csr, id)).unwrap();
+                            s.send((index, csr, serial)).unwrap();
                             index += 1;
                         }
                         Ok(())
@@ -3240,8 +3245,8 @@ impl Ca {
                 }
             }
         });
-        while let Some((index, csr, id)) = r.recv().await {
-            process(index, csr, id);
+        while let Some((index, csr, serial)) = r.recv().await {
+            process(index, csr, serial);
         }
     }
 
@@ -3363,14 +3368,11 @@ impl Ca {
                     let cert: Result<SshRejection, async_sqlite::Error> = p
                         .conn(move |conn| {
                             let mut stmt = conn.prepare("SELECT * FROM sshr WHERE id=?1")?;
-                            stmt.query_row(
-                                [&serial],
-                                |r| {
-                                    let dbentry = DbEntry::new(r);
-                                    let csr = dbentry.into();
-                                    Ok(csr)
-                                },
-                            )
+                            stmt.query_row([&serial], |r| {
+                                let dbentry = DbEntry::new(r);
+                                let csr = dbentry.into();
+                                Ok(csr)
+                            })
                         })
                         .await;
                     let rejection: Option<SshRejection> = cert.ok();
@@ -3401,7 +3403,10 @@ impl Ca {
         &mut self,
         reject: &CsrRejection,
     ) -> Result<(), CertificateSigningError> {
-        let id = self.get_id_from_serial(reject.serial.clone()).await.unwrap();
+        let id = self
+            .get_id_from_serial(reject.serial.clone())
+            .await
+            .unwrap();
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
@@ -3435,7 +3440,7 @@ impl Ca {
             CaCertificateStorage::Sqlite(p) => {
                 let cert: Result<CsrRequest, async_sqlite::Error> = p
                     .conn(move |conn| {
-                        let mut stmt = conn.prepare("SELECT * FROM csr INNER JOIN serials ON csr.id = serials.id WHERE serials.sn=?1")?;
+                        let mut stmt = conn.prepare("SELECT * FROM csr INNER JOIN serials ON csr.id = serials.id WHERE serials.serial=?1")?;
                         stmt.query_row([sn.to_sql().unwrap()], |r| {
                             let dbentry = DbEntry::new(r);
                             let csr = dbentry.into();
@@ -3583,17 +3588,18 @@ impl Ca {
     pub async fn get_id_from_serial(&mut self, serial: Vec<u8>) -> Option<u64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::Sqlite(p) => {
-                p.conn(move |conn| {
+            CaCertificateStorage::Sqlite(p) => p
+                .conn(move |conn| {
                     let mut stmt = conn
-                        .prepare("SELECT serial from serials where id=?1")
+                        .prepare("SELECT id from serials where serial=?1")
                         .expect("Failed to build prepared statement");
-                    stmt.query_row([&serial], |r|{
+                    stmt.query_row([&serial], |r| {
                         let cert = r.get(0)?;
                         Ok(cert)
                     })
-                }).await.expect("Failed to insert")
-            }
+                })
+                .await
+                .expect("Failed to insert"),
         }
     }
 

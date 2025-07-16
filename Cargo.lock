@@ -940,6 +940,7 @@ dependencies = [
 [[package]]
 name = "cert-common"
 version = "0.1.0"
+source = "git+https://github.com/uglyoldbob/cert-common.git#63724adf35459b37436b865ef127a27e92f5c48b"
 dependencies = [
  "cms",
  "const-oid",
