@@ -3140,7 +3140,7 @@ impl Ca {
         F: FnMut(CertificateInfo) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
-        
+
         let self2_medium = self.medium.to_owned();
         let a = tokio::spawn(async move {
             use der::Decode;
@@ -3360,8 +3360,7 @@ impl Ca {
                                 [&serial],
                                 |r| {
                                     let dbentry = DbEntry::new(r);
-                                    let csr = dbentry.into();
-                                    Ok(csr)
+                                    dbentry.try_into()
                                 },
                             )
                         })
@@ -4349,17 +4348,17 @@ impl<'a> From<DbEntry<'a>> for SshRequest {
     }
 }
 
-/// TODO: Convert to tryfrom
-impl<'a> From<DbEntry<'a>> for CsrRejection {
-    fn from(val: DbEntry<'a>) -> Self {
-        Self {
-            cert: val.row_data.get(4).unwrap(),
-            name: val.row_data.get(1).unwrap(),
-            email: val.row_data.get(2).unwrap(),
-            phone: val.row_data.get(3).unwrap(),
-            rejection: val.row_data.get(5).unwrap(),
-            serial: val.row_data.get(6).unwrap(),
-        }
+impl<'a> TryFrom<DbEntry<'a>> for CsrRejection {
+    type Error = async_sqlite::rusqlite::Error;
+    fn try_from(val: DbEntry<'a>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            cert: val.row_data.get(4)?,
+            name: val.row_data.get(1)?,
+            email: val.row_data.get(2)?,
+            phone: val.row_data.get(3)?,
+            rejection: val.row_data.get(5)?,
+            serial: val.row_data.get(6)?,
+        })
     }
 }
 

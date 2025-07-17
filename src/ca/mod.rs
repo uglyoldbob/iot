@@ -1070,7 +1070,11 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                                         }
                                     }
                                 } else {
-                                    b.text("Attribute not processed").line_break(|a| a);
+                                    b.text(format!(
+                                        "Attribute {} {:02x?} not processed",
+                                        attr.oid, p
+                                    ))
+                                    .line_break(|a| a);
                                 }
                             }
                         }
@@ -1356,10 +1360,11 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
     let mut csr_list: Vec<CertificateInfo> = Vec::new();
     let mut cert_count = 0;
     if admin {
-        cert_count = ca.certificate_processing(RESULTS_PER_PAGE, offset, |ci| {
-            csr_list.push(ci);
-        })
-        .await;
+        cert_count = ca
+            .certificate_processing(RESULTS_PER_PAGE, offset, |ci| {
+                csr_list.push(ci);
+            })
+            .await;
     }
 
     let response = hyper::Response::new("dummy");
@@ -1371,7 +1376,8 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
             if admin {
                 b.heading_1(|h| h.text("Current Certificates"))
                     .line_break(|a| a);
-                b.text(format!("There are {} certificates total", cert_count)).line_break(|a|a);
+                b.text(format!("There are {} certificates total", cert_count))
+                    .line_break(|a| a);
                 for c in csr_list {
                     b.thematic_break(|a| a);
                     b.text(format!("Issued by: {}", c.cert.tbs_certificate.issuer))
