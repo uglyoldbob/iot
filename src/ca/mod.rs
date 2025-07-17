@@ -14,7 +14,7 @@ pub use ca_common::*;
 async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut valid_csr = false;
     let mut mycsr_pem = None;
-    let mut id = None;
+    let mut serial: Option<String> = None;
     let mut smartcard_response = false;
 
     let f = s.post.form();
@@ -34,6 +34,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                         use der::DecodePem;
                         let _cert = x509_cert::request::CertReq::from_pem(pem).unwrap();
                         let newid = ca.get_new_request_id().await;
+                        let newserial = CaCertificateToBeSigned::calc_sn().0.to_vec();
                         if let Some(newid) = newid {
                             let csrr = CsrRequest {
                                 cert: pem.to_string(),
@@ -41,11 +42,14 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                                 email: form.get_first("email").unwrap().to_string(),
                                 phone: form.get_first("phone").unwrap().to_string(),
                                 id: newid,
-                                sn: CaCertificateToBeSigned::calc_sn().0.to_vec(),
+                                sn: newserial.clone(),
                             };
                             let _ = ca.save_csr(&csrr).await;
                         }
-                        id = newid;
+                        let serhex: Vec<String> =
+                            newserial.iter().map(|e| format!("{:02x}", e)).collect();
+                        let serials = serhex.join("");
+                        serial = Some(serials);
                     }
                 }
             }
@@ -74,7 +78,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     let _ = ca.save_ssh_request(&sshr).await;
                 }
                 valid_csr = true;
-                id = newid;
+                serial = todo!();
             }
         }
     }
@@ -87,7 +91,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     b.text("Your request has been submitted").line_break(|f| f);
                     b.anchor(|ab| {
                         ab.text("View status of request");
-                        ab.href(format!("view_cert.rs?id={}", id.unwrap()));
+                        ab.href(format!("view_cert.rs?serial={}", serial.unwrap()));
                         ab
                     });
                     b.line_break(|lb| lb);
@@ -112,8 +116,8 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
     } else {
         let mut bm = Vec::new();
         if valid_csr {
-            if let Some(id) = id {
-                bm.push(("id", id.to_string()));
+            if let Some(serial) = serial {
+                bm.push(("serial", serial));
             }
         }
         let bm2: Vec<(&str, &str)> = bm
