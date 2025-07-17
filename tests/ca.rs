@@ -290,7 +290,7 @@ async fn ssh_genkey() {
                 );
             }
             Err(e) => {
-                println!(
+                panic!(
                     "⚠ {:?} public key OpenSSH conversion failed: {:?}",
                     method, e
                 );
@@ -310,7 +310,7 @@ async fn ssh_genkey() {
                 );
             }
             Err(e) => {
-                println!(
+                panic!(
                     "⚠ {:?} private key OpenSSH conversion failed: {:?}",
                     method, e
                 );
@@ -347,10 +347,10 @@ async fn ssh_genkey() {
                     println!("✓ Successfully converted {:?} keys to russh format", method);
                 }
                 (Err(pub_err), _) => {
-                    println!("⚠ Failed to parse public key: {:?}", pub_err);
+                    panic!("⚠ Failed to parse public key: {:?}", pub_err);
                 }
                 (_, Err(priv_err)) => {
-                    println!("⚠ Failed to parse private key: {:?}", priv_err);
+                    panic!("⚠ Failed to parse private key: {:?}", priv_err);
                 }
             }
 
@@ -387,10 +387,10 @@ async fn ssh_genkey() {
                             println!("SSH server accepted connection from: {}", addr);
                             match server::run_stream(server_config, stream, server_handler).await {
                                 Ok(_) => println!("SSH server session completed successfully"),
-                                Err(e) => eprintln!("SSH server session error: {:?}", e),
+                                Err(e) => panic!("SSH server session error: {:?}", e),
                             }
                         }
-                        Err(e) => eprintln!("SSH server failed to accept connection: {:?}", e),
+                        Err(e) => panic!("SSH server failed to accept connection: {:?}", e),
                     }
                 });
 
@@ -409,7 +409,7 @@ async fn ssh_genkey() {
                             session
                         }
                         Err(e) => {
-                            println!("⚠ Failed to connect SSH client for {:?}: {:?}", method, e);
+                            panic!("⚠ Failed to connect SSH client for {:?}: {:?}", method, e);
                             continue;
                         }
                     };
@@ -433,7 +433,7 @@ async fn ssh_genkey() {
                         );
                     }
                     Err(e) => {
-                        println!("⚠ SSH authentication failed for {:?}: {:?}", method, e);
+                        panic!("⚠ SSH authentication failed for {:?}: {:?}", method, e);
                     }
                 }
 
@@ -442,16 +442,16 @@ async fn ssh_genkey() {
                     .disconnect(Disconnect::ByApplication, "Test completed", "")
                     .await
                 {
-                    eprintln!("Warning: Failed to disconnect SSH session cleanly: {:?}", e);
+                    panic!("Warning: Failed to disconnect SSH session cleanly: {:?}", e);
                 }
 
                 // Wait for server to finish
                 match tokio::time::timeout(std::time::Duration::from_secs(5), server_handle).await {
                     Ok(_) => println!("SSH server shut down cleanly for {:?}", method),
-                    Err(_) => eprintln!("Warning: SSH server timeout for {:?}", method),
+                    Err(_) => panic!("Warning: SSH server timeout for {:?}", method),
                 }
             } else {
-                println!(
+                panic!(
                     "⚠ Failed to convert {:?} keys to russh format - skipping SSH server test",
                     method
                 );
@@ -509,7 +509,7 @@ async fn ssh_genkey() {
                             println!("⚠ RSA-{} key generation returned None", size);
                         }
                         Err(_) => {
-                            println!(
+                            panic!(
                                 "⚠ RSA-{} key generation failed (expected for some sizes)",
                                 size
                             );
@@ -1366,8 +1366,8 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
     ];
 
-    let service = service::Service::new("build-ca-test".to_string());
-    service.new_log(service::LogLevel::Debug);
+    simple_logger::SimpleLogger::new().init();
+    service::log::set_max_level(service::LogLevel::Debug.level_filter());
 
     run_ca(methods, |config| async { config }).await.unwrap();
 
