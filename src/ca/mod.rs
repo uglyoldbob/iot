@@ -46,10 +46,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                             };
                             let _ = ca.save_csr(&csrr).await;
                         }
-                        let serhex: Vec<String> =
-                            newserial.iter().map(|e| format!("{:02x}", e)).collect();
-                        let serials = serhex.join("");
-                        serial = Some(serials);
+                        serial = Some(crate::utility::encode_hex(&newserial));
                     }
                 }
             }
@@ -1022,9 +1019,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
         .body(|b| {
             if let Some(serial) = s.get.get("serial") {
                 if let Some(csrr) = csrr {
-                    let serhex: Vec<String> =
-                        csrr.sn.iter().map(|e| format!("{:02x}", e)).collect();
-                    let serials = serhex.join("");
+                    let serials = crate::utility::encode_hex(&csrr.sn);
                     use der::DecodePem;
                     let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
                     if let Ok(csr) = csr {
@@ -1123,9 +1118,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                             .map(|n| format!("{}", n))
                             .collect();
                         let t = csr_names.join(", ");
-                        let serhex: Vec<String> =
-                            serial.iter().map(|e| format!("{:02x}", e)).collect();
-                        let serials = serhex.join("");
+                        let serials = crate::utility::encode_hex(&serial);
                         b.anchor(|ab| {
                             ab.text("View this request");
                             ab.href(format!("list.rs?serial={}", serials));
@@ -1393,9 +1386,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     .line_break(|a| a);
                     b.text(format!("Subject: {}", c.cert.tbs_certificate.subject))
                         .line_break(|a| a);
-                    let serhex: Vec<String> =
-                        c.serial.iter().map(|e| format!("{:02x}", e)).collect();
-                    let serial = serhex.join("");
+                    let serial = crate::utility::encode_hex(&c.serial);
                     b.anchor(|ab| {
                         ab.text("View details");
                         ab.href(format!("view_cert.rs?serial={}", serial));
@@ -1491,8 +1482,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
             if csr.is_none() {
                 rejection = Some(ca.get_rejection_reason_by_serial(serial.clone()).await);
             }
-            let serialhex: Vec<String> = serial.iter().map(|e| format!("{:02x}", e)).collect();
-            myserial = serialhex.join("");
+            myserial = crate::utility::encode_hex(&serial);
         }
     }
 
@@ -1793,8 +1783,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
                 form.line_break(|a| a);
                 form
             });
-            let serhex: Vec<String> = myserial.iter().map(|e| format!("{:02x}", e)).collect();
-            let serials = serhex.join("");
+            let serials = crate::utility::encode_hex(&myserial);
             b.division(|div| {
                 div.class("hidden");
                 div.anchor(|a| {
@@ -1884,8 +1873,7 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
                 } else {
                     "der".to_string()
                 };
-                let serhex: Vec<String> = serial.iter().map(|e| format!("{:02x}", e)).collect();
-                let serials = serhex.join("");
+                let serials = crate::utility::encode_hex(&serial);
                 match ty.as_str() {
                     "der" => {
                         response.headers.append(

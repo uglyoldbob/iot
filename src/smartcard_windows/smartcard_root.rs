@@ -41,8 +41,8 @@ pub enum Message {
     CheckCsrStatus {
         /// The url to query
         server: String,
-        /// The id of the certificate
-        id: usize,
+        /// The serial of the certificate
+        serial: Vec<u8>,
     },
     /// Write certificate to smartcard
     WriteCertificate(String),
@@ -86,8 +86,8 @@ pub enum Response {
     Erased(bool),
     /// A keypair generated
     KeypairGenerated(Option<rcgen::KeyPair>),
-    /// Csr Submit status, request id if it was successfully submitted
-    CsrSubmitStatus(Option<usize>),
+    /// Csr Submit status, request serial if it was successfully submitted
+    CsrSubmitStatus(Option<Vec<u8>>),
     /// Csr status
     CsrStatus(CsrStatus),
     /// The status of saving the certificate to the card
@@ -144,8 +144,8 @@ pub struct RootWindow {
     selected_ca_index: usize,
     /// Has a csr been submitted
     csr_submitted: Status,
-    /// The submitted csr id
-    csr_id: Option<usize>,
+    /// The submitted csr serial
+    csr_serial: Option<Vec<u8>>,
     /// The csr status
     csr_status: Option<CsrStatus>,
 }
@@ -168,7 +168,7 @@ impl RootWindow {
                 csr_data: CsrFormData::default(),
                 selected_ca_index: 0,
                 csr_submitted: Status::Idle,
-                csr_id: None,
+                csr_serial: None,
                 csr_status: None,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
@@ -317,7 +317,7 @@ impl TrackedWindow for RootWindow {
                         }
                         Response::CsrSubmitStatus(s) => {
                             self.csr_submitted = Status::Known(s.is_some());
-                            self.csr_id = s;
+                            self.csr_serial = s;
                         }
                         Response::CsrStatus(s) => {
                             self.csr_status = Some(s);
@@ -441,12 +441,12 @@ impl TrackedWindow for RootWindow {
                                     }
                                 }
                                 ui.label("CSR submitted for signing");
-                                if let Some(id) = self.csr_id {
+                                if let Some(serial) = &self.csr_serial {
                                     if ui.button("Check CSR status").clicked() {
                                         c.send.blocking_send(Message::CheckCsrStatus {
                                             server: c.config.ca_urls[self.selected_ca_index]
                                                 .clone(),
-                                            id,
+                                            serial: serial.clone(),
                                         });
                                         self.expecting_response = true;
                                     }
@@ -534,7 +534,7 @@ impl TrackedWindow for RootWindow {
                         self.keypair = None;
                         self.csr_data = CsrFormData::default();
                         self.csr_submitted = Status::Idle;
-                        self.csr_id = None;
+                        self.csr_serial = None;
                         self.csr_status = None;
                         self.notes.clear();
                     }

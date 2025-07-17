@@ -905,6 +905,7 @@ async fn run_web_checks(
     params.insert("name", "Jenny".to_string());
     params.insert("email", "dummy@example.com".to_string());
     params.insert("phone", "867-5309".to_string());
+    params.insert("smartcard", "1".to_string());
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
         .identity(id.clone())
@@ -922,13 +923,23 @@ async fn run_web_checks(
         .await
         .expect("No content");
     println!("SUBMISSION IS {}", t);
-    assert_eq!(
-        true,
-        predicate::str::contains("Your request has been submitted").eval(&t)
-    );
+
+    let submitted_serial: Vec<u8> = {
+        let h = url_encoded_data::UrlEncodedData::parse_str(&t);
+        let serial = h.get("serial");
+        if let Some(serial) = serial {
+            let serial = serial.first().unwrap();
+            let serial = crate::utility::decode_hex(serial).unwrap();
+            service::log::info!("The serial is {:02x?}", serial);
+            serial
+        } else {
+            panic!("No serial received on submission");
+        }
+    };
+    let serial_s = crate::utility::encode_hex(&submitted_serial);
 
     params.clear();
-    params.insert("id", "4".to_string());
+    params.insert("serial", serial_s.clone());
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
         .build()
@@ -969,7 +980,7 @@ async fn run_web_checks(
     println!("Certs are {}", t);
 
     params.clear();
-    params.insert("id", "4".to_string());
+    params.insert("serial", serial_s.clone());
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())
         .identity(id.clone())
@@ -1035,7 +1046,7 @@ async fn run_web_checks(
     let user_ident = reqwest::Identity::from_pkcs12_der(&p12, &user_pw).unwrap();
 
     params.clear();
-    params.insert("id", "4".to_string());
+    params.insert("serial", serial_s.clone());
     params.insert("type", "pem".to_string());
     let t = reqwest::Client::builder()
         .add_root_certificate(cert.clone())

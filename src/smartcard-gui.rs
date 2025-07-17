@@ -109,7 +109,7 @@ async fn handle_card_stuff(
                     .await
                     .unwrap();
             }
-            smartcard_root::Message::CheckCsrStatus { server, id } => {
+            smartcard_root::Message::CheckCsrStatus { server, serial } => {
                 let mut client = reqwest::ClientBuilder::new();
                 for s in &ca_certs {
                     service::log::info!("Trying to register server cert: -{}-", s);
@@ -123,7 +123,7 @@ async fn handle_card_stuff(
                     .build()
                     .unwrap();
                 let url_get = url_encoded_data::stringify(&[
-                    ("id", id.to_string().as_str()),
+                    ("serial", crate::utility::encode_hex(&serial).as_str()),
                     ("smartcard", "1"),
                     ("type", "pem"),
                 ]);
@@ -172,12 +172,13 @@ async fn handle_card_stuff(
                 if let Ok(res) = res {
                     let d = String::from_utf8(res.bytes().await.unwrap().to_vec()).unwrap();
                     let h = url_encoded_data::UrlEncodedData::parse_str(&d);
-                    let id = h.get("id");
-                    if let Some(id) = id {
-                        let id = id.first().unwrap().parse::<usize>().unwrap();
-                        service::log::info!("The id is {:?}", id);
+                    let serial = h.get("serial");
+                    if let Some(serial) = serial {
+                        let serial = serial.first().unwrap();
+                        let serial = crate::utility::decode_hex(serial).unwrap();
+                        service::log::info!("The serial is {:02x?}", serial);
                         let _ = send
-                            .send(smartcard_root::Response::CsrSubmitStatus(Some(id)))
+                            .send(smartcard_root::Response::CsrSubmitStatus(Some(serial)))
                             .await;
                     } else {
                         let _ = send
