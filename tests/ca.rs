@@ -1200,7 +1200,7 @@ fn build_answers(
 
 /// Structure for managing the running server
 struct TheServer {
-    configpath: tempfile::TempDir,
+    configpath: Option<tempfile::TempDir>,
     pki_name: String,
     ca_name: String,
     process: Option<std::process::Child>,
@@ -1224,7 +1224,7 @@ impl TheServer {
             .success();
 
         Self {
-            configpath,
+            configpath: Some(configpath),
             pki_name,
             ca_name,
             process: None,
@@ -1238,7 +1238,10 @@ impl TheServer {
                 std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
             let a = run
                 .arg("--shutdown")
-                .arg(format!("--config={}", self.configpath.path().display()))
+                .arg(format!(
+                    "--config={}",
+                    self.configpath.as_ref().unwrap().path().display()
+                ))
                 .spawn()
                 .ok();
             self.process = a;
@@ -1246,19 +1249,20 @@ impl TheServer {
             let mut run =
                 std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
             run.arg("--test")
-                .arg(format!("--config={}", self.configpath.path().display()))
+                .arg(format!(
+                    "--config={}",
+                    self.configpath.as_ref().unwrap().path().display()
+                ))
                 .assert()
                 .success();
         }
         service::log::info!("Done running the server");
     }
-}
 
-impl Drop for TheServer {
-    fn drop(&mut self) {
+    async fn terminate(&mut self, p: std::process::Child) {
         service::log::info!("Shutting down the server");
         // indicate that it should exit so the test can actually finish
-        reqwest::blocking::Client::builder()
+        reqwest::Client::builder()
             .build()
             .unwrap()
             .get(format!(
@@ -1266,6 +1270,7 @@ impl Drop for TheServer {
                 self.pki_name, self.ca_name
             ))
             .send()
+            .await
             .expect("Failed to shutdown");
 
         if let Some(a) = &mut self.process {
@@ -1274,12 +1279,32 @@ impl Drop for TheServer {
         }
 
         let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
-        kill.arg(format!("--config={}", self.configpath.path().display()))
-            .arg("--name=default")
-            .arg("--delete")
-            .arg("--test")
-            .assert()
-            .success();
+        kill.arg(format!(
+            "--config={}",
+            self.configpath.as_ref().unwrap().path().display()
+        ))
+        .arg("--name=default")
+        .arg("--delete")
+        .arg("--test")
+        .assert()
+        .success();
+    }
+}
+
+impl Drop for TheServer {
+    fn drop(&mut self) {
+        if let Some(p) = self.process.take() {
+            let mut this = TheServer {
+                configpath: self.configpath.take(),
+                pki_name: self.pki_name.clone(),
+                ca_name: self.ca_name.clone(),
+                process: None,
+            };
+            tokio::spawn(async move {
+                this.terminate(p).await;
+                this.process.take();
+            });
+        }
     }
 }
 
@@ -1344,7 +1369,9 @@ where
         server.run_with_shutdown(false);
 
         let method2 = method;
-        let jh = tokio::spawn(async move {
+
+        server.run_with_shutdown(true);
+        {
             use futures::FutureExt;
             use predicates::prelude::*;
             //Wait until the service is ready by polling it
@@ -1359,11 +1386,7 @@ where
             }
             //now run all the checks
             run_web_checks(args2, method2, &pki_name, &ca_name).await;
-        });
-
-        server.run_with_shutdown(true);
-        let r = jh.into_future().await;
-        r.unwrap();
+        }
     }
 
     Ok(())

@@ -3722,8 +3722,7 @@ impl Ca {
         &self,
         serial: &[u8],
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
-        let s_str: Vec<String> = serial.iter().map(|v| format!("{:02X}", v)).collect();
-        let s_str = s_str.concat();
+        let s_str = crate::utility::encode_hex(serial);
         service::log::info!("Looking for serial number {}", s_str);
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,

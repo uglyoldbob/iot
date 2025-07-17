@@ -10,7 +10,23 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
 
 /// Encode a vec of bytes to a hex string with no separators
 pub fn encode_hex(d: &[u8]) -> String {
-    let serhex: Vec<String> = d.iter().map(|e| format!("{:02x}", e)).collect();
+    let mut start_index = 0;
+    let mut i = 0;
+    let start_index = loop {
+        if i < d.len() {
+            if d[i] != 0 {
+                break i;
+            }
+            i += 1;
+        } else {
+            break i;
+        }
+    };
+    let serhex: Vec<String> = d
+        .iter()
+        .skip(start_index)
+        .map(|e| format!("{:02x}", e))
+        .collect();
     serhex.join("")
 }
 
