@@ -1029,7 +1029,7 @@ async fn run_web_checks(
             cert_common::pkcs12::BagAttribute::LocalKeyId(vec![42; 16]), //TODO
             cert_common::pkcs12::BagAttribute::FriendlyName("User Certificate".to_string()), //TODO
         ],
-        id: 42,
+        serial: vec![42; 16],
     };
     let p12 = up12.get_pkcs12(&user_pw);
     let user_ident = reqwest::Identity::from_pkcs12_der(&p12, &user_pw).unwrap();
@@ -1187,6 +1187,91 @@ fn build_answers(
     args
 }
 
+/// Structure for managing the running server
+struct TheServer {
+    configpath: tempfile::TempDir,
+    pki_name: String,
+    ca_name: String,
+    process: Option<std::process::Child>,
+}
+
+impl TheServer {
+    fn make(
+        configpath: tempfile::TempDir,
+        pb: &std::path::PathBuf,
+        pb2: &std::path::PathBuf,
+        pki_name: String,
+        ca_name: String,
+    ) -> Self {
+        let mut construct = std::process::Command::cargo_bin("rust-iot-construct").unwrap();
+        construct
+            .arg(format!("--answers={}", pb.display()))
+            .arg(format!("--save-answers={}", pb2.display()))
+            .arg("--test")
+            .arg(format!("--config={}", configpath.path().display()))
+            .assert()
+            .success();
+
+        Self {
+            configpath,
+            pki_name,
+            ca_name,
+            process: None,
+        }
+    }
+
+    fn run_with_shutdown(&mut self, sd: bool) {
+        service::log::info!("Running the server shutdown {}", sd);
+        if sd {
+            let mut run =
+                std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+            let a = run
+                .arg("--shutdown")
+                .arg(format!("--config={}", self.configpath.path().display()))
+                .spawn()
+                .ok();
+            self.process = a;
+        } else {
+            let mut run =
+                std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+            run.arg("--test")
+                .arg(format!("--config={}", self.configpath.path().display()))
+                .assert()
+                .success();
+        }
+        service::log::info!("Done running the server");
+    }
+}
+
+impl Drop for TheServer {
+    fn drop(&mut self) {
+        service::log::info!("Shutting down the server");
+        // indicate that it should exit so the test can actually finish
+        reqwest::blocking::Client::builder()
+            .build()
+            .unwrap()
+            .get(format!(
+                "http://127.0.0.1:3000/{}{}test-exit.rs",
+                self.pki_name, self.ca_name
+            ))
+            .send()
+            .expect("Failed to shutdown");
+
+        if let Some(a) = &mut self.process {
+            let b = a.wait().unwrap();
+            assert!(b.success());
+        }
+
+        let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
+        kill.arg(format!("--config={}", self.configpath.path().display()))
+            .arg("--name=default")
+            .arg("--delete")
+            .arg("--test")
+            .assert()
+            .success();
+    }
+}
+
 /// Run CA (Certificate Authority) integration tests with specified signing methods
 ///
 /// This function orchestrates a complete CA lifecycle test including:
@@ -1236,14 +1321,7 @@ where
 
         let pb2 = base.join("answers2.toml");
 
-        let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
-        construct
-            .arg(format!("--answers={}", pb.display()))
-            .arg(format!("--save-answers={}", pb2.display()))
-            .arg("--test")
-            .arg(format!("--config={}", configpath.path().display()))
-            .assert()
-            .success();
+        let mut server = TheServer::make(configpath, &pb, &pb2, pki_name.clone(), ca_name.clone());
 
         let mut f2 = tokio::fs::File::open(pb2).await.unwrap();
         let mut f2_contents = Vec::new();
@@ -1252,11 +1330,7 @@ where
             toml::from_str(std::str::from_utf8(&f2_contents).unwrap()).unwrap();
         //TODO compare args and args2
 
-        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-        run.arg("--test")
-            .arg(format!("--config={}", configpath.path().display()))
-            .assert()
-            .success();
+        server.run_with_shutdown(false);
 
         let method2 = method;
         let jh = tokio::spawn(async move {
@@ -1273,46 +1347,11 @@ where
                 }
             }
             //now run all the checks
-            let resp =
-                std::panic::AssertUnwindSafe(run_web_checks(args2, method2, &pki_name, &ca_name))
-                    .catch_unwind()
-                    .await;
-            // indicate that it should exit so the test can actually finish
-            reqwest::Client::builder()
-                .build()
-                .unwrap()
-                .get(format!(
-                    "http://127.0.0.1:3000/{}{}test-exit.rs",
-                    pki_name, ca_name
-                ))
-                .send()
-                .await
-                .expect("Failed to shutdown");
-            // indicate errors now
-            if resp.is_err() {
-                panic!("FAIL: {:?}", resp.err());
-            }
+            run_web_checks(args2, method2, &pki_name, &ca_name).await;
         });
 
-        let mut run = std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
-        let a = run
-            .arg("--shutdown")
-            .arg(format!("--config={}", configpath.path().display()))
-            .assert()
-            .success();
-        let o = a.get_output();
-        println!("OUTPUT IS {}", std::str::from_utf8(&o.stdout).unwrap());
-
+        server.run_with_shutdown(true);
         let r = jh.into_future().await;
-
-        let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
-        kill.arg(format!("--config={}", configpath.path().display()))
-            .arg("--name=default")
-            .arg("--delete")
-            .arg("--test")
-            .assert()
-            .success();
-
         r.unwrap();
     }
 
@@ -1331,6 +1370,9 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256),
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
     ];
+
+    let service = service::Service::new("build-ca-test".to_string());
+    service.new_log(service::LogLevel::Debug);
 
     run_ca(methods, |config| async { config }).await.unwrap();
 

@@ -1151,7 +1151,7 @@ impl CaCertificateStorage {
             cert.name,
             cert.data.hsm_label()
         );
-        let id = ca.get_id_from_serial(cert.serial.clone()).await.unwrap();
+        let id = ca.get_new_request_id().await.unwrap();
         let cert_der = &cert
             .contents()
             .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
