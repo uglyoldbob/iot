@@ -237,7 +237,7 @@ async fn smain() {
             loop {
                 print!("Please enter a password:");
                 std::io::stdout().flush().unwrap();
-                password2 = userprompt::Password::prompt(None).unwrap();
+                password2 = userprompt::Password::prompt(None, None).unwrap();
                 if !password2.is_empty() {
                     password = Some(password2.to_string());
                     break;

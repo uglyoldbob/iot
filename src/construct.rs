@@ -170,7 +170,7 @@ pub async fn main() {
         answers = toml::from_str(&answers_file).expect("Failed to parse configuration");
         MainConfiguration::provide_answers(&answers)
     } else {
-        answers = MainConfigurationAnswers::prompt(None).unwrap();
+        answers = MainConfigurationAnswers::prompt(None, None).unwrap();
         MainConfiguration::provide_answers(&answers)
     };
 

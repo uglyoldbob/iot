@@ -41,7 +41,15 @@ pub fn get_sqlite_paths(p: &std::path::PathBuf) -> Vec<std::path::PathBuf> {
 pub struct SmartCardPin2(String, String);
 
 impl userprompt::EguiPrompting for SmartCardPin2 {
-    fn build_gui(&mut self, ui: &mut egui::Ui, name: Option<&str>) -> Result<(), String> {
+    fn build_gui(
+        &mut self,
+        ui: &mut egui::Ui,
+        name: Option<&str>,
+        comment: Option<&str>,
+    ) -> Result<(), String> {
+        if let Some(comment) = comment {
+            ui.label(comment);
+        }
         if let Some(n) = name {
             ui.label(n);
         }
@@ -72,7 +80,7 @@ impl userprompt::EguiPrompting for SmartCardPin2 {
 }
 
 impl userprompt::Prompting for SmartCardPin2 {
-    fn prompt(name: Option<&str>) -> Result<Self, userprompt::Error> {
+    fn prompt(name: Option<&str>, comment: Option<&str>) -> Result<Self, userprompt::Error> {
         use std::io::Write;
         let mut buffer;
         'prompt: loop {
@@ -136,8 +144,10 @@ impl std::fmt::Display for SmartCardPin2 {
     serde::Serialize,
 )]
 pub enum CertificateTypeAnswers {
-    /// A certificate represented by a regular protected p12 document, secured by a passwor
+    #[PromptComment = "A soft certificate, password protected, the password is not stored anywhere"]
+    /// A certificate represented by a regular protected p12 document, secured by a password
     Soft(userprompt::Password2),
+    #[PromptComment = "The certificate is kept on a smart card"]
     /// A certificate stored in a smart card, protected by a pin
     SmartCard(SmartCardPin2),
 }
@@ -271,24 +281,34 @@ impl StandaloneCaConfiguration {
     serde::Serialize,
 )]
 pub struct StandaloneCaConfigurationAnswers {
+    #[PromptComment = "The signing method for this authority"]
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
+    #[PromptComment = "Where the authority should be stored"]
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
+    #[PromptComment = "Does this authority have a superior authority?"]
     /// Does this authority have a superior authority?
     pub inferior_to: Option<String>,
+    #[PromptComment = "The common name of the authority"]
     /// The common name of the certificate authority
     pub common_name: String,
+    #[PromptComment = "The number of days the authority is good for"]
     /// The number of days the certificate authority should be good for.
     pub days: u32,
+    #[PromptComment = "The maximum chain length for the authority, used when creating more authorities"]
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
+    #[PromptComment = "The password required to download the admin certificate"]
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: userprompt::Password2,
+    #[PromptComment = "The certificate type for the administrator certificate"]
     /// The certificate type for the admin cert
     pub admin_cert: CertificateTypeAnswers,
+    #[PromptComment = "Is a signature required for ocsp requests?"]
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
+    #[PromptComment = "The name of the authority instance"]
     /// The name of the ca instance
     pub name: String,
 }
@@ -404,22 +424,31 @@ impl StandaloneCaConfigurationAnswers {
     serde::Serialize,
 )]
 pub struct LocalCaConfigurationAnswers {
+    #[PromptComment = "The signing method used by the authority"]
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
+    #[PromptComment = "Where to store the certificate authority"]
     /// Where to store the certificate authority
     pub path: CaCertificateStorageBuilder,
+    #[PromptComment = "Does this have an authority that is superior to it?"]
     /// Does this authority have a superior authority?
     pub inferior_to: Option<String>,
+    #[PromptComment = "The common name of the certificate authority"]
     /// The common name of the certificate authority
     pub common_name: String,
+    #[PromptComment = "The number of days the authority is good for"]
     /// The number of days the certificate authority should be good for.
     pub days: u32,
+    #[PromptComment = "The maximum chain length for the authority, used when creating other authorities"]
     /// The maximum chain length for a chain of certificate authorities.
     pub chain_length: u8,
+    #[PromptComment = "The password required to download the administrator certificate"]
     /// The password required in order to download the admin certificate over the web
     pub admin_access_password: userprompt::Password2,
+    #[PromptComment = "The certificate type for the administrator certificate"]
     /// The certificate type for the admin cert
     pub admin_cert: CertificateTypeAnswers,
+    #[PromptComment = "Is a signature required for ocsp requests?"]
     /// Is a signature required for ocsp requests?
     pub ocsp_signature: bool,
 }
@@ -755,8 +784,10 @@ use egui_multiwin::egui;
     strum::EnumIter,
 )]
 pub enum CaCertificateStorageBuilder {
+    #[PromptComment = "Don't store certificates anywhere (only for testing)"]
     /// Certificates are stored nowhere
     Nowhere,
+    #[PromptComment = "Store the certificates in a sqlite database on local storage"]
     /// Ca uses a sqlite database on a filesystem
     Sqlite(userprompt::FileCreate),
 }
@@ -1892,8 +1923,10 @@ impl CaCertificate {
     serde::Serialize,
 )]
 pub struct ComplexName {
+    #[PromptComment = "The domain name, such as example.com"]
     /// The domain name, such as example.com
     pub domain: String,
+    #[PromptComment = "The subdomain, such as / or /asdf"]
     /// The subdomain, such as / or /asdf
     pub subdomain: String,
 }
@@ -1936,8 +1969,10 @@ impl std::str::FromStr for ComplexName {
     serde::Serialize,
 )]
 pub struct ProxyConfig {
+    #[PromptComment = "The optional http port to use for proxies"]
     /// The public port number for http, 80 for the example (the default port for http)
     pub http_port: Option<u16>,
+    #[PromptComment = "The optional https port to use for https proxies"]
     /// The public port number for https, 443 for the example (the default port for https)
     pub https_port: Option<u16>,
 }
@@ -1953,10 +1988,13 @@ pub struct ProxyConfig {
     serde::Serialize,
 )]
 pub struct PkiConfigurationAnswers {
+    #[PromptComment = "A list of local ca configurations"]
     /// List of local ca
     pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
+    #[PromptComment = "The optional passworder for the super-admin"]
     /// The provider for the super-admin key
     super_admin: Option<String>,
+    #[PromptComment = "The name to use for the pki"]
     /// The name to use for the pki
     pub pki_name: String,
 }
@@ -2001,12 +2039,16 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
     strum::EnumIter,
 )]
 pub enum PkiConfigurationEnumAnswers {
+    #[PromptComment = "A generic pki configuration, you probably want this one"]
     /// A generic Pki configuration
     Pki(PkiConfigurationAnswers),
+    #[PromptComment = "Advanced: A certificate authority configuration to be paired with a Pki provider somewhere else"]
     /// A standard certificate authority configuration, paired with an external pki provider
     Ca {
+        #[PromptComment = "The pki name for the ca to use"]
         /// The pki_name for the ca to use when generating urls
         pki_name: String,
+        #[PromptComment = "The configuration data"]
         /// The configuration
         config: Box<StandaloneCaConfigurationAnswers>,
     },

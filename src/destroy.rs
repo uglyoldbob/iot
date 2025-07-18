@@ -55,7 +55,8 @@ async fn main() {
 
     if !args.delete {
         println!("Enter yes two times to delete the configuration");
-        let p: userprompt::Password2 = userprompt::Password2::prompt(Some("Delete?")).unwrap();
+        let p: userprompt::Password2 =
+            userprompt::Password2::prompt(Some("Delete?"), None).unwrap();
         if p.as_str() != "yes" {
             return;
         }
@@ -136,7 +137,7 @@ async fn main() {
             loop {
                 print!("Please enter a password:");
                 std::io::stdout().flush().unwrap();
-                password2 = userprompt::Password::prompt(None).unwrap();
+                password2 = userprompt::Password::prompt(None, None).unwrap();
                 if !password2.is_empty() {
                     password = Some(password2.to_string());
                     break;

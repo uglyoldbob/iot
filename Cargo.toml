@@ -61,7 +61,7 @@ zeroize = "1.7.0"
 git = "https://github.com/uglyoldbob/smartcard.git"
 
 [dependencies.cert-common]
-version = "0.1.0"
+version = "0.2.0"
 git = "https://github.com/uglyoldbob/cert-common.git"
 
 [dependencies.clap]
@@ -123,7 +123,7 @@ version = "1.0.197"
 features = ["derive"]
 
 [dependencies.service]
-git = "https://github.com/uglyoldbob/service.git"
+version = "0.2.0"
 features = ["async", "serde", "prompt", "egui-prompt"]
 
 [dependencies.ssh-key]
@@ -144,7 +144,7 @@ version = "1.36.0"
 features = ["full"]
 
 [dependencies.userprompt]
-version = "0.2.0"
+version = "0.3.0"
 features = ["serde", "egui"]
 
 [target.'cfg(unix)'.dependencies]

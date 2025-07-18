@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "ab_glyph"
-version = "0.2.30"
+version = "0.2.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e0f4f6fbdc5ee39f2ede9f5f3ec79477271a6d6a2baff22310d51736bda6cea"
+checksum = "e074464580a518d16a7126262fffaaa47af89d4099d4cb403f8ed938ba12ee7d"
 dependencies = [
  "ab_glyph_rasterizer",
  "owned_ttf_parser",
@@ -462,9 +462,9 @@ dependencies = [
 
 [[package]]
 name = "async-sqlite"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e4dd97f59b41526daf0c93e6a466f96f4cd472b34bcdea86b92edfaa9fe5e6e"
+checksum = "556a4163d701c7d3e28c89917294cea8d2a05092c92a50307c0f2d1742058ced"
 dependencies = [
  "crossbeam-channel",
  "futures-channel",
@@ -901,8 +901,8 @@ dependencies = [
 
 [[package]]
 name = "card"
-version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/smartcard.git#3c830caf38101a6bbe9fa4155b1347b4d843f5bc"
+version = "0.2.0"
+source = "git+https://github.com/uglyoldbob/smartcard.git#07015b675249c950771602138ca0548cabb62171"
 dependencies = [
  "cert-common",
  "clap",
@@ -928,9 +928,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.29"
+version = "1.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1599538de2394445747c8cf7935946e3cc27e9625f889d979bfb2aaf569362"
+checksum = "deec109607ca693028562ed836a5f1c4b8bd77755c4e132fc5ce11b0b6211ae7"
 dependencies = [
  "jobserver",
  "libc",
@@ -939,8 +939,8 @@ dependencies = [
 
 [[package]]
 name = "cert-common"
-version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/cert-common.git#63724adf35459b37436b865ef127a27e92f5c48b"
+version = "0.2.0"
+source = "git+https://github.com/uglyoldbob/cert-common.git#33fdc9c89ba14a0adc7873905b482608bd2f7d0f"
 dependencies = [
  "cms",
  "const-oid",
@@ -957,7 +957,7 @@ dependencies = [
  "rfd",
  "rsa",
  "serde",
- "service",
+ "service 0.2.0 (git+https://github.com/uglyoldbob/service.git)",
  "sha2",
  "ssh-key",
  "userprompt",
@@ -1096,9 +1096,9 @@ checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
 name = "clipboard-win"
-version = "5.4.0"
+version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15efe7a882b08f34e38556b14f2fb3daa98769d06c7f0c1b076dfd0d983bc892"
+checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
 dependencies = [
  "error-code",
 ]
@@ -1369,9 +1369,9 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "curve25519-dalek"
-version = "4.2.0"
+version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "373b7c5dbd637569a2cca66e8d66b8c446a1e7bf064ea321d265d7b3dfe7c97e"
+checksum = "97fb8b7c4503de7d6ae7b42ab72a5a59857b4c937ec27a3d4539dba95b5ab2be"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -1905,9 +1905,9 @@ dependencies = [
 
 [[package]]
 name = "fiat-crypto"
-version = "0.3.0"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
+checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "field-offset"
@@ -2559,7 +2559,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.2",
  "tower-service",
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
@@ -2980,9 +2980,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.34.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91632f3b4fb6bd1d72aa3d78f41ffecfcf2b1a6648d8c241dbe7dbfaf4875e15"
+checksum = "133c182a6a2c87864fe97778797e46c7e999672690dc9fa3ee8e241aa4a9c13f"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4564,7 +4564,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
@@ -4698,9 +4698,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.36.0"
+version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3de23c3319433716cf134eed225fe9986bc24f63bed9be9f20c329029e672dc7"
+checksum = "165ca6e57b20e1351573e3729b958bc62f0e48025386970b6e4d29e7a7e71f3f"
 dependencies = [
  "bitflags 2.9.1",
  "fallible-iterator",
@@ -4851,7 +4851,7 @@ dependencies = [
  "scrypt",
  "serde",
  "serial_test",
- "service",
+ "service 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha1",
  "sha2",
  "sha256",
@@ -5127,9 +5127,9 @@ dependencies = [
 
 [[package]]
 name = "sdd"
-version = "3.0.9"
+version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62f5557d2bbddd5afd236ba7856b0e494f5acc7ce805bb0774cc5674b20a06b4"
+checksum = "490dcfcbfef26be6800d11870ff2df8774fa6e86d047e3e8c8a76b25655e41ca"
 
 [[package]]
 name = "seahash"
@@ -5289,8 +5289,9 @@ dependencies = [
 
 [[package]]
 name = "service"
-version = "0.1.2"
-source = "git+https://github.com/uglyoldbob/service.git#a0dbb30677331f2e6d570e758c723ce065a9a96f"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae734e78dd1b76671dfec46d1c96bdbdf664fc3ec9444a8ad15797b95d9ec1a"
 dependencies = [
  "cfg-if",
  "eventlog",
@@ -5300,6 +5301,21 @@ dependencies = [
  "simple_logger 4.3.3",
  "tokio",
  "userprompt",
+ "widestring 1.2.0",
+ "winapi",
+]
+
+[[package]]
+name = "service"
+version = "0.2.0"
+source = "git+https://github.com/uglyoldbob/service.git#8b03c9d5d9fcb13ae812d0f06fab2ea8a06f4d05"
+dependencies = [
+ "cfg-if",
+ "eventlog",
+ "lazy_static",
+ "log",
+ "simple_logger 4.3.3",
+ "tokio",
  "widestring 1.2.0",
  "winapi",
 ]
@@ -6238,9 +6254,9 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "userprompt"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c5fef4a10b37f087ba7976ff21aaaabd2ac66679875a1eca82aa291365097f9"
+checksum = "d8950107057913671760b24a6079b6744ce13ba85073e23acb54b61d33b6eea6"
 dependencies = [
  "egui",
  "rfd",
@@ -6251,9 +6267,9 @@ dependencies = [
 
 [[package]]
 name = "userprompt_derive"
-version = "0.0.1"
+version = "0.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "759d6b3d457e33661f8d569fc91808193939bfd273c909d2ad3ce74a37b3d36f"
+checksum = "49c10586410021467a311e94528acfaa02b28cf9e5d70fe047c8459459244217"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6598,14 +6614,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.1",
+ "webpki-roots 1.0.2",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8782dd5a41a24eed3a4f40b606249b3e236ca61adf1f25ea4d45c73de122b502"
+checksum = "7e8983c3ab33d6fb807cfcdad2491c4ea8cbc8ed839181c7dfd9c67c83e261b2"
 dependencies = [
  "rustls-pki-types",
 ]

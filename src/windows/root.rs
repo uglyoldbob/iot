@@ -124,7 +124,7 @@ impl TrackedWindow for RootWindow {
                     GeneratingMode::Idle => {
                         ui.label("Name of the service");
                         ui.text_edit_singleline(&mut self.service_name);
-                        let reason_no_generate = self.answers.build_gui(ui, None);
+                        let reason_no_generate = self.answers.build_gui(ui, None, None);
                         if let Err(reason) = reason_no_generate {
                             ui.label("Not ready to generate service");
                             ui.label(reason.to_string());
