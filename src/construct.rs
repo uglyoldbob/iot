@@ -306,6 +306,10 @@ library.reset_on_fork = false
         https.certificate.destroy();
     }
     match &config.pki {
+        ca::PkiConfigurationEnum::AddedCa(ca) => {
+            let ca: ca::CaConfiguration = ca.get_ca("", &config);
+            ca.destroy_backend().await;
+        }
         ca::PkiConfigurationEnum::Pki(pki) => {
             for (name, ca) in &pki.local_ca {
                 let ca = ca.get_ca(name, &config);
