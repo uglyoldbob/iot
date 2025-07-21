@@ -143,8 +143,12 @@ async fn ca_submit_request(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_submit_request(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_submit_request(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_submit_request(ca, &s).await,
     }
@@ -388,8 +392,12 @@ async fn ca_request(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_request(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_request(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_request(ca, &s).await,
     }
@@ -417,7 +425,7 @@ async fn pki_main_page(s: WebPageContext) -> WebResponse {
         })
         .body(|b| {
             b.text("This is the pki page").line_break(|a| a);
-            for (name, ca) in &pki.roots {
+            for (name, ca) in &pki.all_ca {
                 service::log::debug!("Root name \"{}\"", name);
                 b.thematic_break(|a| a);
                 let validity = ca.get_validity();
@@ -443,7 +451,7 @@ async fn pki_main_page(s: WebPageContext) -> WebResponse {
                         .line_break(|a| a);
                     }
                 }
-                if let Ok(cert) = ca.root_ca_cert() {
+                if let Ok(cert) = ca.root_cert_ref() {
                     b.text(format!("CERT TYPE {:?}", cert.algorithm()))
                         .line_break(|a| a);
                 }
@@ -603,8 +611,12 @@ async fn ca_main_page(s: WebPageContext) -> WebResponse {
             let mut pb = s.page.clone();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_main_page(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_main_page(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s).await,
     }
@@ -643,8 +655,12 @@ async fn ca_test_exit(s: WebPageContext) -> WebResponse {
             let mut pb = s.page.clone();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_test_exit(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_test_exit(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_test_exit(ca, &s).await,
     }
@@ -683,8 +699,12 @@ async fn ca_main_page2(s: WebPageContext) -> WebResponse {
             let mut pb = s.page.clone();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_main_page2(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_main_page2(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_main_page2(ca, &s).await,
     }
@@ -833,8 +853,12 @@ async fn ca_reject_request(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_reject_request(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_reject_request(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_reject_request(ca, &s).await,
     }
@@ -849,8 +873,12 @@ async fn ca_revoke_certificate(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_revoke_certificate(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_revoke_certificate(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_revoke_certificate(ca, &s).await,
     }
@@ -979,8 +1007,12 @@ async fn ca_sign_request(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_sign_request(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_sign_request(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_sign_request(ca, &s).await,
     }
@@ -1159,8 +1191,12 @@ async fn ca_list_https_requests(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_list_https_requests(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_list_https_requests(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_list_https_requests(ca, &s).await,
     }
@@ -1284,8 +1320,12 @@ async fn ca_list_ssh_requests(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_list_ssh_requests(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_list_ssh_requests(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_list_ssh_requests(ca, &s).await,
     }
@@ -1445,8 +1485,12 @@ async fn ca_view_all_certs(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_all_certs(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_view_all_certs(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_view_all_certs(ca, &s).await,
     }
@@ -1706,8 +1750,12 @@ async fn ca_view_user_https_cert(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_user_https_cert(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_view_user_https_cert(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_view_user_https_cert(ca, &s).await,
     }
@@ -1848,8 +1896,12 @@ async fn ca_view_user_ssh_cert(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_view_user_ssh_cert(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_view_user_ssh_cert(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_view_user_ssh_cert(ca, &s).await,
     }
@@ -1949,8 +2001,12 @@ async fn ca_get_user_cert(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_user_cert(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_get_user_cert(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_get_user_cert(ca, &s).await,
     }
@@ -2025,8 +2081,12 @@ async fn ca_get_admin(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_admin(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_get_admin(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_get_admin(ca, &s).await,
     }
@@ -2111,8 +2171,12 @@ async fn ca_get_cert(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_get_cert(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_get_cert(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_get_cert(ca, &s).await,
     }
@@ -2325,8 +2389,12 @@ async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_ocsp_responder(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_ocsp_responder(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_ocsp_responder(ca, &s).await,
     }
@@ -2414,8 +2482,12 @@ async fn ca_refresh_certificate_search(s: WebPageContext) -> WebResponse {
             pb.pop();
             pb.pop();
             let name = pb.file_name().unwrap().to_str().unwrap();
-            let ca = pki.roots.get_mut(name).unwrap();
-            handle_ca_refresh_certificate_search(ca, &s).await
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_refresh_certificate_search(ca, &s).await
+            } else {
+                todo!()
+            }
         }
         PkiInstance::Ca(ca) => handle_ca_refresh_certificate_search(ca, &s).await,
     }
@@ -2454,27 +2526,29 @@ pub fn ca_register_files(
     match pki {
         PkiInstance::Pki(pki) => {
             service::log::info!("Registering pki static files");
-            for name in pki.roots.keys() {
-                static_map.insert(
-                    format!("/pki/{}/css/ca.css", name),
-                    "/css/ca.css".to_string(),
-                );
-                static_map.insert(
-                    format!("/pki/{}/css/ca-mobile.css", name),
-                    "/css/ca.css".to_string(),
-                );
-                static_map.insert(
-                    format!("/pki/{}/js/certgen_bg.wasm", name),
-                    "/js/certgen_bg.wasm".to_string(),
-                );
-                static_map.insert(
-                    format!("/pki/{}/js/certgen_wasm.js", name),
-                    "/js/certgen_wasm.js".to_string(),
-                );
-                static_map.insert(
-                    format!("/pki/{}/js/certgen.js", name),
-                    "/js/certgen.js".to_string(),
-                );
+            for (name, ca) in pki.all_ca.iter() {
+                if let LocalOrRemoteCa::Local(_) = ca {
+                    static_map.insert(
+                        format!("/pki/{}/css/ca.css", name),
+                        "/css/ca.css".to_string(),
+                    );
+                    static_map.insert(
+                        format!("/pki/{}/css/ca-mobile.css", name),
+                        "/css/ca.css".to_string(),
+                    );
+                    static_map.insert(
+                        format!("/pki/{}/js/certgen_bg.wasm", name),
+                        "/js/certgen_bg.wasm".to_string(),
+                    );
+                    static_map.insert(
+                        format!("/pki/{}/js/certgen_wasm.js", name),
+                        "/js/certgen_wasm.js".to_string(),
+                    );
+                    static_map.insert(
+                        format!("/pki/{}/js/certgen.js", name),
+                        "/js/certgen.js".to_string(),
+                    );
+                }
             }
         }
         PkiInstance::Ca(_ca) => {
@@ -2487,8 +2561,10 @@ pub fn ca_register_files(
 pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter) {
     match pki {
         PkiInstance::Pki(pki) => {
-            for (name, ca) in &pki.roots {
-                router.register(&format!("/pki/{}/test-exit.rs", name), ca_test_exit);
+            for (name, ca) in &pki.all_ca {
+                if let LocalOrRemoteCa::Local(ca) = ca {
+                    router.register(&format!("/pki/{}/test-exit.rs", name), ca_test_exit);
+                }
             }
         }
         PkiInstance::Ca(ca) => {
@@ -2538,8 +2614,10 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
         PkiInstance::Pki(pki) => {
             router.register("/pki", pki_main_page);
             router.register("/pki/", pki_main_page2);
-            for (name, ca) in &pki.roots {
-                register(router, &format!("/pki/{}", name), ca);
+            for (name, ca) in &pki.all_ca {
+                if let LocalOrRemoteCa::Local(ca) = ca {
+                    register(router, &format!("/pki/{}", name), ca);
+                }
             }
         }
         PkiInstance::Ca(ca) => {

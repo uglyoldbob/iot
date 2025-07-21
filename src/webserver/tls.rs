@@ -86,8 +86,8 @@ pub fn load_certificate(
                 match std::ops::Deref::deref(&pki) {
                     crate::ca::PkiInstance::Pki(pki) => {
                         for ca in pki.get_client_certifiers().await {
-                            if let CertificateSigningMethod::Https(_m) = ca.config.sign_method {
-                                let cert = ca.root_ca_cert().unwrap();
+                            if let CertificateSigningMethod::Https(_m) = ca.sign_method() {
+                                let cert = ca.root_cert_ref().unwrap();
                                 let cert_der = cert.contents().unwrap(); //TODO remove this unwrap
                                 rcs2.add(cert_der.into()).unwrap();
                             }

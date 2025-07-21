@@ -2,6 +2,10 @@ This software is a multiplatform identity manager and (eventually) iot manager.
 
 It uses a trusted platform module (if available) to protect the program configuration (it contains passwords).
 
+**General Usage**
+
+The general purpose is to mange x.509 and ssh certificates for devices and end-users. Each certificate type needs it own certificate authority. Multiple certificate authorities may exist on a single installation. Certificate authorities may exist on other servers. A pki instance brings all of them together for a unified user experience.
+
 **Setup**
 
 General setup will include running rust-iot-construct or rust-iot-construct-gui. rust-iot-construct-gui will call rust-iot-construct as a root or admin process, prompting for admin access. rust-iot-construct must be run as root or admin from a terminal, supplying command line arguments and input as required.

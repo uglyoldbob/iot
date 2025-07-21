@@ -939,8 +939,8 @@ dependencies = [
 
 [[package]]
 name = "cert-common"
-version = "0.2.0"
-source = "git+https://github.com/uglyoldbob/cert-common.git#33fdc9c89ba14a0adc7873905b482608bd2f7d0f"
+version = "0.2.1"
+source = "git+https://github.com/uglyoldbob/cert-common.git#ba5f7af14e63b755caf1ebb5be77b14b449dd141"
 dependencies = [
  "cms",
  "const-oid",
@@ -4797,7 +4797,7 @@ dependencies = [
 
 [[package]]
 name = "rust-iot"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "async-sqlite",
@@ -5220,9 +5220,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.140"
+version = "1.0.141"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
+checksum = "30b9eff21ebe718216c6ec64e1d9ac57087aad11efc64e32002bce4a0d4c03d3"
 dependencies = [
  "itoa",
  "memchr",
@@ -6254,9 +6254,9 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "userprompt"
-version = "0.3.0"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8950107057913671760b24a6079b6744ce13ba85073e23acb54b61d33b6eea6"
+checksum = "0cbe3a51f9b5cad49302e22431ba1fc4eaeb074d909999643fd5e6dd89dc6134"
 dependencies = [
  "egui",
  "rfd",
@@ -6267,9 +6267,9 @@ dependencies = [
 
 [[package]]
 name = "userprompt_derive"
-version = "0.0.2"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49c10586410021467a311e94528acfaa02b28cf9e5d70fe047c8459459244217"
+checksum = "ca58da937d1377dd38f392e8c97cea3d658e62b2eb2fb8acd491218441005fb5"
 dependencies = [
  "proc-macro2",
  "quote",

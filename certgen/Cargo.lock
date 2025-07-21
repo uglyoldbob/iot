@@ -473,8 +473,8 @@ checksum = "099a5357d84c4c61eb35fc8eafa9a79a902c2f76911e5747ced4e032edd8d9b4"
 
 [[package]]
 name = "cert-common"
-version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/cert-common.git#63724adf35459b37436b865ef127a27e92f5c48b"
+version = "0.2.1"
+source = "git+https://github.com/uglyoldbob/cert-common.git#ba5f7af14e63b755caf1ebb5be77b14b449dd141"
 dependencies = [
  "cms",
  "const-oid",
@@ -2137,8 +2137,8 @@ dependencies = [
 
 [[package]]
 name = "service"
-version = "0.1.0"
-source = "git+https://github.com/uglyoldbob/service.git#d51e348486893636ba06cdd3d9b5b281d23451de"
+version = "0.2.0"
+source = "git+https://github.com/uglyoldbob/service.git#8b03c9d5d9fcb13ae812d0f06fab2ea8a06f4d05"
 dependencies = [
  "cfg-if",
  "eventlog",
@@ -2615,9 +2615,9 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "userprompt"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c5fef4a10b37f087ba7976ff21aaaabd2ac66679875a1eca82aa291365097f9"
+checksum = "78c8a17dbedd7df795b5f5411536e12e4657d4263ea01b1a6eb93864a5fbfc7a"
 dependencies = [
  "egui",
  "rfd",
@@ -2628,9 +2628,9 @@ dependencies = [
 
 [[package]]
 name = "userprompt_derive"
-version = "0.0.1"
+version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "759d6b3d457e33661f8d569fc91808193939bfd273c909d2ad3ce74a37b3d36f"
+checksum = "1f018ca8e119f3aace3d217a5ee826c47d4d1a8d8a62572205c742583321f2bc"
 dependencies = [
  "proc-macro2",
  "quote",

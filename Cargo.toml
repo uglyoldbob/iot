@@ -1,6 +1,6 @@
 [package]
 name = "rust-iot"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Thomas Epperson"]
 edition = "2021"
 
@@ -61,7 +61,7 @@ zeroize = "1.7.0"
 git = "https://github.com/uglyoldbob/smartcard.git"
 
 [dependencies.cert-common]
-version = "0.2.0"
+version = "0.2.1"
 git = "https://github.com/uglyoldbob/cert-common.git"
 
 [dependencies.clap]
@@ -144,7 +144,7 @@ version = "1.36.0"
 features = ["full"]
 
 [dependencies.userprompt]
-version = "0.3.0"
+version = "0.3.4"
 features = ["serde", "egui"]
 
 [target.'cfg(unix)'.dependencies]

@@ -428,8 +428,8 @@ pub struct MainConfigurationAnswers {
     /// Settings for the https server
     pub https: Option<HttpsSettingsAnswers>,
     #[PromptComment = "Settings for the database"]
-    /// Settings for the database
-    pub database: DatabaseSettings,
+    /// Optional settings for the mysql database
+    pub database: Option<DatabaseSettings>,
     #[PromptComment = "The public name of the service, such as example.com/asdf"]
     /// The public name of the service, contains example.com/asdf for the example
     pub public_names: Vec<ComplexName>,
@@ -461,7 +461,7 @@ pub struct MainConfiguration {
     /// Settings for the https server
     pub https: Option<HttpsSettings>,
     /// Settings for the database
-    pub database: DatabaseSettings,
+    pub database: Option<DatabaseSettings>,
     /// The public name of the service, contains example.com/asdf for the example
     pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
@@ -483,6 +483,25 @@ pub struct MainConfiguration {
     pub hsm_pin2: String,
     /// The slot override for the hsm
     pub hsm_slot: Option<usize>,
+}
+
+/// Extended configuration added after the initial creation of the pki/ca
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub enum ExtendedConfiguration {
+    /// Extra ca added to the existing pki instance
+    ExtraPkiCaInstance {
+        /// The name of the instance
+        name: String,
+        /// The instance to add
+        instance: crate::ca::LocalCaConfiguration,
+    },
+    /// Extra remote ca added to the existing pki instance
+    ExtraPkiRemoteCaInstance {
+        /// The name of the instance
+        name: String,
+        /// The instance to add
+        instance: crate::ca::RemoteCaConfiguration,
+    },
 }
 
 impl MainConfiguration {

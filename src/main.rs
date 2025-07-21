@@ -370,11 +370,11 @@ async fn smain() {
 
     let mut mysql_pool = None;
 
-    if !args.test {
-        let mysql_pw = &settings.database.password;
-        let mysql_user = &settings.database.username;
-        let mysql_dbname = &settings.database.name;
-        let mysql_url = &settings.database.url;
+    if let Some(settings) = &settings.database {
+        let mysql_pw = &settings.password;
+        let mysql_user = &settings.username;
+        let mysql_dbname = &settings.name;
+        let mysql_url = &settings.url;
         let mysql_conn_s = format!(
             "mysql://{}:{}@{}/{}",
             mysql_user, mysql_pw, mysql_url, mysql_dbname,
@@ -386,9 +386,9 @@ async fn smain() {
             Err(ref e) => service::log::error!("Error connecting to mysql: {}", e),
         }
         mysql_pool = mysql_temp.ok();
-
-        let _mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
     }
+
+    let _mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
 
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 

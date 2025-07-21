@@ -59,6 +59,10 @@ impl userprompt::EguiPrompting for SmartCardPin2 {
         let p: &mut String = &mut self.1;
         let pe = egui::TextEdit::singleline(p).password(true);
         ui.add(pe);
+        self.check(name)
+    }
+
+    fn check(&self, name: Option<&str>) -> Result<(), String> {
         if !self.0.is_empty() && self.0 == self.1 {
             let pinlen = self.0.chars().count();
             if pinlen < 6 {
@@ -146,15 +150,23 @@ impl std::fmt::Display for SmartCardPin2 {
 pub enum CertificateTypeAnswers {
     #[PromptComment = "A soft certificate, password protected, the password is not stored anywhere"]
     /// A certificate represented by a regular protected p12 document, secured by a password
-    Soft(userprompt::Password2),
-    #[PromptComment = "The certificate is kept on a smart card"]
+    Soft {
+        #[PromptComment = "The password to protect the soft administrator certificate"]
+        password: userprompt::Password2,
+    },
+    #[PromptComment = "The certificate is kept on a smart card, a smart card reader and smart card are required for this to function."]
     /// A certificate stored in a smart card, protected by a pin
-    SmartCard(SmartCardPin2),
+    SmartCard {
+        #[PromptComment = "The pin that will be used for the smartcard"]
+        pin: SmartCardPin2,
+    },
 }
 
 impl Default for CertificateTypeAnswers {
     fn default() -> Self {
-        Self::Soft(userprompt::Password2::default())
+        Self::Soft {
+            password: userprompt::Password2::default(),
+        }
     }
 }
 
@@ -170,8 +182,8 @@ pub enum CertificateType {
 impl From<CertificateTypeAnswers> for CertificateType {
     fn from(value: CertificateTypeAnswers) -> Self {
         match value {
-            CertificateTypeAnswers::Soft(a) => Self::Soft(a.to_string()),
-            CertificateTypeAnswers::SmartCard(a) => Self::SmartCard(a.0),
+            CertificateTypeAnswers::Soft { password } => Self::Soft(password.to_string()),
+            CertificateTypeAnswers::SmartCard { pin } => Self::SmartCard(pin.0),
         }
     }
 }
@@ -494,6 +506,31 @@ impl LocalCaConfigurationAnswers {
             pki_name: None,
         }
     }
+}
+
+/// The items used to configure a remote certificate authority in a pki configuration
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct RemoteCaConfiguration {
+    /// The signing method for the certificate authority
+    pub sign_method: CertificateSigningMethod,
+    /// The common name of the certificate authority
+    pub common_name: String,
+    /// The number of days the certificate authority should be good for.
+    pub days: u32,
+    /// The maximum chain length for a chain of certificate authorities.
+    pub chain_length: u8,
+    /// The password required in order to download the admin certificate over the web
+    pub admin_access_password: String,
+    /// The certificate type for the admin cert
+    pub admin_cert: CertificateType,
+    /// The password to protect the ocsp p12 certificate document.
+    pub ocsp_password: String,
+    /// The password to protect the root p12 certificate document.
+    pub root_password: String,
+    /// Is a signature required for ocsp requests?
+    pub ocsp_signature: bool,
+    /// The name of the pki this ca belongs to, must be blank or end with a /
+    pub pki_name: String,
 }
 
 /// The items used to configure a local certificate authority in a pki configuration
@@ -1991,7 +2028,7 @@ pub struct PkiConfigurationAnswers {
     #[PromptComment = "A list of local ca configurations"]
     /// List of local ca
     pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
-    #[PromptComment = "The optional passworder for the super-admin"]
+    #[PromptComment = "The optional password for the super-admin"]
     /// The provider for the super-admin key
     super_admin: Option<String>,
     #[PromptComment = "The name to use for the pki"]
@@ -2004,6 +2041,8 @@ pub struct PkiConfigurationAnswers {
 pub struct PkiConfiguration {
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
+    /// List of remote ca
+    pub remote_ca: std::collections::HashMap<String, RemoteCaConfiguration>,
     /// The super-admin certificate provider
     pub super_admin: Option<String>,
     /// The name to use for the pki
@@ -2024,6 +2063,7 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             local_ca: map2,
             super_admin: value.super_admin.clone(),
             pki_name: value.pki_name.clone(),
+            remote_ca: HashMap::new(),
         }
     }
 }
@@ -2061,12 +2101,13 @@ impl Default for PkiConfigurationEnumAnswers {
 }
 
 impl PkiConfigurationEnumAnswers {
-    /// Construct a new ca, defaulting to a Ca configuration
+    /// Construct a new ca, defaulting to a Pki configuration
     pub fn new() -> Self {
-        Self::Ca {
-            pki_name: "pki/".to_string(),
-            config: Box::new(StandaloneCaConfigurationAnswers::new()),
-        }
+        Self::Pki(PkiConfigurationAnswers {
+            local_ca: Default::default(),
+            super_admin: Default::default(),
+            pki_name: Default::default(),
+        })
     }
 }
 
@@ -2076,7 +2117,7 @@ pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
     Pki(PkiConfiguration),
     /// A standard certificate authority configuration
-    Ca(Box<StandaloneCaConfiguration>),
+    Ca(StandaloneCaConfiguration),
 }
 
 impl PkiConfigurationEnum {
@@ -2085,7 +2126,7 @@ impl PkiConfigurationEnum {
         match value {
             PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
             PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
-                let ca = Box::new(StandaloneCaConfiguration::from(&config, pki_name));
+                let ca = StandaloneCaConfiguration::from(&config, pki_name);
                 Self::Ca(ca)
             }
         }
@@ -2210,7 +2251,7 @@ impl PkiConfigurationEnum {
                 }
                 PkiConfigurationEnum::Ca(ca) => {
                     let mut contents = String::new();
-                    contents.push_str(&self.nginx_reverse(proxy, config, Some(ca.as_ref())));
+                    contents.push_str(&self.nginx_reverse(proxy, config, Some(&ca)));
                     Some(contents)
                 }
             }
@@ -2231,8 +2272,8 @@ impl PkiConfigurationEnum {
 /// A normal pki object, containing one or more Certificate authorities
 #[derive(Debug)]
 pub struct Pki {
-    /// All of the root certificate authorities
-    pub roots: HashMap<String, Ca>,
+    /// All of the ca instances for the pki
+    pub all_ca: HashMap<String, LocalOrRemoteCa>,
     /// The super-admin certificate
     pub super_admin: Option<CaCertificate>,
 }
@@ -2281,7 +2322,7 @@ impl Pki {
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
-        let mut hm = std::collections::HashMap::new();
+        let mut hm: HashMap<String, LocalOrRemoteCa> = std::collections::HashMap::new();
         let ca_name = main_config
             .https
             .as_ref()
@@ -2312,7 +2353,7 @@ impl Pki {
                                         })?;
                                 }
                             }
-                            hm.insert(name.to_owned(), ca);
+                            hm.insert(name.to_owned(), LocalOrRemoteCa::Local(ca));
                         }
                         Err(e) => match e {
                             CaLoadError::SuperiorCaMissing => {
@@ -2331,7 +2372,7 @@ impl Pki {
             }
         }
         Ok(Self {
-            roots: hm,
+            all_ca: hm,
             super_admin: None,
         })
     }
@@ -2343,7 +2384,7 @@ impl Pki {
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
-        let mut hm = HashMap::new();
+        let mut hm: HashMap<String, LocalOrRemoteCa> = HashMap::new();
         for (name, config) in &settings.local_ca {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::load(hsm.clone(), config)
@@ -2352,23 +2393,28 @@ impl Pki {
                     service::log::error!("Failed to load ca 8 {} {:?}", name, e);
                     PkiLoadError::FailedToLoadCa(name.to_owned(), e)
                 })?;
-            hm.insert(name.to_owned(), ca);
+            hm.insert(name.to_owned(), LocalOrRemoteCa::Local(ca));
         }
         let super_admin: Option<CaCertificate> = if let Some(sa) = &settings.super_admin {
             if let Some(ca) = hm.get_mut(sa) {
-                let p = ca.admin_access.to_string();
-                Some(
-                    ca.load_admin_cert(hsm.clone(), &p)
-                        .await
-                        .map(|a| a.to_owned())
-                        .map_err(|e| {
-                            service::log::error!("Failed to load super admin {:?}", e);
-                            PkiLoadError::FailedToLoadCa(
-                                sa.to_owned(),
-                                CaLoadError::CertificateLoadingError(e.to_owned()),
-                            )
-                        })?,
-                )
+                match ca {
+                    LocalOrRemoteCa::Local(ca) => {
+                        let p = ca.admin_access.to_string();
+                        Some(
+                            ca.load_admin_cert(hsm.clone(), &p)
+                                .await
+                                .map(|a| a.to_owned())
+                                .map_err(|e| {
+                                    service::log::error!("Failed to load super admin {:?}", e);
+                                    PkiLoadError::FailedToLoadCa(
+                                        sa.to_owned(),
+                                        CaLoadError::CertificateLoadingError(e.to_owned()),
+                                    )
+                                })?,
+                        )
+                    }
+                    LocalOrRemoteCa::Remote => todo!(),
+                }
             } else {
                 None
             }
@@ -2377,7 +2423,9 @@ impl Pki {
         };
         if let Some(sa) = &super_admin {
             for ca in hm.values_mut() {
-                ca.insert_super_admin(sa.to_owned());
+                if let LocalOrRemoteCa::Local(ca) = ca {
+                    ca.insert_super_admin(sa.to_owned());
+                }
             }
         }
         let mut s: HashSet<String> = HashSet::new();
@@ -2405,7 +2453,7 @@ impl Pki {
                         let mut admin = None;
                         if let Some(sca) = hm.get(superior) {
                             superiors = sca.get_superior_admin();
-                            admin = sca.admin.as_ref().ok().cloned();
+                            admin = sca.admin().ok();
                         }
                         if let Some(current_ca) = hm.get_mut(name) {
                             service::log::info!("..{}", name);
@@ -2429,15 +2477,17 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
-            roots: hm,
+            all_ca: hm,
             super_admin,
         })
     }
 
     /// Retrieve the certificate authorities associated with verifying client certificates
     #[allow(dead_code)]
-    pub async fn get_client_certifiers(&self) -> std::collections::hash_map::Values<String, Ca> {
-        self.roots.values()
+    pub async fn get_client_certifiers(
+        &self,
+    ) -> std::collections::hash_map::Values<String, LocalOrRemoteCa> {
+        self.all_ca.values()
     }
 }
 
@@ -2454,8 +2504,10 @@ impl PkiInstance {
     pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
         match self {
             PkiInstance::Pki(pki) => {
-                for ca in pki.roots.values_mut() {
-                    ca.set_shutdown(sd.clone());
+                for ca in pki.all_ca.values_mut() {
+                    if let LocalOrRemoteCa::Local(ca) = ca {
+                        ca.set_shutdown(sd.clone());
+                    }
                 }
             }
             PkiInstance::Ca(ca) => {
@@ -2574,6 +2626,81 @@ impl TryFrom<DbEntry<'_>> for RevokeData {
             data: ocsp::response::RevokedInfo::new(t, r),
             revoked: datetime.into(),
         })
+    }
+}
+
+/// An intermediate object used by the pki to keep track of local and remote ca instances
+#[derive(Debug)]
+pub enum LocalOrRemoteCa {
+    /// A local ca
+    Local(Ca),
+    /// A remote ca
+    Remote,
+}
+
+impl LocalOrRemoteCa {
+    /// Retrieve a copy of all superior admin certificates, used for building the proper chain of superior admin certificates.
+    pub fn get_superior_admin(&self) -> Vec<CaCertificate> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.get_superior_admin(),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Get the dates the ca is valid
+    pub fn get_validity(&self) -> Option<x509_cert::time::Validity> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.get_validity(),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Retrieve the sign method for the ca
+    pub fn sign_method(&self) -> CertificateSigningMethod {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.config.sign_method,
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Add an admin certificate from a superior certificate authority. A superior authority is one that is directly or indirectly responsible for creating this authority.
+    pub fn add_superior_admin(&mut self, admin: CaCertificate) {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.add_superior_admin(admin),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Get a new request id, if possible
+    pub async fn get_new_request_id(&mut self) -> Option<u64> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.get_new_request_id().await,
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Get a copy of the admin certificate
+    pub fn admin(&self) -> Result<CaCertificate, CertificateLoadingError> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.admin.clone(),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Get a copy of the root certificate
+    pub fn root_cert(&self) -> Result<CaCertificate, CertificateLoadingError> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.root_cert.clone(),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
+    }
+
+    /// Get a reference to the root certificate
+    pub fn root_cert_ref(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        match self {
+            LocalOrRemoteCa::Local(ca) => ca.root_cert.as_ref(),
+            LocalOrRemoteCa::Remote => todo!(),
+        }
     }
 }
 
@@ -2866,7 +2993,7 @@ impl Ca {
     pub async fn init(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::CaConfiguration,
-        superior: Option<&mut Self>,
+        superior: Option<&mut LocalOrRemoteCa>,
     ) -> Result<Self, CaLoadError> {
         service::log::info!("Attempting init for {}", settings.common_name);
         // Unable to to gnerate an intermediate instance without the superior ca reference
@@ -2935,8 +3062,7 @@ impl Ca {
                         let root_csr = root_options.generate_request();
                         let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
                         let mut root_cert = superior
-                            .root_cert
-                            .as_ref()
+                            .root_cert()
                             .unwrap()
                             .sign_csr(
                                 root_csr,
@@ -2945,15 +3071,17 @@ impl Ca {
                                 time::Duration::days(ca.config.days as i64),
                             )
                             .unwrap();
-                        superior
-                            .save_user_cert(
-                                id,
-                                &root_cert.contents().map_err(|_| {
-                                    CaLoadError::FailedToSaveCertificate("root".to_string())
-                                })?,
-                                Some(&snb),
-                            )
-                            .await;
+                        if let LocalOrRemoteCa::Local(superior) = superior {
+                            superior
+                                .save_user_cert(
+                                    id,
+                                    &root_cert.contents().map_err(|_| {
+                                        CaLoadError::FailedToSaveCertificate("root".to_string())
+                                    })?,
+                                    Some(&snb),
+                                )
+                                .await;
+                        }
                         root_cert.medium = ca.medium.clone();
                         root_cert
                     } else {
@@ -3126,14 +3254,14 @@ impl Ca {
         Ok(ca)
     }
 
-    /// Return a reference to the root cert
-    pub fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
-        self.root_cert.as_ref()
-    }
-
     /// Return a reference to the ocsp cert
     pub fn ocsp_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
         self.ocsp_signer.as_ref()
+    }
+
+    /// Return a reference to the root cert
+    pub fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
+        self.root_cert.as_ref()
     }
 
     /// Returns true if the provided certificate is an admin certificate
