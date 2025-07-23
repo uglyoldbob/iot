@@ -17,7 +17,7 @@ type Error = Box<dyn std::error::Error + 'static>;
 /// Check the program config and create a client verifier struct as specified.
 /// # Arguments
 /// * settings - The program configuration object.
-pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCertStore> {
+pub fn load_user_cert_data(settings: &crate::main_config::ServerConfiguration) -> Option<RootCertStore> {
     if let Some(section) = &settings.client_certs {
         service::log::info!("Loading client certificate data");
         let mut rcs = RootCertStore::empty();

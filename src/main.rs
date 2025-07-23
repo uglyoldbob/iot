@@ -81,9 +81,9 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let (mut response, _dummybody) = response.into_parts();
 
     let url = match &s.settings.pki {
-        ca::PkiConfigurationEnum::AddedCa(ca) => format!("{}ca", s.proxy),
-        ca::PkiConfigurationEnum::Pki(pki_configuration) => format!("{}pki", s.proxy),
-        ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => format!("{}ca", s.proxy),
+        ca::PkiConfigurationEnum::AddedLocalCa { ca_name: _, ca: _ } => format!("{}pki", s.proxy),
+        ca::PkiConfigurationEnum::Pki { server, config: _pki_configuration } => format!("{}pki", s.proxy),
+        ca::PkiConfigurationEnum::Ca { server, config: standalone_ca_configuration } => format!("{}ca", s.proxy),
     };
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
@@ -324,13 +324,7 @@ async fn smain() {
     )
     .await;
 
-    service::log::set_max_level(
-        settings
-            .debug_level
-            .as_ref()
-            .unwrap_or(&service::LogLevel::Trace)
-            .level_filter(),
-    );
+    settings.set_debug_level();
 
     let hsm: Arc<hsm2::Hsm>;
 
@@ -359,7 +353,9 @@ async fn smain() {
             hsm.list_certificates();
 
             use tokio::io::AsyncWriteExt;
-            let _ca_instance = ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings).await.unwrap();
+            let _ca_instance = ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
+                .await
+                .unwrap();
             let mut f = tokio::fs::File::create(&n).await.unwrap();
             f.write_all("".as_bytes())
                 .await
@@ -443,7 +439,8 @@ async fn smain() {
             }
         }
     }
-    pki.register_extra_configs(extra_configs, hsm, &settings).await;
+    pki.register_extra_configs(extra_configs, hsm, &settings)
+        .await;
 
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 

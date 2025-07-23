@@ -238,8 +238,8 @@ impl StandaloneCaConfiguration {
     ///Get a CaConfiguration from a LocalCaConfiguration
     /// # Arguments
     /// * name - The name of the ca for pki purposes
-    /// * settings - The application settings
-    pub fn get_ca(&self, settings: &MainConfiguration) -> CaConfiguration {
+    /// * settings - The server settings
+    pub fn get_ca(&self, settings: &crate::main_config::ServerConfiguration) -> CaConfiguration {
         let mut full_name = self.name.clone();
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
@@ -586,7 +586,7 @@ impl LocalCaConfiguration {
     /// #Arguments
     /// * name - The name of the ca for pki purposes
     /// * settings - The application settings
-    pub fn get_ca(&self, name: &str, settings: &MainConfiguration) -> CaConfiguration {
+    pub fn get_ca(&self, name: &str, settings: &crate::main_config::ServerConfiguration) -> CaConfiguration {
         let mut full_name = name.to_string();
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
@@ -2081,13 +2081,30 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
 pub enum PkiConfigurationEnumAnswers {
     #[PromptComment = "A generic pki configuration, you probably want this one"]
     /// A generic Pki configuration
-    Pki(PkiConfigurationAnswers),
+    Pki {
+        #[PromptComment = "The server configuration"]
+        /// The server configuration
+        server: crate::main_config::ServerConfigurationAnswers,
+        #[PromptComment = "The main configuration"]
+        /// The answers for the configuration
+        config: PkiConfigurationAnswers,
+    },
     #[PromptComment = "A local certificate authority configuration, use this one if you have already created your pki instance."]
     /// A certificate authority added after the fact
-    AddedCa(LocalCaConfigurationAnswers),
+    AddedLocalCa {
+        #[PromptComment = "The name of the ca for the pki to use"]
+        /// The name of the ca
+        ca_name: String,
+        #[PromptComment = "The configuration data"]
+        /// The configuration answers
+        config: LocalCaConfigurationAnswers,
+    },
     #[PromptComment = "Advanced: A remote certificate authority configuration to be paired with a Pki provider somewhere else"]
     /// A standard certificate authority configuration, paired with an external pki provider
     Ca {
+        #[PromptComment = "The server configuration"]
+        /// The server configuration
+        server: crate::main_config::ServerConfigurationAnswers,
         #[PromptComment = "The pki name for the ca to use"]
         /// The pki_name for the ca to use when generating urls
         pki_name: String,
@@ -2106,11 +2123,14 @@ impl Default for PkiConfigurationEnumAnswers {
 impl PkiConfigurationEnumAnswers {
     /// Construct a new ca, defaulting to a Pki configuration
     pub fn new() -> Self {
-        Self::Pki(PkiConfigurationAnswers {
-            local_ca: Default::default(),
-            super_admin: Default::default(),
-            pki_name: Default::default(),
-        })
+        Self::Pki {
+            server: Default::default(),
+            config: PkiConfigurationAnswers {
+                local_ca: Default::default(),
+                super_admin: Default::default(),
+                pki_name: Default::default(),
+            },
+        }
     }
 }
 
@@ -2118,42 +2138,102 @@ impl PkiConfigurationEnumAnswers {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum PkiConfigurationEnum {
     /// A generic Pki configuration
-    Pki(PkiConfiguration),
-    /// A certificate authority added after the fact
-    AddedCa(LocalCaConfiguration),
+    Pki {
+        /// The server config
+        server: crate::main_config::ServerConfiguration,
+        /// The actual configuration
+        config: PkiConfiguration,
+    },
+    /// A local certificate authority added after the fact
+    AddedLocalCa {
+        /// The name of the ca
+        ca_name: String,
+        /// The actual configuration
+        ca: LocalCaConfiguration,
+    },
     /// A standard certificate authority configuration
-    Ca(StandaloneCaConfiguration),
+    Ca {
+        /// The server configuration
+        server: crate::main_config::ServerConfiguration,
+        /// The actual configuration
+        config: StandaloneCaConfiguration,
+    },
 }
 
 impl PkiConfigurationEnum {
+    /// Set the debug level
+    pub fn set_debug_level(&self) {
+        match self {
+            PkiConfigurationEnum::Pki { server, config } => server.set_debug_level(),
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {}
+            PkiConfigurationEnum::Ca { server, config } => server.set_debug_level(),
+        }
+    }
+
+
+    /// Return the port number for the http server
+    pub fn get_http_port(&self) -> Option<u16> {
+        match self {
+            PkiConfigurationEnum::Pki { server, config } => {
+                server.get_http_port()
+            }
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => None,
+            PkiConfigurationEnum::Ca { server, config } => {
+                server.get_http_port()
+            }
+        }
+    }
+
+    /// Return the port number for the http server
+    pub fn get_https_port(&self) -> Option<u16> {
+        match self {
+            PkiConfigurationEnum::Pki { server, config } => {
+                server.get_https_port()
+            }
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => None,
+            PkiConfigurationEnum::Ca { server, config } => {
+                server.get_https_port()
+            }
+        }
+    }
+
     /// Create a PkiConfigurationEnum from configuration answers
     pub fn from_config(value: PkiConfigurationEnumAnswers) -> Self {
         match value {
-            PkiConfigurationEnumAnswers::AddedCa(ca) => {
-                Self::AddedCa(ca.into_local_config())
-            }
-            PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
-            PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
+            PkiConfigurationEnumAnswers::AddedLocalCa {
+                ca_name,
+                config: ca,
+            } => Self::AddedLocalCa {
+                ca_name,
+                ca: ca.into_local_config(),
+            },
+            PkiConfigurationEnumAnswers::Pki { server, config: pki } => Self::Pki { server: server.into(), config: pki.into() },
+            PkiConfigurationEnumAnswers::Ca { server, pki_name, config } => {
                 let ca = StandaloneCaConfiguration::from(&config, pki_name);
-                Self::Ca(ca)
+                Self::Ca {
+                    server: todo!(),
+                    config: ca,
+                }
             }
         }
     }
 }
 
 impl PkiConfigurationEnum {
-    /// Remove relative pathnames from all paths specified
+    /// Remove relative paths, path might need to exist for this to succeed
     pub async fn remove_relative_paths(&mut self) {
         match self {
-            PkiConfigurationEnum::AddedCa(ca) => {
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {
                 let _ = ca.path.remove_relative_paths().await;
             }
-            PkiConfigurationEnum::Pki(pki) => {
+            PkiConfigurationEnum::Pki { server, config: pki } => {
+                server.remove_relative_paths().await;
                 for (_k, a) in pki.local_ca.iter_mut() {
                     let _ = a.path.remove_relative_paths().await;
                 }
             }
-            PkiConfigurationEnum::Ca(ca) => {
+            PkiConfigurationEnum::Ca { server, config: ca } => {
+                server.remove_relative_paths().await;
                 let _ = ca.path.remove_relative_paths().await;
             }
         }
@@ -2163,7 +2243,7 @@ impl PkiConfigurationEnum {
     fn nginx_reverse(
         &self,
         proxy: &ProxyConfig,
-        config: &MainConfiguration,
+        config: &crate::main_config::ServerConfiguration,
         ca: Option<&StandaloneCaConfiguration>,
     ) -> String {
         let mut contents = String::new();
@@ -2253,33 +2333,37 @@ impl PkiConfigurationEnum {
 
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
-        if let Some(proxy) = &config.proxy_config {
-            match self {
-                PkiConfigurationEnum::AddedCa(_) => {
-                    None
-                }
-                PkiConfigurationEnum::Pki(_) => {
-                    let mut contents = String::new();
-                    contents.push_str(&self.nginx_reverse(proxy, config, None));
-                    Some(contents)
-                }
-                PkiConfigurationEnum::Ca(ca) => {
-                    let mut contents = String::new();
-                    contents.push_str(&self.nginx_reverse(proxy, config, Some(&ca)));
-                    Some(contents)
+        match self {
+            PkiConfigurationEnum::AddedLocalCa { ca_name: _, ca: _ } => None,
+            PkiConfigurationEnum::Pki { server, config: _ } => {
+                match &server.proxy_config {
+                    Some(proxy) => {
+                        let mut contents = String::new();
+                        contents.push_str(&self.nginx_reverse(proxy, server, None));
+                        Some(contents)
+                    }
+                    None => None,
                 }
             }
-        } else {
-            None
+            PkiConfigurationEnum::Ca { server, config: ca } => {
+                match &server.proxy_config {
+                    Some(proxy) => {
+                        let mut contents = String::new();
+                        contents.push_str(&self.nginx_reverse(proxy, server, Some(&ca)));
+                        Some(contents)
+                    }
+                    None => None,
+                }
+            }
         }
     }
 
     /// The display name of the item for gui purposes
     pub fn display(&self) -> &str {
         match self {
-            Self::Pki(_) => "Pki",
-            Self::Ca(_) => "Remote Certificate Authority",
-            Self::AddedCa(_) => "Local Certificate Authority",
+            Self::Pki { server: _, config: _ } => "Pki",
+            Self::Ca { server: _, config: _ } => "Remote Certificate Authority",
+            Self::AddedLocalCa { ca_name: _, ca: _ } => "Local Certificate Authority",
         }
     }
 }
@@ -2330,21 +2414,37 @@ impl From<&CertificateLoadingError> for CaLoadError {
 }
 
 impl Pki {
+    /// Initialize entirely with a local ca configuration
+    pub async fn init_local_ca_configuration(
+        name: &String,
+        config: &LocalCaConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
+        hsm: &Arc<crate::hsm2::Hsm>,
+        done: Option<&mut bool>,
+    ) -> Result<PkiInstance, PkiLoadError> {
+        let mut hm: HashMap<String, LocalOrRemoteCa> = std::collections::HashMap::new();
+        Self::handle_local_ca_configuration(&mut hm, name, config, server_config, hsm, done).await?;
+        Ok(PkiInstance::Pki(Self {
+            all_ca: hm,
+            super_admin: None,
+        }))
+    }
+
     /// Handle a local ca configuration, adding it to the local pki instance
     pub async fn handle_local_ca_configuration(
         hm: &mut HashMap<String, LocalOrRemoteCa>,
         name: &String,
         config: &LocalCaConfiguration,
-        main_config: &crate::main_config::MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
         hsm: &Arc<crate::hsm2::Hsm>,
         done: Option<&mut bool>,
     ) -> Result<(), PkiLoadError> {
-        let ca_name = main_config
+        let ca_name = server_config
             .https
             .as_ref()
             .and_then(|h| h.certificate.create_by_ca());
         if !hm.contains_key(name) {
-            let config = &config.get_ca(name, main_config);
+            let config = &config.get_ca(name, server_config);
             let ca = crate::ca::Ca::init(
                 hsm.clone(),
                 config,
@@ -2355,7 +2455,7 @@ impl Pki {
                 Ok(mut ca) => {
                     if let Some(ca_name) = &ca_name {
                         if ca_name == name {
-                            ca.check_https_create(hsm.clone(), main_config)
+                            ca.check_https_create(hsm.clone(), server_config)
                                 .await
                                 .map_err(|_| {
                                     service::log::error!(
@@ -2391,7 +2491,7 @@ impl Pki {
     pub async fn init(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
-        main_config: &crate::main_config::MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
     ) -> Result<Self, PkiLoadError> {
         let mut hm: HashMap<String, LocalOrRemoteCa> = std::collections::HashMap::new();
         loop {
@@ -2401,7 +2501,7 @@ impl Pki {
                     &mut hm,
                     name,
                     config,
-                    main_config,
+                    server_config,
                     &hsm,
                     Some(&mut done),
                 )
@@ -2422,11 +2522,11 @@ impl Pki {
     pub async fn load(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfiguration,
-        main_config: &MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
     ) -> Result<Self, PkiLoadError> {
         let mut hm: HashMap<String, LocalOrRemoteCa> = HashMap::new();
         for (name, config) in &settings.local_ca {
-            let config = &config.get_ca(name, main_config);
+            let config = &config.get_ca(name, server_config);
             let ca = crate::ca::Ca::load(hsm.clone(), config)
                 .await
                 .map_err(|e| {
@@ -2561,7 +2661,7 @@ impl PkiInstance {
         &mut self,
         extra_configs: Vec<crate::main_config::ExtendedConfiguration>,
         hsm: Arc<crate::hsm2::Hsm>,
-        main_config: &crate::main_config::MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
     ) {
         if let PkiInstance::Pki(pki) = self {
             for config in extra_configs {
@@ -2570,7 +2670,15 @@ impl PkiInstance {
                         name,
                         instance,
                     } => {
-                        Pki::handle_local_ca_configuration(&mut pki.all_ca, &name, &instance, main_config, &hsm, None).await;
+                        Pki::handle_local_ca_configuration(
+                            &mut pki.all_ca,
+                            &name,
+                            &instance,
+                            server_config,
+                            &hsm,
+                            None,
+                        )
+                        .await;
                     }
                     crate::main_config::ExtendedConfiguration::ExtraPkiRemoteCaInstance {
                         name,
@@ -2590,26 +2698,28 @@ impl PkiInstance {
     pub async fn init(
         hsm: Arc<crate::hsm2::Hsm>,
         settings: &crate::ca::PkiConfigurationEnum,
-        main_config: &crate::main_config::MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
     ) -> Result<Self, PkiLoadError> {
         match settings {
-            PkiConfigurationEnum::AddedCa(ca) => {
-                todo!();
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {
+                let mut hm: HashMap<String, LocalOrRemoteCa> = std::collections::HashMap::new();
+                Pki::init_local_ca_configuration(ca_name, ca, server_config, &hsm, None)
+                    .await
             }
-            PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::init(hsm, pki_config, main_config).await?;
+            PkiConfigurationEnum::Pki { server, config: pki_config } => {
+                let pki = crate::ca::Pki::init(hsm, pki_config, server_config).await?;
                 Ok(Self::Pki(pki))
             }
-            PkiConfigurationEnum::Ca(ca_config) => {
-                let ca = ca_config.get_ca(main_config);
+            PkiConfigurationEnum::Ca { server, config: ca_config } => {
+                let ca = ca_config.get_ca(server_config);
                 let mut ca = crate::ca::Ca::init(hsm.clone(), &ca, None)
                     .await
                     .map_err(|e| {
                         service::log::error!("Failed to load ca 9 {:?}", e);
                         PkiLoadError::FailedToLoadCa("ca".to_string(), e)
                     })?; //TODO Use the proper ca superior object instead of None
-                if main_config.https.is_some() {
-                    ca.check_https_create(hsm.clone(), main_config)
+                if server.https.is_some() {
+                    ca.check_https_create(hsm.clone(), server_config)
                         .await
                         .map_err(|_| {
                             service::log::error!("Failed to init https cert");
@@ -2631,15 +2741,15 @@ impl PkiInstance {
         settings: &crate::MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
         match &settings.pki {
-            PkiConfigurationEnum::AddedCa(ca) => {
+            PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {
                 todo!();
             }
-            PkiConfigurationEnum::Pki(pki_config) => {
-                let pki = crate::ca::Pki::load(hsm, &pki_config, settings).await?;
+            PkiConfigurationEnum::Pki { server, config: pki_config } => {
+                let pki = crate::ca::Pki::load(hsm, pki_config, server).await?;
                 Ok(Self::Pki(pki))
             }
-            PkiConfigurationEnum::Ca(ca_config) => {
-                let ca_config = &ca_config.get_ca(settings);
+            PkiConfigurationEnum::Ca { server, config: ca_config } => {
+                let ca_config = &ca_config.get_ca(server);
                 let ca = Ca::load(hsm, ca_config).await.map_err(|e| {
                     service::log::error!("Failed to load ca 10 {:?}", e);
                     PkiLoadError::FailedToLoadCa("ca".to_string(), e)
@@ -2955,15 +3065,15 @@ impl Ca {
     pub async fn check_https_create(
         &mut self,
         hsm: Arc<crate::hsm2::Hsm>,
-        main_config: &crate::main_config::MainConfiguration,
+        server_config: &crate::main_config::ServerConfiguration,
     ) -> Result<(), ()> {
-        if let Some(https) = &main_config.https {
+        if let Some(https) = &server_config.https {
             if https.certificate.create_by_ca().is_some() {
                 if let Some(pathbuf) = https.certificate.pathbuf() {
                     self.create_https_certificate(
                         hsm.clone(),
                         pathbuf,
-                        main_config
+                        server_config
                             .public_names
                             .iter()
                             .map(|a| a.to_string())

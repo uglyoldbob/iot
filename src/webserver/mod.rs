@@ -153,21 +153,21 @@ impl WebPageContext {
     /// Build an absolute url
     pub fn get_absolute_url(&self, sd: &str, url: &str) -> String {
         match &self.settings.pki {
-            crate::ca::PkiConfigurationEnum::AddedCa(ca) => {
-                if self.https {
-                    format!("https://{}/{}{}", self.domain, self.proxy, url)
-                } else {
-                    format!("http://{}/{}{}", self.domain, self.proxy, url)
-                }
-            }
-            crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
+            crate::ca::PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {
                 if self.https {
                     format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
                 } else {
                     format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
                 }
             }
-            crate::ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+            crate::ca::PkiConfigurationEnum::Pki { server, config } => {
+                if self.https {
+                    format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                } else {
+                    format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                }
+            }
+            crate::ca::PkiConfigurationEnum::Ca { server: _, config: _ } => {
                 if self.https {
                     format!("https://{}/{}{}", self.domain, self.proxy, url)
                 } else {

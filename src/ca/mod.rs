@@ -491,9 +491,9 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = match &s.settings.pki {
-        PkiConfigurationEnum::AddedCa(ca) => format!("{}ca", s.proxy),
-        PkiConfigurationEnum::Pki(pki_configuration) => format!("{}pki", s.proxy),
-        PkiConfigurationEnum::Ca(standalone_ca_configuration) => format!("{}ca", s.proxy),
+        PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => format!("{}ca", s.proxy),
+        PkiConfigurationEnum::Pki { server, config: _pki_configuration } => format!("{}pki", s.proxy),
+        PkiConfigurationEnum::Ca { server, config: standalone_ca_configuration } => format!("{}ca", s.proxy),
     };
     service::log::debug!("Redirect1 to {}", url);
     response
@@ -676,9 +676,9 @@ async fn handle_ca_main_page2(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
     let url = match &s.settings.pki {
-        PkiConfigurationEnum::AddedCa(ca) => s.get_absolute_url(pki, "ca"),
-        PkiConfigurationEnum::Pki(pki_configuration) => s.get_absolute_url(pki, "ca"),
-        PkiConfigurationEnum::Ca(standalone_ca_configuration) => s.get_absolute_url(pki, "ca"),
+        PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => s.get_absolute_url(pki, "ca"),
+        PkiConfigurationEnum::Pki { server, config: _pki_configuration } => s.get_absolute_url(pki, "ca"),
+        PkiConfigurationEnum::Ca { server, config: standalone_ca_configuration } => s.get_absolute_url(pki, "ca"),
     };
 
     service::log::debug!("Redirect2 to {}", url);

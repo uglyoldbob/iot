@@ -451,25 +451,29 @@ pub struct MainConfigurationAnswers {
     pub tpm2_required: bool,
 }
 
-/// The main configuration of the application
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct MainConfiguration {
+/// The types of configurations that can be created
+pub enum ConfigurationEnum {
+    /// The main configuration
+    Main(MainConfiguration),
+    /// The extended configuration when adding to an existing installation
+    Extended(ExtendedConfiguration),
+}
+
+/// The configuration used when the pki involves setting a service and servers
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ServerConfiguration {
     /// General settings
     pub general: GeneralSettings,
     /// Settings for the http server
     pub http: Option<HttpSettings>,
     /// Settings for the https server
     pub https: Option<HttpsSettings>,
-    /// Settings for the database
-    pub database: Option<DatabaseSettings>,
     /// The public name of the service, contains example.com/asdf for the example
     pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
     /// Settings for client certificates
     pub client_certs: Option<Vec<std::path::PathBuf>>,
-    /// The settings for a pki
-    pub pki: crate::ca::PkiConfigurationEnum,
     /// The desired minimum debug level
     pub debug_level: Option<service::LogLevel>,
     /// Is tpm2 hardware required to setup the pki?
@@ -483,6 +487,111 @@ pub struct MainConfiguration {
     pub hsm_pin2: String,
     /// The slot override for the hsm
     pub hsm_slot: Option<usize>,
+}
+
+impl ServerConfiguration {
+    /// Set the debug level
+    pub fn set_debug_level(&self) {
+        service::log::set_max_level(
+            self
+                .debug_level
+                .as_ref()
+                .unwrap_or(&service::LogLevel::Trace)
+                .level_filter(),
+        );
+    }
+
+    /// Return the port number for the http server
+    pub fn get_http_port(&self) -> Option<u16> {
+        self.http.as_ref().map(|a| a.port)
+    }
+
+    /// Return the port number for the http server
+    pub fn get_https_port(&self) -> Option<u16> {
+        self.https.as_ref().map(|a| a.port)
+    }
+
+    /// Remove relative paths, path might need to exist for this to succeed
+    pub async fn remove_relative_paths(&mut self) {
+        if let Some(https) = &self.https {
+            https.certificate.make_dummy().await;
+        }
+        if let Some(https) = &mut self.https {
+            match &mut https.certificate {
+                HttpsCertificateLocation::HsmGenerated => {}
+                HttpsCertificateLocation::Existing { path, password: _ } => {
+                    if path.is_relative() {
+                        *path = path.canonicalize().unwrap();
+                    }
+                }
+                HttpsCertificateLocation::New {
+                    path,
+                    ca_name: _,
+                    password: _,
+                } => {
+                    if path.is_relative() {
+                        *path = path.canonicalize().unwrap();
+                    }
+                }
+            }
+        }
+        if let Some(https) = &self.https {
+            https.certificate.destroy();
+        }
+    }
+}
+
+/// The server configuration answers of the application
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct ServerConfigurationAnswers {
+    #[PromptComment = "Override for the hardware security module library path"]
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    #[PromptComment = "The slot override for using the hardware security module"]
+    /// The slot override for the hsm, default slot is 0
+    pub hsm_slot: Option<usize>,
+    #[PromptComment = "General settings"]
+    /// General settings
+    pub general: GeneralSettings,
+    #[PromptComment = "Optional settings for the http service"]
+    /// Settings for the http server
+    pub http: Option<HttpSettings>,
+    #[PromptComment = "Optional settings for the https service"]
+    /// Settings for the https server
+    pub https: Option<HttpsSettingsAnswers>,
+    #[PromptComment = "The public name of the service, such as example.com/asdf"]
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    #[PromptComment = "The optional proxy port configuration"]
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+    #[PromptComment = "An optional list of custom client certificates to load"]
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<userprompt::FileOpen>>,
+    #[PromptComment = "The desired level for logging"]
+    /// The desired minimum debug level
+    pub debug_level: service::LogLevel,
+}
+
+
+/// The main configuration of the application
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct MainConfiguration {
+    /// Settings for the database
+    pub database: Option<DatabaseSettings>,
+    /// The settings for a pki
+    pub pki: crate::ca::PkiConfigurationEnum,
+    /// Is tpm2 hardware required?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
 }
 
 /// Extended configuration added after the initial creation of the pki/ca
@@ -505,27 +614,13 @@ pub enum ExtendedConfiguration {
 }
 
 impl MainConfiguration {
+
+    pub fn set_debug_level(&self) {
+        self.pki.set_debug_level();
+    }
+
     /// Remove relative paths
     pub async fn remove_relative_paths(&mut self) {
-        if let Some(https) = &mut self.https {
-            match &mut https.certificate {
-                HttpsCertificateLocation::HsmGenerated => {}
-                HttpsCertificateLocation::Existing { path, password: _ } => {
-                    if path.is_relative() {
-                        *path = path.canonicalize().unwrap();
-                    }
-                }
-                HttpsCertificateLocation::New {
-                    path,
-                    ca_name: _,
-                    password: _,
-                } => {
-                    if path.is_relative() {
-                        *path = path.canonicalize().unwrap();
-                    }
-                }
-            }
-        }
         self.pki.remove_relative_paths().await;
     }
 
@@ -554,11 +649,11 @@ impl MainConfiguration {
 
     /// Return the port number for the http server
     pub fn get_http_port(&self) -> Option<u16> {
-        self.http.as_ref().map(|a| a.port)
+        self.pki.get_http_port()
     }
 
     /// Return the port number for the https server
     pub fn get_https_port(&self) -> Option<u16> {
-        self.https.as_ref().map(|a| a.port)
+        self.pki.get_https_port()
     }
 }

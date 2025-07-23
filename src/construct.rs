@@ -298,26 +298,19 @@ library.reset_on_fork = false
     }
 
     service::log::info!("Saving the configuration file");
-    if let Some(https) = &config.https {
-        https.certificate.make_dummy().await;
-    }
     config.remove_relative_paths().await;
-    if let Some(https) = &config.https {
-        https.certificate.destroy();
-    }
     match &config.pki {
-        ca::PkiConfigurationEnum::AddedCa(ca) => {
-            let ca: ca::CaConfiguration = ca.get_ca("", &config);
-            ca.destroy_backend().await;
+        ca::PkiConfigurationEnum::AddedLocalCa { ca_name, ca } => {
+            todo!();
         }
-        ca::PkiConfigurationEnum::Pki(pki) => {
+        ca::PkiConfigurationEnum::Pki { server, config: pki } => {
             for (name, ca) in &pki.local_ca {
-                let ca = ca.get_ca(name, &config);
+                let ca = ca.get_ca(name, server);
                 ca.destroy_backend().await;
             }
         }
-        ca::PkiConfigurationEnum::Ca(ca) => {
-            let ca = ca.get_ca(&config);
+        ca::PkiConfigurationEnum::Ca { server, config: ca } => {
+            let ca = ca.get_ca(server);
             ca.destroy_backend().await;
         }
     }
