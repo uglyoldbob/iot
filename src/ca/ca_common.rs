@@ -293,6 +293,9 @@ impl StandaloneCaConfiguration {
     serde::Serialize,
 )]
 pub struct StandaloneCaConfigurationAnswers {
+    /// The settings specified to run the ca service
+    #[PromptComment = "Settings for the service"]
+    pub service: crate::main_config::ServerConfigurationAnswers,
     #[PromptComment = "The signing method for this authority"]
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
@@ -335,6 +338,7 @@ impl StandaloneCaConfigurationAnswers {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            service: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
             inferior_to: None,
@@ -2025,6 +2029,9 @@ pub struct ProxyConfig {
     serde::Serialize,
 )]
 pub struct PkiConfigurationAnswers {
+    /// The settings specified to run the pki service
+    #[PromptComment = "Settings for the service"]
+    pub service: crate::main_config::ServerConfigurationAnswers,
     #[PromptComment = "A list of local ca configurations"]
     /// List of local ca
     pub local_ca: userprompt::SelectedHashMap<LocalCaConfigurationAnswers>,
@@ -2107,6 +2114,7 @@ impl PkiConfigurationEnumAnswers {
     /// Construct a new ca, defaulting to a Pki configuration
     pub fn new() -> Self {
         Self::Pki(PkiConfigurationAnswers {
+            service: Default::default(),
             local_ca: Default::default(),
             super_admin: Default::default(),
             pki_name: Default::default(),

@@ -395,6 +395,59 @@ impl DatabaseSettings {
     }
 }
 
+/// The server configuration of the application
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+)]
+pub struct ServerConfigurationAnswers {
+    #[PromptComment = "What username to run the service as"]
+    /// The username to run the service as
+    pub username: String,
+    #[PromptComment = "The optional password for the user that the service will run as"]
+    /// The password for the user
+    pub password: Option<userprompt::Password2>,
+    #[PromptComment = "Override for the hardware security module library path"]
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    #[PromptComment = "The slot override for using the hardware security module"]
+    /// The slot override for the hsm, default slot is 0
+    pub hsm_slot: Option<usize>,
+    #[PromptComment = "General settings"]
+    /// General settings
+    pub general: GeneralSettings,
+    #[PromptComment = "Optional settings for the http service"]
+    /// Settings for the http server
+    pub http: Option<HttpSettings>,
+    #[PromptComment = "Optional settings for the https service"]
+    /// Settings for the https server
+    pub https: Option<HttpsSettingsAnswers>,
+    #[PromptComment = "Settings for the database"]
+    /// Optional settings for the mysql database
+    pub database: Option<DatabaseSettings>,
+    #[PromptComment = "The public name of the service, such as example.com/asdf"]
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    #[PromptComment = "The optional proxy port configuration"]
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+    #[PromptComment = "An optional list of custom client certificates to load"]
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<userprompt::FileOpen>>,
+    #[PromptComment = "The desired level for logging"]
+    /// The desired minimum debug level
+    pub debug_level: service::LogLevel,
+    #[PromptComment = "Should a trusted platform module version 2 be required?"]
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+}
+
 /// The main configuration of the application
 #[derive(
     Clone,
