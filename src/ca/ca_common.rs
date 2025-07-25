@@ -2141,7 +2141,22 @@ impl PkiConfigurationEnumAnswers {
         }
     }
 
-    /// Build a service config
+    /// Makes extended configuration data, if applicable
+    pub fn make_extended_config(&self) -> Option<crate::main_config::ExtendedConfiguration> {
+        match self {
+            PkiConfigurationEnumAnswers::Pki(config) => None,
+            PkiConfigurationEnumAnswers::AddedCa(config) => {
+                let e = crate::main_config::ExtendedConfiguration::ExtraPkiCaInstance {
+                    name: todo!(),
+                    instance: config.clone().into_local_config(),
+                };
+                Some(e)
+            }
+            PkiConfigurationEnumAnswers::Ca { pki_name, config } => None,
+        }
+    }
+
+    /// Build a service config, if possible
     pub fn make_service_config(
         &self,
         service_args: Vec<String>,

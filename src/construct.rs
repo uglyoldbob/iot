@@ -97,6 +97,29 @@ impl service::log::Log for LocalLogging {
     }
 }
 
+/// Save the extendeed configuration object to file, encrypting it without tpm2
+/// # Arguments
+/// * object - The object to save, first converted to toml
+/// * config_path - The path for all of the config files
+/// * password - The password to use for the file
+/// * config_file - The path to save the encrypted file to
+/// * options - How the file permissions get set after the file is created
+async fn save_extended_without_tpm2<T: serde::ser::Serialize>(
+    object: &T,
+    config_path: &std::path::PathBuf,
+    password: &String,
+    config_file: &std::path::PathBuf,
+    options: &Option<crate::ca::OwnerOptions>,
+) {
+    let config_data = toml::to_string(object).unwrap();
+    let password_combined = password.as_bytes();
+    let edata = tpm2::encrypt(config_data.as_bytes(), password_combined);
+    let mut f = tokio::fs::File::create(config_file).await.unwrap();
+    f.write_all(&edata)
+        .await
+        .expect("Failed to write encrypted configuration file");
+}
+
 /// The main entry function for the construct program
 #[tokio::main]
 pub async fn main() {
@@ -283,6 +306,57 @@ library.reset_on_fork = false
 
     let mut service_config = answers.make_service_config(service_args, &name, exe.join("rust-iot"));
 
+    if let Some(config) = answers.make_extended_config() {
+        let mut i = 0;
+        loop {
+            let pb = config_path.join(format!("{name}-extra-config{i}.toml"));
+            service::log::debug!("Checking for extra config {}", pb.display());
+            if std::path::Path::exists(&pb) {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let new_config = config_path.join(format!("{name}-extra-config{i}.toml"));
+        service::log::debug!(
+            "Creating extended configuration at {:?}",
+            new_config.display()
+        );
+        todo!();
+
+        #[cfg(feature = "tpm2")]
+        {
+            use tokio::io::AsyncReadExt;
+            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+
+            if let Some(tpm2) = &mut tpm2 {
+                let mut tpm_data = Vec::new();
+                let mut f =
+                    tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
+                        .await
+                        .unwrap();
+                f.read_to_end(&mut tpm_data).await.unwrap();
+
+                let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
+
+                let epdata = tpm2.decrypt(tpm_data).unwrap();
+                let protected_password = tpm2::Password::rebuild(&epdata);
+                let econfig = tpm2::encrypt(
+                    toml::to_string(&config).unwrap().as_bytes(),
+                    protected_password.password(),
+                );
+                let mut f2 = tokio::fs::File::open(new_config).await.unwrap();
+                f2.write_all(&econfig)
+                    .await
+                    .expect("Failed to write encrypted extended configuration file");
+            }
+        }
+        #[cfg(not(feature = "tpm2"))]
+        {
+            save_extended_without_tpm2(config, config_path, password, config_file, options).await;
+        }
+    }
+
     if let Some(service_config) = &mut service_config {
         #[cfg(target_os = "linux")]
         {
@@ -295,114 +369,120 @@ library.reset_on_fork = false
         }
     }
 
-    service::log::info!("Saving the configuration file");
-    if let Some(https) = &config.https {
-        https.certificate.make_dummy().await;
-    }
-    config.remove_relative_paths().await;
-    if let Some(https) = &config.https {
-        https.certificate.destroy();
-    }
-    match &config.pki {
-        ca::PkiConfigurationEnum::AddedCa(ca) => {
-            let ca: ca::CaConfiguration = ca.get_ca("", &config);
-            ca.destroy_backend().await;
+    if let Some(service_config) = &service_config {
+        service::log::info!("Saving the configuration file");
+        if let Some(https) = &config.https {
+            https.certificate.make_dummy().await;
         }
-        ca::PkiConfigurationEnum::Pki(pki) => {
-            for (name, ca) in &pki.local_ca {
-                let ca = ca.get_ca(name, &config);
+        config.remove_relative_paths().await;
+        if let Some(https) = &config.https {
+            https.certificate.destroy();
+        }
+        match &config.pki {
+            ca::PkiConfigurationEnum::AddedCa(ca) => {
+                let ca: ca::CaConfiguration = ca.get_ca("", &config);
+                ca.destroy_backend().await;
+            }
+            ca::PkiConfigurationEnum::Pki(pki) => {
+                for (name, ca) in &pki.local_ca {
+                    let ca = ca.get_ca(name, &config);
+                    ca.destroy_backend().await;
+                }
+            }
+            ca::PkiConfigurationEnum::Ca(ca) => {
+                let ca = ca.get_ca(&config);
                 ca.destroy_backend().await;
             }
         }
-        ca::PkiConfigurationEnum::Ca(ca) => {
-            let ca = ca.get_ca(&config);
-            ca.destroy_backend().await;
+
+        let config_data = toml::to_string(&config).unwrap();
+        let config_file = config_path.join(format!("{}-config.toml", name));
+        if config_file.exists() {
+            panic!(
+                "Configuration file {} already exists",
+                config_file.display()
+            );
         }
-    }
-    let config_data = toml::to_string(&config).unwrap();
-    let config_file = config_path.join(format!("{}-config.toml", name));
-    if config_file.exists() {
-        panic!(
-            "Configuration file {} already exists",
-            config_file.display()
-        );
-    }
-    let mut f = tokio::fs::File::create(config_file).await.unwrap();
+        let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
-    let do_without_tpm2 = || async {
-        let password = {
-            let s: String =
-                rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
-                    .take(32)
-                    .map(char::from)
-                    .collect();
-            s
-        };
+        let do_without_tpm2 = || async {
+            let password = {
+                let s: String =
+                    rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+                        .take(32)
+                        .map(char::from)
+                        .collect();
+                s
+            };
 
-        let password_combined = password.as_bytes();
-        let p = config_path.join(format!("{}-credentials.bin", name));
-        if p.exists() {
-            panic!("Credendials file already exists");
-        }
-        let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-        fpw.write_all(password.to_string().as_bytes())
-            .await
-            .expect("Failed to write credentials");
-        if let Some(options) = &options {
-            options
-                .set_owner(&p, 0o400)
-                .expect("Failed to set file owner and permissions");
-        }
-        tpm2::encrypt(config_data.as_bytes(), password_combined)
-    };
-
-    #[cfg(feature = "tpm2")]
-    {
-        let econfig = if let Some(tpm2) = &mut tpm2 {
-            let password2: [u8; 32] = rand::random();
-
-            let protected_password =
-                tpm2::Password::build(&password2, std::num::NonZeroU32::new(2048).unwrap());
-
-            let password_combined = protected_password.password();
-
-            let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
-
-            let epdata = protected_password.data();
-            let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
-
-            let p = config_path.join(format!("{}-password.bin", name));
+            let password_combined = password.as_bytes();
+            let p = config_path.join(format!("{}-credentials.bin", name));
             if p.exists() {
-                panic!("Password file aready exists");
+                panic!("Credendials file already exists");
             }
-            let mut f2 = tokio::fs::File::create(&p)
+            let mut fpw = tokio::fs::File::create(&p).await.unwrap();
+            fpw.write_all(password.to_string().as_bytes())
                 .await
-                .expect("Failed to create password file");
-            f2.write_all(&tpmblob.data())
-                .await
-                .expect("Failed to write protected password");
+                .expect("Failed to write credentials");
             if let Some(options) = &options {
                 options
                     .set_owner(&p, 0o400)
                     .expect("Failed to set file owner and permissions");
             }
-            econfig
-        } else {
-            service::log::error!("TPM2 NOT DETECTED!!!");
-            if config.tpm2_required {
-                panic!("Cannot continue due to missing tpm2 support and I was told to require it");
-            }
-            do_without_tpm2().await
+            tpm2::encrypt(config_data.as_bytes(), password_combined)
         };
 
-        f.write_all(&econfig)
-            .await
-            .expect("Failed to write encrypted configuration file");
+        #[cfg(feature = "tpm2")]
+        {
+            let econfig = if let Some(tpm2) = &mut tpm2 {
+                let password2: [u8; 32] = rand::random();
+
+                let protected_password =
+                    tpm2::Password::build(&password2, std::num::NonZeroU32::new(2048).unwrap());
+
+                let password_combined = protected_password.password();
+
+                let econfig: Vec<u8> = tpm2::encrypt(config_data.as_bytes(), password_combined);
+
+                let epdata = protected_password.data();
+                let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
+
+                let p = config_path.join(format!("{}-password.bin", name));
+                if p.exists() {
+                    panic!("Password file aready exists");
+                }
+                let mut f2 = tokio::fs::File::create(&p)
+                    .await
+                    .expect("Failed to create password file");
+                f2.write_all(&tpmblob.data())
+                    .await
+                    .expect("Failed to write protected password");
+                if let Some(options) = &options {
+                    options
+                        .set_owner(&p, 0o400)
+                        .expect("Failed to set file owner and permissions");
+                }
+                econfig
+            } else {
+                service::log::error!("TPM2 NOT DETECTED!!!");
+                if config.tpm2_required {
+                    panic!(
+                        "Cannot continue due to missing tpm2 support and I was told to require it"
+                    );
+                }
+                do_without_tpm2().await
+            };
+
+            f.write_all(&econfig)
+                .await
+                .expect("Failed to write encrypted configuration file");
+        }
+        #[cfg(not(feature = "tpm2"))]
+        {
+            do_without_tpm2().await
+        }
     }
-    #[cfg(not(feature = "tpm2"))]
-    {
-        do_without_tpm2().await
-    }
+
     if !args.test {
         if let Some(service_config) = service_config {
             service.create_async(service_config).await.unwrap();

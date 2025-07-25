@@ -524,7 +524,7 @@ impl MainConfigurationAnswers {
         self.pki.build_owner_options()
     }
 
-    /// Build a service config
+    /// Build a service config, if possible
     pub fn make_service_config(
         &self,
         service_args: Vec<String>,
@@ -532,6 +532,11 @@ impl MainConfigurationAnswers {
         path: std::path::PathBuf,
     ) -> Option<service::ServiceConfig> {
         self.pki.make_service_config(service_args, name, path)
+    }
+
+    /// Makes extended configuration data, if applicable
+    pub fn make_extended_config(&self) -> Option<ExtendedConfiguration> {
+        self.pki.make_extended_config()
     }
 }
 
