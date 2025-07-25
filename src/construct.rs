@@ -371,13 +371,7 @@ library.reset_on_fork = false
 
     if let Some(service_config) = &service_config {
         service::log::info!("Saving the configuration file");
-        if let Some(https) = &config.https {
-            https.certificate.make_dummy().await;
-        }
         config.remove_relative_paths().await;
-        if let Some(https) = &config.https {
-            https.certificate.destroy();
-        }
         match &config.pki {
             ca::PkiConfigurationEnum::AddedCa(ca) => {
                 let ca: ca::CaConfiguration = ca.get_ca("", &config);

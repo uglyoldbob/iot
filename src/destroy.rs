@@ -192,22 +192,20 @@ async fn main() {
         settings = do_without_tpm2(settings_con).await;
     }
 
-    if let Some(https) = &settings.https {
-        https.certificate.destroy();
-    }
-
     match &settings.pki {
         ca::PkiConfigurationEnum::AddedCa(ca) => {
             let ca = ca.get_ca("dummy", &settings);
             ca.destroy_backend().await;
         }
         ca::PkiConfigurationEnum::Pki(pki) => {
+            pki.service.destroy();
             for (name, ca) in &pki.local_ca {
                 let ca = ca.get_ca(name, &settings);
                 ca.destroy_backend().await;
             }
         }
         ca::PkiConfigurationEnum::Ca(ca) => {
+            ca.service.destroy();
             let ca = ca.get_ca(&settings);
             ca.destroy_backend().await;
         }

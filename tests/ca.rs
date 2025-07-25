@@ -49,6 +49,8 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use userprompt::{FileCreate, Password2};
 
+use crate::ca::PkiConfigurationEnum;
+
 /// Mutex to ensure CA tests run sequentially to avoid port conflicts
 ///
 /// Since CA tests bind to specific ports (3000, 3001), this mutex prevents
@@ -109,7 +111,7 @@ fn get_sqlite_paths() {
 #[test]
 fn from_certificate_type_answers() {
     let scpin = SmartCardPin2::default();
-    let answer1 = ca::CertificateTypeAnswers::SmartCard(scpin.clone());
+    let answer1 = ca::CertificateTypeAnswers::SmartCard { pin: scpin.clone() };
     let ct: CertificateType = answer1.into();
     if let CertificateType::SmartCard(a) = ct {
         assert_eq!(a, scpin.to_string());
@@ -118,7 +120,9 @@ fn from_certificate_type_answers() {
     }
 
     let pass = Password2::default();
-    let answer2 = ca::CertificateTypeAnswers::Soft(pass.clone());
+    let answer2 = ca::CertificateTypeAnswers::Soft {
+        password: pass.clone(),
+    };
     let ct: CertificateType = answer2.into();
     if let CertificateType::Soft(a) = ct {
         assert_eq!(a, pass.to_string());
@@ -701,9 +705,21 @@ async fn run_web_checks(
     use predicates::prelude::*;
 
     let (token, pass) = match &config.pki {
+        PkiConfigurationEnumAnswers::AddedCa(config) => {
+            let p = if let crate::ca::CertificateTypeAnswers::Soft { password: a } =
+                &config.admin_cert
+            {
+                a.to_string()
+            } else {
+                panic!("INVALID");
+            };
+            (config.admin_access_password.to_string(), p)
+        }
         PkiConfigurationEnumAnswers::Pki(pki) => {
             let (name, config) = pki.local_ca.map().iter().next().unwrap();
-            let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
+            let p = if let crate::ca::CertificateTypeAnswers::Soft { password: a } =
+                &config.admin_cert
+            {
                 a.to_string()
             } else {
                 panic!("INVALID");
@@ -714,7 +730,9 @@ async fn run_web_checks(
             pki_name: _,
             config,
         } => {
-            let p = if let crate::ca::CertificateTypeAnswers::Soft(a) = &config.admin_cert {
+            let p = if let crate::ca::CertificateTypeAnswers::Soft { password: a } =
+                &config.admin_cert
+            {
                 a.to_string()
             } else {
                 panic!("INVALID");
@@ -1162,22 +1180,26 @@ fn build_answers(
     let base = std::path::PathBuf::from(td.path());
     *https_path = base.join("test-https.p12");
     let mut args = main_config::MainConfigurationAnswers::default();
-    args.debug_level = LogLevel::Debug;
-    args.username = whoami::username();
-    args.http = Some(HttpSettings { port: 3000 });
-    args.https = Some(HttpsSettingsAnswers {
-        port: 3001,
-        certificate: main_config::HttpsCertificateLocationAnswers::New {
-            path: https_path,
-            ca_name: "default".to_string(),
-        },
-        require_certificate: false,
-    });
     let mut dbname = FileCreate::default();
     let pw = Password2::new(utility::generate_password(32));
     let pw2 = Password2::new(utility::generate_password(32));
     *dbname = base.join("test-db1.sqlite");
     let ca_a = StandaloneCaConfigurationAnswers {
+        service: crate::main_config::ServerConfigurationAnswers {
+            username: whoami::username(),
+            debug_level: LogLevel::Debug,
+            http: Some(HttpSettings { port: 3000 }),
+            https: Some(HttpsSettingsAnswers {
+                port: 3001,
+                certificate: main_config::HttpsCertificateLocationAnswers::New {
+                    path: https_path,
+                    ca_name: "default".to_string(),
+                },
+                require_certificate: false,
+            }),
+            public_names: vec![ComplexName::from_str("127.0.0.1").unwrap()],
+            ..Default::default()
+        },
         sign_method: method,
         path: ca::CaCertificateStorageBuilder::Sqlite(dbname),
         inferior_to: None,
@@ -1185,7 +1207,7 @@ fn build_answers(
         days: 5,
         chain_length: 1,
         admin_access_password: pw,
-        admin_cert: ca::CertificateTypeAnswers::Soft(pw2),
+        admin_cert: ca::CertificateTypeAnswers::Soft { password: pw2 },
         ocsp_signature: false,
         name: "TEST CA".to_string(),
     };
@@ -1193,8 +1215,6 @@ fn build_answers(
         pki_name: "".to_string(),
         config: Box::new(ca_a),
     };
-    args.public_names
-        .push(ComplexName::from_str("127.0.0.1").unwrap());
     args
 }
 
@@ -1291,6 +1311,7 @@ where
         let args = m(args).await;
 
         let pki_name = match &args.pki {
+            PkiConfigurationEnumAnswers::AddedCa(config) => "".to_string(),
             PkiConfigurationEnumAnswers::Pki(pki) => pki.pki_name.clone(),
             PkiConfigurationEnumAnswers::Ca {
                 pki_name: _,
@@ -1299,6 +1320,7 @@ where
         };
 
         let ca_name = match &args.pki {
+            PkiConfigurationEnumAnswers::AddedCa(config) => "".to_string(),
             PkiConfigurationEnumAnswers::Pki(pki) => {
                 let (name, _) = pki.local_ca.map().iter().next().unwrap();
                 format!("{}/", name)

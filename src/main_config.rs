@@ -480,6 +480,44 @@ pub struct ServerConfigurationAnswers {
     pub tpm2_required: bool,
 }
 
+impl ServerConfiguration {
+    /// Destroy the configuration
+    pub fn destroy(&self) {
+        if let Some(https) = &self.https {
+            https.certificate.destroy();
+        }
+    }
+
+    /// Remove relative pathnames from all paths specified
+    pub async fn remove_relative_paths(&mut self) {
+        if let Some(https) = &self.https {
+            https.certificate.make_dummy().await;
+        }
+        if let Some(https) = &mut self.https {
+            match &mut https.certificate {
+                HttpsCertificateLocation::HsmGenerated => {}
+                HttpsCertificateLocation::Existing { path, password: _ } => {
+                    if path.is_relative() {
+                        *path = path.canonicalize().unwrap();
+                    }
+                }
+                HttpsCertificateLocation::New {
+                    path,
+                    ca_name: _,
+                    password: _,
+                } => {
+                    if path.is_relative() {
+                        *path = path.canonicalize().unwrap();
+                    }
+                }
+            }
+        }
+        if let Some(https) = &self.https {
+            https.certificate.destroy();
+        }
+    }
+}
+
 impl From<ServerConfigurationAnswers> for ServerConfiguration {
     fn from(value: ServerConfigurationAnswers) -> Self {
         Self {
@@ -543,10 +581,6 @@ impl MainConfigurationAnswers {
 /// The main configuration of the application
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MainConfiguration {
-    /// Settings for the http server
-    pub http: Option<HttpSettings>,
-    /// Settings for the https server
-    pub https: Option<HttpsSettings>,
     /// Settings for the database
     pub database: Option<DatabaseSettings>,
     /// The public name of the service, contains example.com/asdf for the example
@@ -594,33 +628,12 @@ pub enum ExtendedConfiguration {
 impl MainConfiguration {
     /// Remove relative paths
     pub async fn remove_relative_paths(&mut self) {
-        if let Some(https) = &mut self.https {
-            match &mut https.certificate {
-                HttpsCertificateLocation::HsmGenerated => {}
-                HttpsCertificateLocation::Existing { path, password: _ } => {
-                    if path.is_relative() {
-                        *path = path.canonicalize().unwrap();
-                    }
-                }
-                HttpsCertificateLocation::New {
-                    path,
-                    ca_name: _,
-                    password: _,
-                } => {
-                    if path.is_relative() {
-                        *path = path.canonicalize().unwrap();
-                    }
-                }
-            }
-        }
         self.pki.remove_relative_paths().await;
     }
 
     /// Fill out this configuration file with answers from the specified answer configuration
     pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
         Self {
-            http: unimplemented!(),
-            https: unimplemented!(),
             database: unimplemented!(),
             public_names: unimplemented!(),
             proxy_config: unimplemented!(),
@@ -637,11 +650,11 @@ impl MainConfiguration {
 
     /// Return the port number for the http server
     pub fn get_http_port(&self) -> Option<u16> {
-        self.http.as_ref().map(|a| a.port)
+        self.pki.get_http_port()
     }
 
     /// Return the port number for the https server
     pub fn get_https_port(&self) -> Option<u16> {
-        self.https.as_ref().map(|a| a.port)
+        self.pki.get_https_port()
     }
 }

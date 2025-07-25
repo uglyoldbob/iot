@@ -2205,6 +2205,24 @@ pub enum PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Return the port number for the http server
+    pub fn get_http_port(&self) -> Option<u16> {
+        match self {
+            PkiConfigurationEnum::AddedCa(ca) => None,
+            PkiConfigurationEnum::Pki(pki) => pki.service.http.as_ref().map(|a| a.port),
+            PkiConfigurationEnum::Ca(config) => config.service.http.as_ref().map(|a| a.port),
+        }
+    }
+
+    /// Return the port number for the https server
+    pub fn get_https_port(&self) -> Option<u16> {
+        match self {
+            PkiConfigurationEnum::AddedCa(ca) => None,
+            PkiConfigurationEnum::Pki(pki) => pki.service.https.as_ref().map(|a| a.port),
+            PkiConfigurationEnum::Ca(config) => config.service.https.as_ref().map(|a| a.port),
+        }
+    }
+
     // Get the general settings if applicable
     pub fn get_general_settings(&self) -> Option<crate::main_config::GeneralSettings> {
         match self {
@@ -2242,11 +2260,13 @@ impl PkiConfigurationEnum {
                 let _ = ca.path.remove_relative_paths().await;
             }
             PkiConfigurationEnum::Pki(pki) => {
+                pki.service.remove_relative_paths().await;
                 for (_k, a) in pki.local_ca.iter_mut() {
                     let _ = a.path.remove_relative_paths().await;
                 }
             }
             PkiConfigurationEnum::Ca(ca) => {
+                ca.service.remove_relative_paths().await;
                 let _ = ca.path.remove_relative_paths().await;
             }
         }
@@ -2257,25 +2277,35 @@ impl PkiConfigurationEnum {
         &self,
         proxy: &ProxyConfig,
         config: &MainConfiguration,
-        ca: Option<&StandaloneCaConfiguration>,
+        pki: &PkiConfigurationEnum,
     ) -> String {
         let mut contents = String::new();
         contents.push_str("#nginx reverse proxy settings\n");
-        let location_name = if let Some(ca) = ca {
+        let location_name = if let PkiConfigurationEnum::Ca(ca) = &pki {
             format!("pki/{}", ca.name)
         } else {
             "".to_string()
         };
-        if let Some(http) = proxy.http_port {
+        let http = match &pki {
+            PkiConfigurationEnum::Pki(pki_configuration) => pki_configuration.service.http,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration.service.http,
+        };
+        let https = match &pki {
+            PkiConfigurationEnum::Pki(pki_configuration) => pki_configuration.service.https,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration.service.https,
+        };
+        if let Some(http_port) = proxy.http_port {
             for complex_name in &config.public_names {
                 contents.push_str("server {\n");
-                contents.push_str(&format!("\tlisten {};\n", http));
+                contents.push_str(&format!("\tlisten {};\n", http_port));
                 contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
                 contents.push_str(&format!(
                     "\tlocation {}{} {{\n",
                     complex_name.subdomain, location_name
                 ));
-                if let Some(https) = &config.https {
+                if let Some(https) = &https {
                     if https.port == 443 {
                         contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
                     } else {
@@ -2288,7 +2318,7 @@ impl PkiConfigurationEnum {
                         contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
                         contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
                     }
-                } else if let Some(http) = &config.http {
+                } else if let Some(http) = &http {
                     if http.port == 80 {
                         contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
                     } else {
@@ -2301,10 +2331,10 @@ impl PkiConfigurationEnum {
                 contents.push_str("\t}\n}\n\n");
             }
         }
-        if let Some(https) = proxy.https_port {
+        if let Some(https_port) = proxy.https_port {
             for complex_name in &config.public_names {
                 contents.push_str("server {\n");
-                contents.push_str(&format!("\tlisten {} ssl;\n", https));
+                contents.push_str(&format!("\tlisten {} ssl;\n", https_port));
                 contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
                 contents.push_str("\tssl_certificate /put/location/here;\n");
                 contents.push_str("\tssl_certificate_key /put/location/here;\n");
@@ -2315,7 +2345,7 @@ impl PkiConfigurationEnum {
                 ));
                 contents
                     .push_str("\t\tproxy_set_header SSL_CLIENT_CERT $ssl_client_escaped_cert;\n");
-                if let Some(https) = &config.https {
+                if let Some(https) = &https {
                     if https.port == 443 {
                         contents.push_str("\t\tproxy_pass https://127.0.0.1/;\n");
                     } else {
@@ -2328,7 +2358,7 @@ impl PkiConfigurationEnum {
                         contents.push_str("\t\tproxy_ssl_certificate /put/location/here;\n");
                         contents.push_str("\t\tproxy_ssl_certificate_key /put/location/here;\n");
                     }
-                } else if let Some(http) = &config.http {
+                } else if let Some(http) = &http {
                     if http.port == 80 {
                         contents.push_str("\t\tproxy_pass http://127.0.0.1/;\n");
                     } else {
@@ -2380,6 +2410,10 @@ impl PkiConfigurationEnum {
 pub struct Pki {
     /// General settings
     pub general: crate::main_config::GeneralSettings,
+    /// Settings for the http server
+    pub http: Option<crate::main_config::HttpSettings>,
+    /// Settings for the https server
+    pub https: Option<crate::main_config::HttpsSettings>,
     /// All of the ca instances for the pki
     pub all_ca: HashMap<String, LocalOrRemoteCa>,
     /// The super-admin certificate
@@ -2431,13 +2465,13 @@ impl Pki {
         name: &String,
         config: &LocalCaConfiguration,
         main_config: &crate::main_config::MainConfiguration,
+        service: Option<&crate::main_config::ServerConfiguration>,
         hsm: &Arc<crate::hsm2::Hsm>,
         done: Option<&mut bool>,
     ) -> Result<(), PkiLoadError> {
-        let ca_name = main_config
-            .https
-            .as_ref()
-            .and_then(|h| h.certificate.create_by_ca());
+        let ca_name =
+            service.and_then(|s| s.https.as_ref().and_then(|h| h.certificate.create_by_ca()));
+
         if !hm.contains_key(name) {
             let config = &config.get_ca(name, main_config);
             let ca = crate::ca::Ca::init(
@@ -2497,6 +2531,7 @@ impl Pki {
                     name,
                     config,
                     main_config,
+                    Some(&settings.service),
                     &hsm,
                     Some(&mut done),
                 )
@@ -2680,6 +2715,7 @@ impl PkiInstance {
                             &name,
                             &instance,
                             main_config,
+                            None,
                             &hsm,
                             None,
                         )
@@ -2721,7 +2757,7 @@ impl PkiInstance {
                         service::log::error!("Failed to load ca 9 {:?}", e);
                         PkiLoadError::FailedToLoadCa("ca".to_string(), e)
                     })?; //TODO Use the proper ca superior object instead of None
-                if main_config.https.is_some() {
+                if ca_config.service.https.is_some() {
                     ca.check_https_create(hsm.clone(), main_config)
                         .await
                         .map_err(|_| {
@@ -2897,6 +2933,10 @@ impl LocalOrRemoteCa {
 pub struct Ca {
     /// General settings
     pub general: crate::main_config::GeneralSettings,
+    /// Settings for the http server
+    pub http: Option<crate::main_config::HttpSettings>,
+    /// Settings for the https server
+    pub https: Option<crate::main_config::HttpsSettings>,
     /// Where certificates are stored
     pub medium: CaCertificateStorage,
     /// Represents the root certificate for the ca
@@ -3072,23 +3112,15 @@ impl Ca {
         hsm: Arc<crate::hsm2::Hsm>,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<(), ()> {
-        if let Some(https) = &main_config.https {
-            if https.certificate.create_by_ca().is_some() {
-                if let Some(pathbuf) = https.certificate.pathbuf() {
-                    self.create_https_certificate(
-                        hsm.clone(),
-                        pathbuf,
-                        main_config
-                            .public_names
-                            .iter()
-                            .map(|a| a.to_string())
-                            .collect(),
-                        https.certificate.password().unwrap(), //assume that the password is valid if the path is valid
-                    )
-                    .await?;
-                }
-            }
-        }
+        self.create_https_certificate(
+            hsm.clone(),
+            main_config
+                .public_names
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
+        )
+        .await?;
         Ok(())
     }
 
@@ -3096,50 +3128,58 @@ impl Ca {
     pub async fn create_https_certificate(
         &mut self,
         _hsm: Arc<crate::hsm2::Hsm>,
-        destination: std::path::PathBuf,
         https_names: Vec<String>,
-        password: &str,
     ) -> Result<(), ()> {
-        service::log::info!("Generating an https certificate for web operations");
-        let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
-        let extensions = vec![
-            cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
-                .to_custom_extension()
-                .unwrap(),
-        ];
+        let mut stuff = None;
+        if let Some(https) = &self.https {
+            if let Some(destination) = https.certificate.pathbuf() {
+                let password = https.certificate.password().unwrap();
+                service::log::info!("Generating an https certificate for web operations");
+                let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
+                let extensions =
+                    vec![
+                        cert_common::CsrAttribute::build_extended_key_usage(key_usage_oids)
+                            .to_custom_extension()
+                            .unwrap(),
+                    ];
 
-        let id = self.get_new_request_id().await.unwrap();
-        let algorithm = {
-            let root_cert = self.root_cert.as_ref().unwrap();
-            root_cert.algorithm()
-        };
-        if let CertificateSigningMethod::Https(m) = algorithm {
-            let https_options = SigningRequestParams {
-                hsm: None, //TODO put in the hsm object when support is there for using an https certificate with external private key
-                smartcard: None,
-                t: m,
-                name: "https".to_string(),
-                common_name: "HTTPS Server".to_string(),
-                names: https_names,
-                extensions,
-                id,
-                days_valid: self.config.days, //TODO figure out a method to renew the https certificate automaticcally
-            };
-            let csr = https_options.generate_request();
-            let root_cert = self.root_cert.as_ref().unwrap();
-            let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
-            let mut cert = root_cert
-                .sign_csr(
-                    csr,
-                    self,
-                    snb.to_vec(),
-                    time::Duration::days(self.config.days as i64),
-                )
-                .unwrap();
-            cert.medium = self.medium.clone();
+                let id = self.get_new_request_id().await.unwrap();
+                let algorithm = {
+                    let root_cert = self.root_cert.as_ref().unwrap();
+                    root_cert.algorithm()
+                };
+                if let CertificateSigningMethod::Https(m) = algorithm {
+                    let https_options = SigningRequestParams {
+                        hsm: None, //TODO put in the hsm object when support is there for using an https certificate with external private key
+                        smartcard: None,
+                        t: m,
+                        name: "https".to_string(),
+                        common_name: "HTTPS Server".to_string(),
+                        names: https_names,
+                        extensions,
+                        id,
+                        days_valid: self.config.days, //TODO figure out a method to renew the https certificate automaticcally
+                    };
+                    let csr = https_options.generate_request();
+                    let root_cert = self.root_cert.as_ref().unwrap();
+                    let (snb, _sn) = CaCertificateToBeSigned::calc_sn();
+                    let mut cert = root_cert
+                        .sign_csr(
+                            csr,
+                            self,
+                            snb.to_vec(),
+                            time::Duration::days(self.config.days as i64),
+                        )
+                        .unwrap();
+                    cert.medium = self.medium.clone();
+                    stuff = Some((id, cert, snb, password.to_owned(), destination));
+                }
+            }
+        }
+        if let Some((id, cert, snb, password, destination)) = stuff {
             self.save_user_cert(id, &cert.contents().map_err(|_| ())?, Some(&snb))
                 .await;
-            let p12 = cert.try_p12(password).unwrap();
+            let p12 = cert.try_p12(&password).unwrap();
             tokio::fs::write(destination, p12).await.unwrap();
         }
         Ok(())
@@ -4394,7 +4434,7 @@ impl Ca {
     }
 
     /// Get a new request id, if possible
-    pub async fn get_new_request_id(&mut self) -> Option<u64> {
+    pub async fn get_new_request_id(&self) -> Option<u64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => p
