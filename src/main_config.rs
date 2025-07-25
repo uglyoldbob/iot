@@ -396,6 +396,38 @@ impl DatabaseSettings {
 }
 
 /// The server configuration of the application
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct ServerConfiguration {
+    /// General settings
+    pub general: GeneralSettings,
+    /// Settings for the http server
+    pub http: Option<HttpSettings>,
+    /// Settings for the https server
+    pub https: Option<HttpsSettings>,
+    /// Settings for the database
+    pub database: Option<DatabaseSettings>,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<std::path::PathBuf>>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The pin for the hardware security module
+    pub hsm_pin: String,
+    /// The user pin for the hardware security module
+    pub hsm_pin2: String,
+    /// The slot override for the hsm
+    pub hsm_slot: Option<usize>,
+}
+
+/// The server configuration of the application
 #[derive(
     Clone,
     Debug,
@@ -448,6 +480,28 @@ pub struct ServerConfigurationAnswers {
     pub tpm2_required: bool,
 }
 
+impl From<ServerConfigurationAnswers> for ServerConfiguration {
+    fn from(value: ServerConfigurationAnswers) -> Self {
+        Self {
+            general: value.general,
+            http: value.http.into(),
+            https: value.https.map(|a| a.into()),
+            database: value.database,
+            public_names: value.public_names,
+            proxy_config: value.proxy_config,
+            client_certs: value
+                .client_certs
+                .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
+            debug_level: Some(value.debug_level),
+            tpm2_required: value.tpm2_required,
+            hsm_path_override: value.hsm_path_override,
+            hsm_pin: crate::utility::generate_password(32),
+            hsm_pin2: crate::utility::generate_password(32),
+            hsm_slot: value.hsm_slot,
+        }
+    }
+}
+
 /// The main configuration of the application
 #[derive(
     Clone,
@@ -459,56 +513,31 @@ pub struct ServerConfigurationAnswers {
     serde::Serialize,
 )]
 pub struct MainConfigurationAnswers {
-    #[PromptComment = "What username to run the service as"]
-    /// The username to run the service as
-    pub username: String,
-    #[PromptComment = "The optional password for the user that the service will run as"]
-    /// The password for the user
-    pub password: Option<userprompt::Password2>,
-    #[PromptComment = "Override for the hardware security module library path"]
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    #[PromptComment = "The slot override for using the hardware security module"]
-    /// The slot override for the hsm, default slot is 0
-    pub hsm_slot: Option<usize>,
-    #[PromptComment = "General settings"]
-    /// General settings
-    pub general: GeneralSettings,
-    #[PromptComment = "Optional settings for the http service"]
-    /// Settings for the http server
-    pub http: Option<HttpSettings>,
-    #[PromptComment = "Optional settings for the https service"]
-    /// Settings for the https server
-    pub https: Option<HttpsSettingsAnswers>,
-    #[PromptComment = "Settings for the database"]
-    /// Optional settings for the mysql database
-    pub database: Option<DatabaseSettings>,
-    #[PromptComment = "The public name of the service, such as example.com/asdf"]
-    /// The public name of the service, contains example.com/asdf for the example
-    pub public_names: Vec<ComplexName>,
-    #[PromptComment = "The optional proxy port configuration"]
-    /// The optional proxy configuration
-    pub proxy_config: Option<ProxyConfig>,
-    #[PromptComment = "An optional list of custom client certificates to load"]
-    /// Settings for client certificates
-    pub client_certs: Option<Vec<userprompt::FileOpen>>,
     #[PromptComment = "The pki configuration"]
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnumAnswers,
-    #[PromptComment = "The desired level for logging"]
-    /// The desired minimum debug level
-    pub debug_level: service::LogLevel,
-    #[PromptComment = "Should a trusted platform module version 2 be required?"]
-    /// Is tpm2 hardware required to setup the pki?
-    #[cfg(feature = "tpm2")]
-    pub tpm2_required: bool,
+}
+
+impl MainConfigurationAnswers {
+    /// Build a owner options
+    pub fn build_owner_options(&self) -> Option<crate::ca::OwnerOptions> {
+        self.pki.build_owner_options()
+    }
+
+    /// Build a service config
+    pub fn make_service_config(
+        &self,
+        service_args: Vec<String>,
+        name: &str,
+        path: std::path::PathBuf,
+    ) -> Option<service::ServiceConfig> {
+        self.pki.make_service_config(service_args, name, path)
+    }
 }
 
 /// The main configuration of the application
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MainConfiguration {
-    /// General settings
-    pub general: GeneralSettings,
     /// Settings for the http server
     pub http: Option<HttpSettings>,
     /// Settings for the https server
@@ -585,23 +614,19 @@ impl MainConfiguration {
     /// Fill out this configuration file with answers from the specified answer configuration
     pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
         Self {
-            general: answers.general.clone(),
-            http: answers.http.clone(),
-            https: answers.https.clone().map(|a| a.into()),
-            database: answers.database.clone(),
-            public_names: answers.public_names.clone(),
-            proxy_config: answers.proxy_config.clone(),
-            client_certs: answers
-                .client_certs
-                .clone()
-                .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
+            http: unimplemented!(),
+            https: unimplemented!(),
+            database: unimplemented!(),
+            public_names: unimplemented!(),
+            proxy_config: unimplemented!(),
+            client_certs: unimplemented!(),
             pki: crate::ca::PkiConfigurationEnum::from_config(answers.pki.clone()),
-            debug_level: Some(answers.debug_level.clone()),
-            tpm2_required: answers.tpm2_required,
-            hsm_path_override: answers.hsm_path_override.clone(),
-            hsm_pin: crate::utility::generate_password(32),
-            hsm_pin2: crate::utility::generate_password(32),
-            hsm_slot: answers.hsm_slot,
+            debug_level: unimplemented!(),
+            tpm2_required: unimplemented!(),
+            hsm_path_override: unimplemented!(),
+            hsm_pin: unimplemented!(),
+            hsm_pin2: unimplemented!(),
+            hsm_slot: unimplemented!(),
         }
     }
 

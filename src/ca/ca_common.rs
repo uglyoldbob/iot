@@ -191,6 +191,8 @@ impl From<CertificateTypeAnswers> for CertificateType {
 /// The items used to configure a standalone certificate authority, typically used as part of a large pki installation.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct StandaloneCaConfiguration {
+    /// The settings specified to run the ca service
+    pub service: crate::main_config::ServerConfiguration,
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
@@ -219,6 +221,7 @@ impl StandaloneCaConfiguration {
     /// Build a Self using answers and the containing pki_name, which must be blank or end with /
     fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
+            service: value.service.clone().into(),
             sign_method: value.sign_method,
             path: value.path.clone(),
             inferior_to: value.inferior_to.clone(),
@@ -235,7 +238,7 @@ impl StandaloneCaConfiguration {
 }
 
 impl StandaloneCaConfiguration {
-    ///Get a CaConfiguration from a LocalCaConfiguration
+    ///Get a CaConfiguration from a StandaloneCaConfiguration
     /// # Arguments
     /// * name - The name of the ca for pki purposes
     /// * settings - The application settings
@@ -265,6 +268,7 @@ impl StandaloneCaConfiguration {
             None
         };
         CaConfiguration {
+            general: settings.pki.get_general_settings(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -611,6 +615,7 @@ impl LocalCaConfiguration {
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfiguration {
+            general: None,
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -632,6 +637,8 @@ impl LocalCaConfiguration {
 /// The items used to configure a certificate authority
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CaConfiguration {
+    /// General settings
+    pub general: Option<crate::main_config::GeneralSettings>,
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
@@ -2046,6 +2053,8 @@ pub struct PkiConfigurationAnswers {
 /// The configuration of a general pki instance.
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct PkiConfiguration {
+    /// The settings specified to run the pki service
+    pub service: crate::main_config::ServerConfiguration,
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
     /// List of remote ca
@@ -2068,6 +2077,7 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             .collect();
         Self {
             local_ca: map2,
+            service: value.service.into(),
             super_admin: value.super_admin.clone(),
             pki_name: value.pki_name.clone(),
             remote_ca: HashMap::new(),
@@ -2120,6 +2130,52 @@ impl PkiConfigurationEnumAnswers {
             pki_name: Default::default(),
         })
     }
+
+    pub fn get_username(&self) -> Option<String> {
+        match self {
+            PkiConfigurationEnumAnswers::Pki(config) => Some(config.service.username.clone()),
+            PkiConfigurationEnumAnswers::AddedCa(config) => None,
+            PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
+                Some(config.service.username.clone())
+            }
+        }
+    }
+
+    /// Build a service config
+    pub fn make_service_config(
+        &self,
+        service_args: Vec<String>,
+        name: &str,
+        path: std::path::PathBuf,
+    ) -> Option<service::ServiceConfig> {
+        if let Some(username) = self.get_username() {
+            Some(service::ServiceConfig::new(
+                service_args,
+                format!("{} Iot Certificate Authority and Iot Manager", name),
+                path,
+                Some(username),
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Build an owner options struct
+    pub fn build_owner_options(&self) -> Option<crate::ca::OwnerOptions> {
+        let username = self.get_username();
+        username.map(|u| {
+            #[cfg(target_family = "unix")]
+            let user_obj = nix::unistd::User::from_name(&u).unwrap().unwrap();
+            #[cfg(target_family = "unix")]
+            let user_uid = user_obj.uid;
+
+            #[cfg(target_family = "unix")]
+            let options = crate::ca::OwnerOptions::new(user_uid.as_raw());
+            #[cfg(target_family = "windows")]
+            let options = crate::ca::OwnerOptions::new(&u);
+            options
+        })
+    }
 }
 
 ///A generic configuration for a pki or certificate authority.
@@ -2134,12 +2190,19 @@ pub enum PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    // Get the general settings if applicable
+    pub fn get_general_settings(&self) -> Option<crate::main_config::GeneralSettings> {
+        match self {
+            PkiConfigurationEnum::AddedCa(ca) => None,
+            PkiConfigurationEnum::Pki(pki) => Some(pki.service.general.clone()),
+            PkiConfigurationEnum::Ca(config) => Some(config.service.general.clone()),
+        }
+    }
+
     /// Create a PkiConfigurationEnum from configuration answers
     pub fn from_config(value: PkiConfigurationEnumAnswers) -> Self {
         match value {
-            PkiConfigurationEnumAnswers::AddedCa(ca) => {
-                Self::AddedCa(ca.into_local_config())
-            }
+            PkiConfigurationEnumAnswers::AddedCa(ca) => Self::AddedCa(ca.into_local_config()),
             PkiConfigurationEnumAnswers::Pki(pki) => Self::Pki(pki.into()),
             PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
                 let ca = StandaloneCaConfiguration::from(&config, pki_name);
@@ -2147,9 +2210,16 @@ impl PkiConfigurationEnum {
             }
         }
     }
-}
 
-impl PkiConfigurationEnum {
+    /// Get the static root for the website
+    pub fn get_static_root(&self) -> Option<String> {
+        match self {
+            Self::AddedCa(_) => None,
+            Self::Pki(pki) => Some(pki.service.general.static_content.to_owned()),
+            Self::Ca(ca) => Some(ca.service.general.static_content.to_owned()),
+        }
+    }
+
     /// Remove relative pathnames from all paths specified
     pub async fn remove_relative_paths(&mut self) {
         match self {
@@ -2263,9 +2333,7 @@ impl PkiConfigurationEnum {
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
         if let Some(proxy) = &config.proxy_config {
             match self {
-                PkiConfigurationEnum::AddedCa(_) => {
-                    None
-                }
+                PkiConfigurationEnum::AddedCa(_) => None,
                 PkiConfigurationEnum::Pki(_) => {
                     let mut contents = String::new();
                     contents.push_str(&self.nginx_reverse(proxy, config, None));
@@ -2295,6 +2363,8 @@ impl PkiConfigurationEnum {
 /// A normal pki object, containing one or more Certificate authorities
 #[derive(Debug)]
 pub struct Pki {
+    /// General settings
+    pub general: crate::main_config::GeneralSettings,
     /// All of the ca instances for the pki
     pub all_ca: HashMap<String, LocalOrRemoteCa>,
     /// The super-admin certificate
@@ -2329,6 +2399,8 @@ pub enum CaLoadError {
     FailedToBuildOcspUrl,
     /// Failed to save to medium
     FailedToSaveToMedium(CertificateSaveError),
+    /// General settings missing
+    GeneralSettingsMissing,
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -2420,6 +2492,7 @@ impl Pki {
             }
         }
         Ok(Self {
+            general: settings.service.general.clone(),
             all_ca: hm,
             super_admin: None,
         })
@@ -2525,6 +2598,7 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
+            general: settings.service.general.clone(),
             all_ca: hm,
             super_admin,
         })
@@ -2548,6 +2622,14 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Get the static root for the webserver
+    pub fn get_static_root(&self) -> String {
+        match self {
+            Self::Pki(pki) => pki.general.static_content.clone(),
+            Self::Ca(ca) => ca.general.static_content.clone(),
+        }
+    }
+
     /// Set the shutdown for all pki
     pub fn set_shutdown(&mut self, sd: tokio::sync::mpsc::UnboundedSender<()>) {
         match self {
@@ -2578,7 +2660,15 @@ impl PkiInstance {
                         name,
                         instance,
                     } => {
-                        Pki::handle_local_ca_configuration(&mut pki.all_ca, &name, &instance, main_config, &hsm, None).await;
+                        Pki::handle_local_ca_configuration(
+                            &mut pki.all_ca,
+                            &name,
+                            &instance,
+                            main_config,
+                            &hsm,
+                            None,
+                        )
+                        .await;
                     }
                     crate::main_config::ExtendedConfiguration::ExtraPkiRemoteCaInstance {
                         name,
@@ -2790,6 +2880,8 @@ impl LocalOrRemoteCa {
 /// The actual ca object
 #[derive(Debug)]
 pub struct Ca {
+    /// General settings
+    pub general: crate::main_config::GeneralSettings,
     /// Where certificates are stored
     pub medium: CaCertificateStorage,
     /// Represents the root certificate for the ca
@@ -3057,6 +3149,10 @@ impl Ca {
             .await
             .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
+            general: settings
+                .general
+                .clone()
+                .ok_or(CaLoadError::GeneralSettingsMissing)?,
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist("root".to_string())),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist("ocsp".to_string())),
@@ -4264,6 +4360,10 @@ impl Ca {
             .map_err(|e| CaLoadError::StorageError(e))?;
         medium.validate().await;
         Ok(Self {
+            general: settings
+                .general
+                .clone()
+                .ok_or(CaLoadError::GeneralSettingsMissing)?,
             medium,
             root_cert: Err(CertificateLoadingError::DoesNotExist("root".to_string())),
             ocsp_signer: Err(CertificateLoadingError::DoesNotExist("ocsp".to_string())),

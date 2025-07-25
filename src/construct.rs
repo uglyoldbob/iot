@@ -174,17 +174,7 @@ pub async fn main() {
         MainConfiguration::provide_answers(&answers)
     };
 
-    #[cfg(target_family = "unix")]
-    let user_obj = nix::unistd::User::from_name(&answers.username)
-        .unwrap()
-        .unwrap();
-    #[cfg(target_family = "unix")]
-    let user_uid = user_obj.uid;
-
-    #[cfg(target_family = "unix")]
-    let options = ca::OwnerOptions::new(user_uid.as_raw());
-    #[cfg(target_family = "windows")]
-    let options = ca::OwnerOptions::new(&answers.username);
+    let options = answers.build_owner_options();
 
     if let Some(pb) = &args.save_answers {
         println!("Saving answers to {}", pb.display());
@@ -196,7 +186,9 @@ pub async fn main() {
         f.write_all(answers.as_bytes())
             .await
             .expect("Failed to write answers file");
-        options.set_owner(pb, 0o600);
+        if let Some(options) = &options {
+            options.set_owner(pb, 0o600);
+        }
     }
 
     let mut exe = std::env::current_exe().unwrap();
@@ -217,7 +209,9 @@ pub async fn main() {
         f.write_all("false".as_bytes())
             .await
             .expect("Failed to write initialization file");
-        options.set_owner(&n, 0o700);
+        if let Some(options) = &options {
+            options.set_owner(&n, 0o700);
+        }
     }
 
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
@@ -232,7 +226,9 @@ pub async fn main() {
         f2.write_all(proxy.as_bytes())
             .await
             .expect("Failed to write reverse proxy file");
-        options.set_owner(&proxy_name, 0o644);
+        if let Some(options) = &options {
+            options.set_owner(&proxy_name, 0o644);
+        }
     }
 
     {
@@ -263,16 +259,21 @@ library.reset_on_fork = false
         f3.write_all(hsm_contents.as_bytes())
             .await
             .expect("Failed to write softhsm config");
-        options.set_owner(&softhsm_config, 0o700);
+        if let Some(options) = &options {
+            options.set_owner(&softhsm_config, 0o700);
+        }
 
         let mut builder = tokio::fs::DirBuilder::new();
         builder.recursive(true);
         tokio::fs::DirBuilder::create(&builder, &token_path)
             .await
             .expect("Failed to create token directory");
-        options
-            .set_owner(&token_path, 0o700)
-            .expect("Failed to set file owner and permissions");
+
+        if let Some(options) = &options {
+            options
+                .set_owner(&token_path, 0o700)
+                .expect("Failed to set file owner and permissions");
+        }
     }
 
     let service_args = vec![
@@ -280,21 +281,18 @@ library.reset_on_fork = false
         format!("--config={}", config_path.display()),
     ];
 
-    let mut service_config = service::ServiceConfig::new(
-        service_args,
-        format!("{} Iot Certificate Authority and Iot Manager", name),
-        exe.join("rust-iot"),
-        Some(answers.username.clone()),
-    );
+    let mut service_config = answers.make_service_config(service_args, &name, exe.join("rust-iot"));
 
-    #[cfg(target_os = "linux")]
-    {
-        service_config.config_path.clone_from(&config_path);
-    }
-    #[cfg(target_family = "windows")]
-    {
-        service_config.display = format!("Rust Iot {} Service", name);
-        service_config.user_password = answers.password.clone().map(|a| a.to_string());
+    if let Some(service_config) = &mut service_config {
+        #[cfg(target_os = "linux")]
+        {
+            service_config.config_path.clone_from(&config_path);
+        }
+        #[cfg(target_family = "windows")]
+        {
+            service_config.display = format!("Rust Iot {} Service", name);
+            service_config.user_password = answers.password.clone().map(|a| a.to_string());
+        }
     }
 
     service::log::info!("Saving the configuration file");
@@ -350,9 +348,11 @@ library.reset_on_fork = false
         fpw.write_all(password.to_string().as_bytes())
             .await
             .expect("Failed to write credentials");
-        options
-            .set_owner(&p, 0o400)
-            .expect("Failed to set file owner and permissions");
+        if let Some(options) = &options {
+            options
+                .set_owner(&p, 0o400)
+                .expect("Failed to set file owner and permissions");
+        }
         tpm2::encrypt(config_data.as_bytes(), password_combined)
     };
 
@@ -381,9 +381,11 @@ library.reset_on_fork = false
             f2.write_all(&tpmblob.data())
                 .await
                 .expect("Failed to write protected password");
-            options
-                .set_owner(&p, 0o400)
-                .expect("Failed to set file owner and permissions");
+            if let Some(options) = &options {
+                options
+                    .set_owner(&p, 0o400)
+                    .expect("Failed to set file owner and permissions");
+            }
             econfig
         } else {
             service::log::error!("TPM2 NOT DETECTED!!!");
@@ -402,7 +404,9 @@ library.reset_on_fork = false
         do_without_tpm2().await
     }
     if !args.test {
-        service.create_async(service_config).await.unwrap();
-        let _ = service.start();
+        if let Some(service_config) = service_config {
+            service.create_async(service_config).await.unwrap();
+            let _ = service.start();
+        }
     }
 }

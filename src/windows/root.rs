@@ -45,13 +45,9 @@ pub struct RootWindow {
 impl RootWindow {
     /// Create a request for a new window
     pub fn request() -> NewWindowRequest {
-        let answers = MainConfigurationAnswers {
-            username: whoami::username(),
-            ..Default::default()
-        };
         NewWindowRequest::new(
             super::MyWindows::Root(RootWindow {
-                answers,
+                answers: MainConfigurationAnswers::default(),
                 service_name: "default".into(),
                 generating: Arc::new(Mutex::new(GeneratingMode::Idle)),
                 receive: None,

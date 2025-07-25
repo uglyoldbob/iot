@@ -359,7 +359,9 @@ async fn smain() {
             hsm.list_certificates();
 
             use tokio::io::AsyncWriteExt;
-            let _ca_instance = ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings).await.unwrap();
+            let _ca_instance = ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
+                .await
+                .unwrap();
             let mut f = tokio::fs::File::create(&n).await.unwrap();
             f.write_all("".as_bytes())
                 .await
@@ -443,22 +445,22 @@ async fn smain() {
             }
         }
     }
-    pki.register_extra_configs(extra_configs, hsm, &settings).await;
+    pki.register_extra_configs(extra_configs, hsm, &settings)
+        .await;
 
+    let root = pki.get_static_root();
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 
-    let mut hc = HttpContext {
+    let hc = HttpContext {
         static_map,
         dirmap: router,
-        root: settings.general.static_content.to_owned(),
+        root,
         proxy: proxy_map,
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
         pki,
     };
-
-    hc.cookiename = format!("/{}", settings.general.cookie);
 
     if !hc.proxy.is_empty() {
         for (domain, proxy) in &hc.proxy {

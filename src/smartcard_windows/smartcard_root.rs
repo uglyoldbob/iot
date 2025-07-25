@@ -153,10 +153,6 @@ pub struct RootWindow {
 impl RootWindow {
     /// Create a request for a new window
     pub fn request() -> NewWindowRequest {
-        let answers = MainConfigurationAnswers {
-            username: whoami::username(),
-            ..Default::default()
-        };
         NewWindowRequest::new(
             super::MyWindows::SmartcardRoot(RootWindow {
                 expecting_response: false,
