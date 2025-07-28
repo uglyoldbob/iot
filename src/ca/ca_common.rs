@@ -282,25 +282,16 @@ impl StandaloneCaConfiguration {
                 standalone_ca_configuration.service.https.clone(),
             ),
         };
+        let service = match &settings.pki {
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => unimplemented!(),
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                &standalone_ca_configuration.service
+            }
+        };
         CaConfiguration {
-            public_names: match &settings.pki {
-                PkiConfigurationEnum::Pki(pki_configuration) => {
-                    pki_configuration.service.public_names.clone()
-                }
-                PkiConfigurationEnum::AddedCa(local_ca_configuration) => Vec::new(),
-                PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                    standalone_ca_configuration.service.public_names.clone()
-                }
-            },
-            database: match &settings.pki {
-                PkiConfigurationEnum::Pki(pki_configuration) => {
-                    pki_configuration.service.database.clone()
-                }
-                PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
-                PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                    standalone_ca_configuration.service.database.clone()
-                }
-            },
+            public_names: service.public_names.clone(),
+            database: service.database.clone(),
             http,
             https,
             general: settings.pki.get_general_settings(),
@@ -318,6 +309,12 @@ impl StandaloneCaConfiguration {
             https_port,
             proxy,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
+            debug_level: service.debug_level.clone(),
+            hsm_path_override: service.hsm_path_override.clone(),
+            hsm_pin: Some(service.hsm_pin.clone()),
+            hsm_pin2: Some(service.hsm_pin2.clone()),
+            hsm_slot: service.hsm_slot.clone(),
+            tpm2_required: Some(service.tpm2_required),
         }
     }
 }
@@ -657,6 +654,12 @@ impl LocalCaConfiguration {
             https_port: None,
             proxy: None,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
+            debug_level: None,
+            hsm_path_override: None,
+            hsm_pin: None,
+            hsm_pin2: None,
+            hsm_slot: None,
+            tpm2_required: None,
         }
     }
 }
@@ -702,6 +705,19 @@ pub struct CaConfiguration {
     pub proxy: Option<String>,
     /// The pki name for the authority, used when operating a pki, must be blank or end with a /
     pub pki_name: Option<String>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: Option<bool>,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The pin for the hardware security module
+    pub hsm_pin: Option<String>,
+    /// The user pin for the hardware security module
+    pub hsm_pin2: Option<String>,
+    /// The slot override for the hsm
+    pub hsm_slot: Option<usize>,
 }
 
 impl CaConfiguration {
@@ -2240,6 +2256,83 @@ pub enum PkiConfigurationEnum {
 }
 
 impl PkiConfigurationEnum {
+    /// Initialize the hsm
+    pub async fn init_hsm(
+        &self,
+        config_path: &PathBuf,
+        name: &str,
+        settings: &MainConfiguration,
+    ) -> Arc<crate::hsm2::Hsm> {
+        use crate::hsm2;
+        let hsm: Arc<hsm2::Hsm>;
+        let n = config_path.join(format!("{}-initialized", name));
+        let (hsm_path_override, hsm_pin, hsm_pin2, hsm_slot) = match self {
+            PkiConfigurationEnum::Pki(c) => (
+                &c.service.hsm_path_override,
+                &c.service.hsm_pin,
+                &c.service.hsm_pin2,
+                &c.service.hsm_slot,
+            ),
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => {
+                (&None, &String::new(), &String::new(), &None)
+            }
+            PkiConfigurationEnum::Ca(c) => (
+                &c.service.hsm_path_override,
+                &c.service.hsm_pin,
+                &c.service.hsm_pin2,
+                &c.service.hsm_slot,
+            ),
+        };
+        if n.exists() && n.metadata().unwrap().len() > 2 {
+            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::create(
+                hsm_path_override.as_ref().map(|a| a.to_path_buf()),
+                Zeroizing::new(hsm_pin.clone()),
+                Zeroizing::new(hsm_pin2.clone()),
+            ) {
+                hsm_t
+            } else {
+                service::log::error!("Failed to open the hardware security module");
+                panic!("Failed to open the hardware security module");
+            };
+
+            hsm = Arc::new(hsm2);
+
+            hsm.list_certificates();
+
+            use tokio::io::AsyncWriteExt;
+            let _ca_instance = crate::ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
+                .await
+                .unwrap();
+            let mut f = tokio::fs::File::create(&n).await.unwrap();
+            f.write_all("".as_bytes())
+                .await
+                .expect("Failed to initialization file update");
+        } else {
+            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
+                hsm_slot.unwrap_or(0),
+                hsm_path_override.as_ref().map(|a| a.to_path_buf()),
+                Zeroizing::new(hsm_pin2.clone()),
+            ) {
+                hsm_t
+            } else {
+                service::log::error!("Failed to open the hardware security module");
+                panic!("Failed to open the hardware security module");
+            };
+
+            hsm = Arc::new(hsm2);
+        }
+        hsm
+    }
+
+    /// Set the log level
+    pub fn set_log_level(&self) {
+        match self {
+            PkiConfigurationEnum::AddedCa(ca) => {}
+            PkiConfigurationEnum::Pki(pki) => pki.service.set_log_level(),
+            PkiConfigurationEnum::Ca(config) => config.service.set_log_level(),
+        }
+    }
+
     /// Return the port number for the http server
     pub fn get_http_port(&self) -> Option<u16> {
         match self {
@@ -2470,6 +2563,19 @@ pub struct Pki {
     pub all_ca: HashMap<String, LocalOrRemoteCa>,
     /// The super-admin certificate
     pub super_admin: Option<CaCertificate>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The pin for the hardware security module
+    pub hsm_pin: String,
+    /// The user pin for the hardware security module
+    pub hsm_pin2: String,
+    /// The slot override for the hsm
+    pub hsm_slot: Option<usize>,
 }
 
 /// Potential errors when loading a pki object
@@ -2594,6 +2700,12 @@ impl Pki {
             }
         }
         Ok(Self {
+            debug_level: settings.service.debug_level.clone(),
+            hsm_path_override: settings.service.hsm_path_override.clone(),
+            hsm_pin: settings.service.hsm_pin.clone(),
+            hsm_pin2: settings.service.hsm_pin2.clone(),
+            hsm_slot: settings.service.hsm_slot,
+            tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
@@ -2704,6 +2816,12 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
+            debug_level: settings.service.debug_level.clone(),
+            hsm_path_override: settings.service.hsm_path_override.clone(),
+            hsm_pin: settings.service.hsm_pin.clone(),
+            hsm_pin2: settings.service.hsm_pin2.clone(),
+            hsm_slot: settings.service.hsm_slot,
+            tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
@@ -3080,6 +3198,19 @@ pub struct Ca {
     pub config: CaConfiguration,
     /// The optional shutdown message sender
     pub shutdown: Option<tokio::sync::mpsc::UnboundedSender<()>>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+    /// Is there a path override for the location of the hsm library?
+    pub hsm_path_override: Option<userprompt::FileOpen>,
+    /// The pin for the hardware security module
+    pub hsm_pin: String,
+    /// The user pin for the hardware security module
+    pub hsm_pin2: String,
+    /// The slot override for the hsm
+    pub hsm_slot: Option<usize>,
 }
 
 /// The data submitted by the user or admin for revoking a certificate
@@ -3342,6 +3473,12 @@ impl Ca {
             super_admin: None,
             admin_authorities: Vec::new(),
             shutdown: None,
+            debug_level: settings.debug_level.clone(),
+            hsm_path_override: settings.hsm_path_override.clone(),
+            hsm_pin: settings.hsm_pin.clone().unwrap(),
+            hsm_pin2: settings.hsm_pin2.clone().unwrap(),
+            hsm_slot: settings.hsm_slot.clone(),
+            tpm2_required: settings.tpm2_required.unwrap(),
         })
     }
 
@@ -4557,6 +4694,12 @@ impl Ca {
             super_admin: None,
             admin_authorities: Vec::new(),
             shutdown: None,
+            debug_level: settings.debug_level.clone(),
+            hsm_path_override: settings.hsm_path_override.clone(),
+            hsm_pin: settings.hsm_pin.clone().unwrap(),
+            hsm_pin2: settings.hsm_pin2.clone().unwrap(),
+            hsm_slot: settings.hsm_slot.clone(),
+            tpm2_required: settings.tpm2_required.unwrap(),
         })
     }
 

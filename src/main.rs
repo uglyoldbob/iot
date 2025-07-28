@@ -324,57 +324,9 @@ async fn smain() {
     )
     .await;
 
-    service::log::set_max_level(
-        settings
-            .debug_level
-            .as_ref()
-            .unwrap_or(&service::LogLevel::Trace)
-            .level_filter(),
-    );
+    settings.pki.set_log_level();
 
-    let hsm: Arc<hsm2::Hsm>;
-
-    {
-        let n = config_path.join(format!("{}-initialized", name));
-        if n.exists() && n.metadata().unwrap().len() > 2 {
-            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::create(
-                settings.hsm_path_override.as_ref().map(|a| a.to_path_buf()),
-                Zeroizing::new(settings.hsm_pin.clone()),
-                Zeroizing::new(settings.hsm_pin2.clone()),
-            ) {
-                hsm_t
-            } else {
-                service::log::error!("Failed to open the hardware security module");
-                panic!("Failed to open the hardware security module");
-            };
-
-            hsm = Arc::new(hsm2);
-
-            hsm.list_certificates();
-
-            use tokio::io::AsyncWriteExt;
-            let _ca_instance = ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
-                .await
-                .unwrap();
-            let mut f = tokio::fs::File::create(&n).await.unwrap();
-            f.write_all("".as_bytes())
-                .await
-                .expect("Failed to initialization file update");
-        } else {
-            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
-                settings.hsm_slot.unwrap_or(0),
-                settings.hsm_path_override.as_ref().map(|a| a.to_path_buf()),
-                Zeroizing::new(settings.hsm_pin2.clone()),
-            ) {
-                hsm_t
-            } else {
-                service::log::error!("Failed to open the hardware security module");
-                panic!("Failed to open the hardware security module");
-            };
-
-            hsm = Arc::new(hsm2);
-        }
-    }
+    let hsm: Arc<hsm2::Hsm> = settings.pki.init_hsm(&config_path, &name, &settings).await;
 
     hsm.list_certificates();
 

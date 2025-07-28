@@ -459,7 +459,7 @@ library.reset_on_fork = false
                 econfig
             } else {
                 service::log::error!("TPM2 NOT DETECTED!!!");
-                if config.tpm2_required {
+                if config.tpm2_required() {
                     panic!(
                         "Cannot continue due to missing tpm2 support and I was told to require it"
                     );

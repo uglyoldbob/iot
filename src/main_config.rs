@@ -427,6 +427,18 @@ pub struct ServerConfiguration {
     pub hsm_slot: Option<usize>,
 }
 
+impl ServerConfiguration {
+    /// Set the log level
+    pub fn set_log_level(&self) {
+        service::log::set_max_level(
+            self.debug_level
+                .as_ref()
+                .unwrap_or(&service::LogLevel::Trace)
+                .level_filter(),
+        );
+    }
+}
+
 /// The server configuration of the application
 #[derive(
     Clone,
@@ -583,19 +595,21 @@ impl MainConfigurationAnswers {
 pub struct MainConfiguration {
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
-    /// The desired minimum debug level
-    pub debug_level: Option<service::LogLevel>,
-    /// Is tpm2 hardware required to setup the pki?
-    #[cfg(feature = "tpm2")]
-    pub tpm2_required: bool,
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    /// The pin for the hardware security module
-    pub hsm_pin: String,
-    /// The user pin for the hardware security module
-    pub hsm_pin2: String,
-    /// The slot override for the hsm
-    pub hsm_slot: Option<usize>,
+}
+
+impl MainConfiguration {
+    /// Is the tpm2 required?
+    pub fn tpm2_required(&self) -> bool {
+        match &self.pki {
+            crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
+                pki_configuration.service.tpm2_required
+            }
+            crate::ca::PkiConfigurationEnum::AddedCa(local_ca_configuration) => false,
+            crate::ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                standalone_ca_configuration.service.tpm2_required
+            }
+        }
+    }
 }
 
 /// Extended configuration added after the initial creation of the pki/ca
@@ -627,12 +641,6 @@ impl MainConfiguration {
     pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
         Self {
             pki: crate::ca::PkiConfigurationEnum::from_config(answers.pki.clone()),
-            debug_level: unimplemented!(),
-            tpm2_required: unimplemented!(),
-            hsm_path_override: unimplemented!(),
-            hsm_pin: unimplemented!(),
-            hsm_pin2: unimplemented!(),
-            hsm_slot: unimplemented!(),
         }
     }
 
