@@ -334,12 +334,6 @@ async fn smain() {
 
     let hsm: Arc<hsm2::Hsm>;
 
-    let mut proxy_map = std::collections::HashMap::new();
-
-    for name in &settings.public_names {
-        proxy_map.insert(name.domain.clone(), name.subdomain.clone());
-    }
-
     {
         let n = config_path.join(format!("{}-initialized", name));
         if n.exists() && n.metadata().unwrap().len() > 2 {
@@ -390,6 +384,8 @@ async fn smain() {
     let mut pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
 
     pki.check_for_existing_https_certificate();
+
+    let proxy_map = pki.build_proxy_map();
 
     ca::ca_register(&pki, &mut router);
     ca::ca_register_files(&pki, &mut static_map);
@@ -450,12 +446,9 @@ async fn smain() {
     let mut tasks: tokio::task::JoinSet<Result<(), webserver::ServiceError>> =
         tokio::task::JoinSet::new();
 
-    let client_certs = webserver::tls::load_user_cert_data(&settings);
-
     if !args.test {
         let mut pki = pki.lock().await;
-        pki.start_web_services(&mut tasks, hc.clone(), client_certs)
-            .await;
+        pki.start_web_services(&mut tasks, hc.clone()).await;
 
         tokio::select! {
             r = tasks.join_next() => {

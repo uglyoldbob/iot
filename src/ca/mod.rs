@@ -2636,7 +2636,6 @@ impl PkiInstance {
         &mut self,
         tasks: &mut tokio::task::JoinSet<Result<(), crate::webserver::ServiceError>>,
         hc: Arc<crate::webserver::HttpContext>,
-        client_certs: Option<tokio_rustls::rustls::RootCertStore>,
     ) {
         let (http, https) = match self {
             PkiInstance::Pki(pki) => (&pki.http, &pki.https),
@@ -2661,7 +2660,7 @@ impl PkiInstance {
                 https.port,
                 https_cert,
                 tasks,
-                client_certs,
+                None,
                 https.require_certificate,
             )
             .await

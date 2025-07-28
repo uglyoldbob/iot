@@ -17,6 +17,7 @@ use der::asn1::UtcTime;
 use der::Decode;
 use ocsp::response::RevokedInfo;
 use rcgen::RemoteKeyPair;
+use serde::Serialize;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
@@ -247,23 +248,26 @@ impl StandaloneCaConfiguration {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let san: Vec<String> = settings
+        let san: Vec<String> = self
+            .service
             .public_names
             .iter()
             .map(|n| n.domain.clone())
             .collect();
-        let http_port = settings
+        let http_port = self
+            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
-        let https_port = settings
+        let https_port = self
+            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
-        let proxy = if !settings.public_names.is_empty() {
-            Some(settings.public_names[0].subdomain.to_owned())
+        let proxy = if !self.service.public_names.is_empty() {
+            Some(self.service.public_names[0].subdomain.to_owned())
         } else {
             None
         };
@@ -279,6 +283,15 @@ impl StandaloneCaConfiguration {
             ),
         };
         CaConfiguration {
+            public_names: match &settings.pki {
+                PkiConfigurationEnum::Pki(pki_configuration) => {
+                    pki_configuration.service.public_names.clone()
+                }
+                PkiConfigurationEnum::AddedCa(local_ca_configuration) => Vec::new(),
+                PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                    standalone_ca_configuration.service.public_names.clone()
+                }
+            },
             database: match &settings.pki {
                 PkiConfigurationEnum::Pki(pki_configuration) => {
                     pki_configuration.service.database.clone()
@@ -422,17 +435,20 @@ impl StandaloneCaConfigurationAnswers {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let san: Vec<String> = settings
+        let san: Vec<String> = self
+            .service
             .public_names
             .iter()
             .map(|n| n.domain.clone())
             .collect();
-        let http_port = settings
+        let http_port = self
+            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
-        let https_port = settings
+        let https_port = self
+            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.https_port)
@@ -450,7 +466,7 @@ impl StandaloneCaConfigurationAnswers {
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
-            proxy: Some(settings.public_names[0].subdomain.to_owned()),
+            proxy: Some(self.service.public_names[0].subdomain.to_owned()),
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }
@@ -621,22 +637,8 @@ impl LocalCaConfiguration {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let san: Vec<String> = settings
-            .public_names
-            .iter()
-            .map(|n| n.domain.clone())
-            .collect();
-        let http_port = settings
-            .proxy_config
-            .as_ref()
-            .and_then(|a| a.http_port)
-            .or_else(|| settings.get_http_port());
-        let https_port = settings
-            .proxy_config
-            .as_ref()
-            .and_then(|a| a.https_port)
-            .or_else(|| settings.get_https_port());
         CaConfiguration {
+            public_names: Vec::new(),
             database: None,
             http: None,
             https: None,
@@ -644,16 +646,16 @@ impl LocalCaConfiguration {
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
-            san,
+            san: Vec::new(),
             common_name: self.common_name.clone(),
             days: self.days,
             chain_length: self.chain_length,
             admin_access_password: self.admin_access_password.clone(),
             admin_cert: self.admin_cert.clone(),
             ocsp_signature: self.ocsp_signature,
-            http_port,
-            https_port,
-            proxy: Some(settings.public_names[0].subdomain.to_owned()),
+            http_port: None,
+            https_port: None,
+            proxy: None,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
         }
     }
@@ -666,6 +668,8 @@ pub struct CaConfiguration {
     pub general: Option<crate::main_config::GeneralSettings>,
     /// Settings for the database
     pub database: Option<crate::main_config::DatabaseSettings>,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -2326,8 +2330,15 @@ impl PkiConfigurationEnum {
                 &standalone_ca_configuration.service.https
             }
         };
+        let public_names = match self {
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.public_names,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => &Vec::new(),
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                &standalone_ca_configuration.service.public_names
+            }
+        };
         if let Some(http_port) = proxy.http_port {
-            for complex_name in &config.public_names {
+            for complex_name in public_names {
                 contents.push_str("server {\n");
                 contents.push_str(&format!("\tlisten {};\n", http_port));
                 contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
@@ -2362,7 +2373,7 @@ impl PkiConfigurationEnum {
             }
         }
         if let Some(https_port) = proxy.https_port {
-            for complex_name in &config.public_names {
+            for complex_name in public_names {
                 contents.push_str("server {\n");
                 contents.push_str(&format!("\tlisten {} ssl;\n", https_port));
                 contents.push_str(&format!("\tserver_name {};\n", complex_name.domain));
@@ -2406,7 +2417,14 @@ impl PkiConfigurationEnum {
 
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
-        if let Some(proxy) = &config.proxy_config {
+        let proxy_config = match self {
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.proxy_config,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                &standalone_ca_configuration.service.proxy_config
+            }
+        };
+        if let Some(proxy) = &proxy_config {
             match self {
                 PkiConfigurationEnum::AddedCa(_) => None,
                 PkiConfigurationEnum::Pki(_) => {
@@ -2442,6 +2460,8 @@ pub struct Pki {
     pub general: crate::main_config::GeneralSettings,
     /// Settings for the database
     pub database: Option<crate::main_config::DatabaseSettings>,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -2574,6 +2594,7 @@ impl Pki {
             }
         }
         Ok(Self {
+            public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
@@ -2683,6 +2704,7 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
+            public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
@@ -2702,6 +2724,7 @@ impl Pki {
 }
 
 /// An instance of either a pki or ca.
+/// TODO: Change this to a struct containing common data to both elements and an enum containing what is different
 pub enum PkiInstance {
     /// A generic pki instance
     Pki(Pki),
@@ -2710,6 +2733,20 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Builds a proxy map
+    pub fn build_proxy_map(&self) -> HashMap<String, String> {
+        let mut proxy_map = std::collections::HashMap::new();
+
+        let public_names = match self {
+            PkiInstance::Pki(pki) => &pki.public_names,
+            PkiInstance::Ca(ca) => &ca.public_names,
+        };
+        for name in public_names {
+            proxy_map.insert(name.domain.clone(), name.subdomain.clone());
+        }
+        proxy_map
+    }
+
     /// Connects to the mysql server, if applicable
     pub fn connect_to_mysql(&self) -> Option<mysql::Pool> {
         let mut mysql_pool = None;
@@ -3017,6 +3054,8 @@ pub struct Ca {
     pub general: crate::main_config::GeneralSettings,
     /// Settings for the database
     pub database: Option<crate::main_config::DatabaseSettings>,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -3198,11 +3237,7 @@ impl Ca {
     ) -> Result<(), ()> {
         self.create_https_certificate(
             hsm.clone(),
-            main_config
-                .public_names
-                .iter()
-                .map(|a| a.to_string())
-                .collect(),
+            self.public_names.iter().map(|a| a.to_string()).collect(),
         )
         .await?;
         Ok(())
@@ -3288,6 +3323,7 @@ impl Ca {
             .await
             .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
+            public_names: settings.public_names.clone(),
             database: settings.database.clone(),
             http: settings.http.clone(),
             https: settings.https.clone(),
@@ -4502,6 +4538,7 @@ impl Ca {
             .map_err(|e| CaLoadError::StorageError(e))?;
         medium.validate().await;
         Ok(Self {
+            public_names: settings.public_names.clone(),
             database: settings.database.clone(),
             http: settings.http.clone(),
             https: settings.https.clone(),

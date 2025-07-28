@@ -581,12 +581,6 @@ impl MainConfigurationAnswers {
 /// The main configuration of the application
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MainConfiguration {
-    /// The public name of the service, contains example.com/asdf for the example
-    pub public_names: Vec<ComplexName>,
-    /// The optional proxy configuration
-    pub proxy_config: Option<ProxyConfig>,
-    /// Settings for client certificates
-    pub client_certs: Option<Vec<std::path::PathBuf>>,
     /// The settings for a pki
     pub pki: crate::ca::PkiConfigurationEnum,
     /// The desired minimum debug level
@@ -632,9 +626,6 @@ impl MainConfiguration {
     /// Fill out this configuration file with answers from the specified answer configuration
     pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
         Self {
-            public_names: unimplemented!(),
-            proxy_config: unimplemented!(),
-            client_certs: unimplemented!(),
             pki: crate::ca::PkiConfigurationEnum::from_config(answers.pki.clone()),
             debug_level: unimplemented!(),
             tpm2_required: unimplemented!(),

@@ -14,36 +14,6 @@ use crate::ca::HttpsCertificate;
 /// A generic error type
 type Error = Box<dyn std::error::Error + 'static>;
 
-/// Check the program config and create a client verifier struct as specified.
-/// # Arguments
-/// * settings - The program configuration object.
-pub fn load_user_cert_data(settings: &crate::MainConfiguration) -> Option<RootCertStore> {
-    if let Some(section) = &settings.client_certs {
-        service::log::info!("Loading client certificate data");
-        let mut rcs = RootCertStore::empty();
-
-        for s in section {
-            service::log::info!("\tClient cert {}", s.display());
-            let mut certbytes = vec![];
-            let mut certf = File::open(s).unwrap_or_else(|e| {
-                panic!("Failed to open client certificate {}: {}", s.display(), e)
-            });
-            certf.read_to_end(&mut certbytes).unwrap_or_else(|e| {
-                panic!("Failed to read client certificate {}: {}", s.display(), e)
-            });
-            let cder = CertificateDer::from(certbytes);
-            rcs.add(cder).unwrap_or_else(|e| {
-                panic!("Failed to add client certificate {}: {}", s.display(), e)
-            });
-        }
-
-        Some(rcs)
-    } else {
-        service::log::info!("Not loading any custom client certificate information");
-        None
-    }
-}
-
 /// Loads an https certificate from a pkcs12 container, into a format usable by rustls.
 /// # Arguments
 /// * certfile - The Path for the pkcs12 container
