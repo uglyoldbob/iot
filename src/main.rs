@@ -398,28 +398,6 @@ async fn smain() {
         ca::ca_register_test(&pki, &mut router);
     }
 
-    let mut mysql_pool = None;
-
-    if let Some(settings) = &settings.database {
-        let mysql_pw = &settings.password;
-        let mysql_user = &settings.username;
-        let mysql_dbname = &settings.name;
-        let mysql_url = &settings.url;
-        let mysql_conn_s = format!(
-            "mysql://{}:{}@{}/{}",
-            mysql_user, mysql_pw, mysql_url, mysql_dbname,
-        );
-        let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
-        let mysql_temp = mysql::Pool::new(mysql_opt);
-        match mysql_temp {
-            Ok(ref _bla) => service::log::info!("I have a bla"),
-            Err(ref e) => service::log::error!("Error connecting to mysql: {}", e),
-        }
-        mysql_pool = mysql_temp.ok();
-    }
-
-    let _mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
-
     let mut extra_configs = Vec::new();
     {
         let mut i = 0;
@@ -442,6 +420,8 @@ async fn smain() {
     }
     pki.register_extra_configs(extra_configs, hsm, &settings)
         .await;
+
+    let mysql_pool = pki.connect_to_mysql();
 
     let root = pki.get_static_root();
     let pki = Arc::new(futures::lock::Mutex::new(pki));

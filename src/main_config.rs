@@ -581,8 +581,6 @@ impl MainConfigurationAnswers {
 /// The main configuration of the application
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct MainConfiguration {
-    /// Settings for the database
-    pub database: Option<DatabaseSettings>,
     /// The public name of the service, contains example.com/asdf for the example
     pub public_names: Vec<ComplexName>,
     /// The optional proxy configuration
@@ -634,7 +632,6 @@ impl MainConfiguration {
     /// Fill out this configuration file with answers from the specified answer configuration
     pub fn provide_answers(answers: &MainConfigurationAnswers) -> Self {
         Self {
-            database: unimplemented!(),
             public_names: unimplemented!(),
             proxy_config: unimplemented!(),
             client_certs: unimplemented!(),

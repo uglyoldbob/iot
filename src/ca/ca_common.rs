@@ -279,6 +279,15 @@ impl StandaloneCaConfiguration {
             ),
         };
         CaConfiguration {
+            database: match &settings.pki {
+                PkiConfigurationEnum::Pki(pki_configuration) => {
+                    pki_configuration.service.database.clone()
+                }
+                PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
+                PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                    standalone_ca_configuration.service.database.clone()
+                }
+            },
             http,
             https,
             general: settings.pki.get_general_settings(),
@@ -628,6 +637,7 @@ impl LocalCaConfiguration {
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfiguration {
+            database: None,
             http: None,
             https: None,
             general: None,
@@ -654,6 +664,8 @@ impl LocalCaConfiguration {
 pub struct CaConfiguration {
     /// General settings
     pub general: Option<crate::main_config::GeneralSettings>,
+    /// Settings for the database
+    pub database: Option<crate::main_config::DatabaseSettings>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -2428,6 +2440,8 @@ impl PkiConfigurationEnum {
 pub struct Pki {
     /// General settings
     pub general: crate::main_config::GeneralSettings,
+    /// Settings for the database
+    pub database: Option<crate::main_config::DatabaseSettings>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -2560,6 +2574,7 @@ impl Pki {
             }
         }
         Ok(Self {
+            database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
             general: settings.service.general.clone(),
@@ -2668,6 +2683,7 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
+            database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
             general: settings.service.general.clone(),
@@ -2694,6 +2710,36 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Connects to the mysql server, if applicable
+    pub fn connect_to_mysql(&self) -> Option<mysql::Pool> {
+        let mut mysql_pool = None;
+
+        let database = match self {
+            PkiInstance::Pki(pki) => &pki.database,
+            PkiInstance::Ca(ca) => &ca.database,
+        };
+
+        if let Some(settings) = database {
+            let mysql_pw = &settings.password;
+            let mysql_user = &settings.username;
+            let mysql_dbname = &settings.name;
+            let mysql_url = &settings.url;
+            let mysql_conn_s = format!(
+                "mysql://{}:{}@{}/{}",
+                mysql_user, mysql_pw, mysql_url, mysql_dbname,
+            );
+            let mysql_opt = mysql::Opts::from_url(mysql_conn_s.as_str()).unwrap();
+            let mysql_temp = mysql::Pool::new(mysql_opt);
+            match mysql_temp {
+                Ok(ref _bla) => service::log::info!("I have a bla"),
+                Err(ref e) => service::log::error!("Error connecting to mysql: {}", e),
+            }
+            mysql_pool = mysql_temp.ok();
+            let _mysql_conn_s = mysql_pool.as_mut().map(|s| s.get_conn().unwrap());
+        }
+        mysql_pool
+    }
+
     /// Checks an verifies that if an https server is required, that the certificate is also present
     pub fn check_for_existing_https_certificate(&self) {
         let https = match self {
@@ -2969,6 +3015,8 @@ impl LocalOrRemoteCa {
 pub struct Ca {
     /// General settings
     pub general: crate::main_config::GeneralSettings,
+    /// Settings for the database
+    pub database: Option<crate::main_config::DatabaseSettings>,
     /// Settings for the http server
     pub http: Option<crate::main_config::HttpSettings>,
     /// Settings for the https server
@@ -3240,6 +3288,7 @@ impl Ca {
             .await
             .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
+            database: settings.database.clone(),
             http: settings.http.clone(),
             https: settings.https.clone(),
             general: settings
@@ -4453,6 +4502,7 @@ impl Ca {
             .map_err(|e| CaLoadError::StorageError(e))?;
         medium.validate().await;
         Ok(Self {
+            database: settings.database.clone(),
             http: settings.http.clone(),
             https: settings.https.clone(),
             general: settings
