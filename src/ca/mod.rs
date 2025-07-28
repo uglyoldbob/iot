@@ -1,5 +1,7 @@
 //! Handles certificate authority functionality
 
+use std::sync::Arc;
+
 use hyper::header::HeaderValue;
 
 use crate::webserver::{WebPageContext, WebResponse, WebRouter};
@@ -2624,6 +2626,48 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
         }
         PkiInstance::Ca(ca) => {
             register(router, "", ca);
+        }
+    }
+}
+
+impl PkiInstance {
+    /// Start any appliable web services
+    pub async fn start_web_services(
+        &mut self,
+        tasks: &mut tokio::task::JoinSet<Result<(), crate::webserver::ServiceError>>,
+        hc: Arc<crate::webserver::HttpContext>,
+        client_certs: Option<tokio_rustls::rustls::RootCertStore>,
+    ) {
+        let (http, https) = match self {
+            PkiInstance::Pki(pki) => (&pki.http, &pki.https),
+            PkiInstance::Ca(ca) => (&ca.http, &ca.https),
+        };
+        if let Some(http) = &http {
+            service::log::info!("Listening http on port {}", http.port);
+
+            if let Err(e) = crate::webserver::http_webserver(hc.clone(), http.port, tasks).await {
+                service::log::error!("https web server errored {}", e);
+            }
+        }
+
+        if let Some(https) = &https {
+            service::log::info!("Listening https on port {}", https.port);
+
+            let tls_cert = https.certificate.to_owned();
+            let https_cert = tls_cert.get_usable();
+
+            if let Err(e) = crate::webserver::https_webserver(
+                hc.clone(),
+                https.port,
+                https_cert,
+                tasks,
+                client_certs,
+                https.require_certificate,
+            )
+            .await
+            {
+                service::log::error!("https web server errored {}", e);
+            }
         }
     }
 }

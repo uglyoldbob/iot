@@ -384,17 +384,12 @@ async fn smain() {
 
     hsm.list_certificates();
 
-    if let Some(https) = &settings.https {
-        if !https.certificate.exists() {
-            service::log::error!("Failed to open https certificate");
-            panic!("No https certificate to run with");
-        }
-    }
-
     let (shutdown_send, mut shutdown_recv) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     let settings = Arc::new(settings);
     let mut pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
+
+    pki.check_for_existing_https_certificate();
 
     ca::ca_register(&pki, &mut router);
     ca::ca_register_files(&pki, &mut static_map);
@@ -459,7 +454,7 @@ async fn smain() {
         cookiename: "rustcookie".to_string(),
         pool: mysql_pool,
         settings: settings.clone(),
-        pki,
+        pki: pki.clone(),
     };
 
     if !hc.proxy.is_empty() {
@@ -478,33 +473,9 @@ async fn smain() {
     let client_certs = webserver::tls::load_user_cert_data(&settings);
 
     if !args.test {
-        if let Some(http) = &settings.http {
-            service::log::info!("Listening http on port {}", http.port);
-
-            if let Err(e) = http_webserver(hc.clone(), http.port, &mut tasks).await {
-                service::log::error!("https web server errored {}", e);
-            }
-        }
-
-        if let Some(https) = &settings.https {
-            service::log::info!("Listening https on port {}", https.port);
-
-            let tls_cert = https.certificate.to_owned();
-            let https_cert = tls_cert.get_usable();
-
-            if let Err(e) = https_webserver(
-                hc.clone(),
-                https.port,
-                https_cert,
-                &mut tasks,
-                client_certs,
-                https.require_certificate,
-            )
-            .await
-            {
-                service::log::error!("https web server errored {}", e);
-            }
-        }
+        let mut pki = pki.lock().await;
+        pki.start_web_services(&mut tasks, hc.clone(), client_certs)
+            .await;
 
         tokio::select! {
             r = tasks.join_next() => {

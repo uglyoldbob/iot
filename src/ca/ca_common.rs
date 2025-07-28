@@ -267,7 +267,20 @@ impl StandaloneCaConfiguration {
         } else {
             None
         };
+        let (http, https) = match &settings.pki {
+            PkiConfigurationEnum::Pki(pki_configuration) => (
+                pki_configuration.service.http.clone(),
+                pki_configuration.service.https.clone(),
+            ),
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => (None, None),
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => (
+                standalone_ca_configuration.service.http.clone(),
+                standalone_ca_configuration.service.https.clone(),
+            ),
+        };
         CaConfiguration {
+            http,
+            https,
             general: settings.pki.get_general_settings(),
             sign_method: self.sign_method,
             path: self.path.clone(),
@@ -615,6 +628,8 @@ impl LocalCaConfiguration {
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfiguration {
+            http: None,
+            https: None,
             general: None,
             sign_method: self.sign_method,
             path: self.path.clone(),
@@ -639,6 +654,10 @@ impl LocalCaConfiguration {
 pub struct CaConfiguration {
     /// General settings
     pub general: Option<crate::main_config::GeneralSettings>,
+    /// Settings for the http server
+    pub http: Option<crate::main_config::HttpSettings>,
+    /// Settings for the https server
+    pub https: Option<crate::main_config::HttpsSettings>,
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
@@ -2273,28 +2292,27 @@ impl PkiConfigurationEnum {
     }
 
     /// Build an nginx reverse proxy config
-    fn nginx_reverse(
-        &self,
-        proxy: &ProxyConfig,
-        config: &MainConfiguration,
-        pki: &PkiConfigurationEnum,
-    ) -> String {
+    fn nginx_reverse(&self, proxy: &ProxyConfig, config: &MainConfiguration) -> String {
         let mut contents = String::new();
         contents.push_str("#nginx reverse proxy settings\n");
-        let location_name = if let PkiConfigurationEnum::Ca(ca) = &pki {
+        let location_name = if let PkiConfigurationEnum::Ca(ca) = self {
             format!("pki/{}", ca.name)
         } else {
             "".to_string()
         };
-        let http = match &pki {
-            PkiConfigurationEnum::Pki(pki_configuration) => pki_configuration.service.http,
-            PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
-            PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration.service.http,
+        let http = match self {
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.http,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                &standalone_ca_configuration.service.http
+            }
         };
-        let https = match &pki {
-            PkiConfigurationEnum::Pki(pki_configuration) => pki_configuration.service.https,
-            PkiConfigurationEnum::AddedCa(local_ca_configuration) => None,
-            PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration.service.https,
+        let https = match self {
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.https,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                &standalone_ca_configuration.service.https
+            }
         };
         if let Some(http_port) = proxy.http_port {
             for complex_name in &config.public_names {
@@ -2381,12 +2399,12 @@ impl PkiConfigurationEnum {
                 PkiConfigurationEnum::AddedCa(_) => None,
                 PkiConfigurationEnum::Pki(_) => {
                     let mut contents = String::new();
-                    contents.push_str(&self.nginx_reverse(proxy, config, None));
+                    contents.push_str(&self.nginx_reverse(proxy, config));
                     Some(contents)
                 }
                 PkiConfigurationEnum::Ca(ca) => {
                     let mut contents = String::new();
-                    contents.push_str(&self.nginx_reverse(proxy, config, Some(&ca)));
+                    contents.push_str(&self.nginx_reverse(proxy, config));
                     Some(contents)
                 }
             }
@@ -2542,6 +2560,8 @@ impl Pki {
             }
         }
         Ok(Self {
+            http: settings.service.http.clone(),
+            https: settings.service.https.clone(),
             general: settings.service.general.clone(),
             all_ca: hm,
             super_admin: None,
@@ -2648,6 +2668,8 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
+            http: settings.service.http.clone(),
+            https: settings.service.https.clone(),
             general: settings.service.general.clone(),
             all_ca: hm,
             super_admin,
@@ -2672,6 +2694,20 @@ pub enum PkiInstance {
 }
 
 impl PkiInstance {
+    /// Checks an verifies that if an https server is required, that the certificate is also present
+    pub fn check_for_existing_https_certificate(&self) {
+        let https = match self {
+            PkiInstance::Pki(pki) => &pki.https,
+            PkiInstance::Ca(ca) => &ca.https,
+        };
+        if let Some(https) = https {
+            if !https.certificate.exists() {
+                service::log::error!("Failed to open https certificate");
+                panic!("No https certificate to run with");
+            }
+        }
+    }
+
     /// Get the static root for the webserver
     pub fn get_static_root(&self) -> String {
         match self {
@@ -3204,6 +3240,8 @@ impl Ca {
             .await
             .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
+            http: settings.http.clone(),
+            https: settings.https.clone(),
             general: settings
                 .general
                 .clone()
@@ -4415,6 +4453,8 @@ impl Ca {
             .map_err(|e| CaLoadError::StorageError(e))?;
         medium.validate().await;
         Ok(Self {
+            http: settings.http.clone(),
+            https: settings.https.clone(),
             general: settings
                 .general
                 .clone()
