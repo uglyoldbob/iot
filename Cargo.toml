@@ -17,6 +17,7 @@ assets = [["content/css/*", "etc/rust-iot/content/css/", "600" ],
 async-sqlite = "0.5.2"
 base64 = "0.22.1"
 bincode = "1.3.3"
+cgi = "0.8.0"
 chrono = "0.4.41"
 cms = "0.2.3"
 const-oid = "0.9.6"
@@ -33,7 +34,7 @@ pem = "3.0.4"
 pin-project-lite = "0.2.13"
 pkcs5 = "0.7.1"
 rand = "0.8.5"
-reqwest = { version = "0.12.22", features = ["rustls-tls", "blocking"] }
+reqwest = { version = "0.12.22", default-features = false, features = ["rustls-tls", "blocking"] }
 ring = "0.17.8"
 rpassword = "7.3.1"
 rsa = "0.9.6"
@@ -161,11 +162,7 @@ windows-acl = "0.3.0"
 assert_cmd = "2.0"
 async-trait = "0.1"
 hex = "0.4"
-openssl = "0.10"
 predicates = "3.1"
-reqwest = { version = "0.12", features = ["json", "native-tls"] }
-russh = { version = "0.40", features = ["openssl"] }
-russh-keys = "0.40"
 serial_test = "3.0"
 
 [features]
@@ -177,6 +174,10 @@ tpm2 = [ "dep:tss-esapi" ]
 [[bin]]
 name = "rust-iot"
 path = "src/main.rs"
+
+[[bin]]
+name = "rust-iot-cgi"
+path = "src/cgi.rs"
 
 [[bin]]
 name = "rust-iot-construct"
