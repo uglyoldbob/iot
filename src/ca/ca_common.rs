@@ -3672,7 +3672,7 @@ impl Ca {
                     }
                     CertificateType::SmartCard(p) => {
                         let label = format!("{}-admin", ca.config.common_name);
-                        let keypair = card::KeyPair::generate_with_smartcard(
+                        let keypair = card::KeyPair::generate_with_smartcard_async(
                             p.as_bytes().to_vec(),
                             &label,
                             true,

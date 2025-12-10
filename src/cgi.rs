@@ -4,7 +4,9 @@
 fn main() {
     cgi::handle(|request: cgi::Request| -> cgi::Response {
         let mut html = html::root::Html::builder();
+        let test = request.headers().get("x-cgi-query-string");
         html.head(|h| h.title(|t| t.text("TEST TITLE"))).body(|b| {
+            b.text(format!("{:#?}", test));
             b.anchor(|ab| {
                 ab.text("List pending requests");
                 ab.href("list.rs");

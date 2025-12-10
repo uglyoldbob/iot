@@ -6,7 +6,9 @@ fn main() {
     let out_path =
         std::path::PathBuf::from(std::env::var("OUT_DIR").expect("No output directory given"));
 
-    std::env::set_var("CARGO_TARGET_DIR", out_path.clone());
+    unsafe {
+        std::env::set_var("CARGO_TARGET_DIR", out_path.clone());
+    }
     #[cfg(not(coverage))]
     {
         // Build WASM

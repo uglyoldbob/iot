@@ -57,6 +57,7 @@ whoami = "1.5.1"
 x509-cert = "0.2.5"
 yasna = "0.5.2"
 zeroize = "1.7.0"
+futures-util = "0.3.31"
 
 [dependencies.card]
 git = "https://github.com/uglyoldbob/smartcard.git"
@@ -88,10 +89,9 @@ features = ["http1", "http2", "server"]
 version = "2.0.1"
 features = ["tokio"]
 
-[dependencies.multipart]
-version = "0.18.0"
-default-features = false
-features = ["server"]
+[dependencies.multer]
+version = "3.1.0"
+features = ["tokio"]
 
 [dependencies.mysql]
 version = "25.0.0"
@@ -145,7 +145,7 @@ version = "1.36.0"
 features = ["full"]
 
 [dependencies.userprompt]
-version = "0.3.4"
+version = "0.3.5"
 features = ["serde", "egui"]
 
 [target.'cfg(unix)'.dependencies]

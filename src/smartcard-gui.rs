@@ -74,7 +74,7 @@ async fn handle_card_stuff(
                 break;
             }
             smartcard_root::Message::ErasePivCard => {
-                let erased = ::card::with_current_valid_piv_card(|card| {
+                let erased = ::card::with_current_valid_piv_card_async(|card| {
                     let mut cw = card.to_writer();
                     cw.erase_card().is_ok()
                 })
@@ -84,7 +84,7 @@ async fn handle_card_stuff(
                     .unwrap();
             }
             smartcard_root::Message::GenerateKeypair => {
-                let keypair = card::KeyPair::generate_with_smartcard(
+                let keypair = card::KeyPair::generate_with_smartcard_async(
                     ::card::PIV_PIN_KEY_DEFAULT.to_vec(),
                     "TEST KEYPAIR",
                     false,
@@ -97,7 +97,7 @@ async fn handle_card_stuff(
                     .await;
             }
             smartcard_root::Message::WriteCertificate(s) => {
-                let cert_saved = ::card::with_current_valid_piv_card(|card| {
+                let cert_saved = ::card::with_current_valid_piv_card_async(|card| {
                     let mut cw = card.to_writer();
                     let thing = pem::parse(s).unwrap();
                     let thing2 = thing.into_contents();

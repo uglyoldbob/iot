@@ -217,8 +217,20 @@ impl PostContent {
 
     /// Convert the post content to a multipart request if possible.
     #[allow(dead_code)]
-    pub fn multipart(&self) -> Option<multipart::server::Multipart<Self>> {
-        multipart::server::Multipart::from_request(self.to_owned()).ok()
+    pub fn multipart(&self) -> Option<multer::Multipart<'_>> {
+        if let Some(body) = &self.body {
+            if let Some(boundary) = self.headers.get("Content-Type") {
+                let data = futures_util::stream::once(async move {
+                    Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
+                });
+                let bs = boundary.to_str().unwrap();
+                Some(multer::Multipart::new(data, bs))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -232,19 +244,6 @@ impl std::io::Read for PostContent {
         };
         buf.copy_from_slice(b);
         Ok(b.len())
-    }
-}
-
-impl multipart::server::HttpRequest for PostContent {
-    type Body = Self;
-
-    fn body(self) -> Self::Body {
-        self
-    }
-
-    fn multipart_boundary(&self) -> Option<&str> {
-        let _h = self.headers.get("Content-Type")?;
-        todo!()
     }
 }
 
