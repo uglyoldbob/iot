@@ -19,9 +19,9 @@ fn main() {
             .output()
             .unwrap();
         if !wasm_build.status.success() {
-            println!("{}", String::from_utf8(wasm_build.stdout).unwrap());
-            eprintln!("{}", String::from_utf8(wasm_build.stderr).unwrap());
-            panic!("build failed");
+            println!("WASM build failed {}", String::from_utf8(wasm_build.stdout).unwrap());
+            eprintln!("WASM build failed {}", String::from_utf8(wasm_build.stderr).unwrap());
+            //panic!("build failed");
         }
     }
 

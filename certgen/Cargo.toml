@@ -18,7 +18,7 @@ js-sys = "0.3.68"
 log = "0.4.21"
 pkcs8 = { version = "0.10.2", features = ["encryption", "pkcs5"] }
 rand = "0.8.5"
-ring = { version = "0.17.8", features = ["wasm32_unknown_unknown_js"]}
+ring = { version = "0.17.14", features = ["wasm32_unknown_unknown_js"]}
 pem = "3.0.4"
 wasm-bindgen = "0.2.92"
 wasm-bindgen-futures = "0.4.42"
