@@ -111,6 +111,11 @@ pub enum UserCert {
 pub struct UserCerts(Vec<UserCert>);
 
 impl UserCerts {
+    /// Build a new blank list
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
     /// Return a list of all certs, regardless of how the made it here
     pub fn all_certs(&self) -> Vec<&x509_cert::Certificate> {
         self.0
@@ -126,7 +131,7 @@ impl UserCerts {
 /// Represents the context necessary to render a webpage
 pub struct WebPageContext {
     /// Was https used to access the page?
-    https: bool,
+    pub https: bool,
     /// The domain that was used to access the request
     pub domain: String,
     /// The actual page requested
@@ -189,7 +194,7 @@ pub struct PostContent {
 
 impl PostContent {
     /// Construct a Self with the given body and headers.
-    fn new(body: Option<hyper::body::Bytes>, headers: hyper::header::HeaderMap) -> Self {
+    pub fn new(body: Option<hyper::body::Bytes>, headers: hyper::header::HeaderMap) -> Self {
         Self { body, headers }
     }
 
@@ -220,11 +225,16 @@ impl PostContent {
     pub fn multipart(&self) -> Option<multer::Multipart<'_>> {
         if let Some(body) = &self.body {
             if let Some(boundary) = self.headers.get("Content-Type") {
-                let data = futures_util::stream::once(async move {
-                    Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
-                });
-                let bs = boundary.to_str().unwrap();
-                Some(multer::Multipart::new(data, bs))
+                let boundary = multer::parse_boundary(boundary.to_str().unwrap());
+                if let Ok(boundary) = boundary {
+                    let data = futures_util::stream::once(async move {
+                        Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
+                    });
+                    Some(multer::Multipart::new(data, boundary))
+                }
+                else {
+                    None
+                }
             } else {
                 None
             }
