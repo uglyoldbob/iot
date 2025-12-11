@@ -17,33 +17,6 @@ use std::sync::Arc;
 
 use crate::webserver::PostContent;
 
-/// The main configuration of the cgi page
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct CgiConfiguration {
-    /// Is https required?
-    https: bool,
-    /// The domain
-    domain: String,
-}
-
-impl CgiConfiguration {
-    fn make_web_page_context(&self, request: &cgi::Request) -> crate::webserver::WebPageContext {
-        crate::webserver::WebPageContext {
-            https: self.https,
-            domain: self.domain.clone(),
-            page: request.uri().path().to_string().into(),
-            proxy: String::new(),
-            post: PostContent::new(None, hyper::header::HeaderMap::new()),
-            get: HashMap::new(),
-            logincookie: None,
-            pool: None,
-            user_certs: crate::webserver::UserCerts::new(),
-            pki_type: crate::ca::SimplifiedPkiConfigurationEnum::Ca,
-            pki: Arc::new(futures::lock::Mutex::new(todo!())),
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
@@ -52,19 +25,16 @@ async fn main() {
             return cgi::html_response(500, "Invalid configuration 1");
         }
         let mut config = config.unwrap();
-        let mut contents = String::new();
-        if config.read_to_string(&mut contents).is_err() {
+        let mut contents = Vec::new();
+        if config.read_to_end(&mut contents).is_err() {
             return cgi::html_response(500, "Invalid configuration 2");
         }
-        let config = match toml::from_str(&contents) {
-            Err(e) => {
-                return cgi::html_response(500, "Invalid configuration 3");
-            }
-            Ok(config) => {
-                let config: CgiConfiguration = config;
-                config
-            }
-        };
+        let mut password_combined: Option<Vec<u8>> = None;
+        let settings = MainConfiguration::load("./config.ini".into(), "default", contents, &mut password_combined).await;
+        let hsm: Arc<hsm2::SecurityModule> = settings.pki.init_hsm(&"./config.ini".into(), "default", &settings).await;
+        let mut pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
+        let pki = Arc::new(futures_util::lock::Mutex::new(pki));
+
         let get_map = {
             let mut get_map = HashMap::new();
             let get_data = request.headers().get("x-cgi-query-string");
@@ -80,6 +50,29 @@ async fn main() {
             }
             get_map
         };
+
+        let post_data = request.body().clone();
+        let post_data = hyper::body::Bytes::from(post_data);
+        let mut headers = hyper::HeaderMap::new();
+        for a in request.headers().iter() {
+            headers.insert(a.0, a.1.clone());
+        }
+        let post_data = PostContent::new(Some(post_data), headers);
+
+        let p = crate::webserver::WebPageContext {
+            https: true,
+            domain: request.headers().get("host").unwrap().to_str().unwrap().to_string(),
+            page: request.uri().to_string().into(),
+            post: post_data,
+            get: get_map,
+            proxy: String::new(),
+            logincookie: None,
+            pool: None,
+            user_certs: webserver::UserCerts::new(),
+            pki_type: settings.pki.clone().into(),
+            pki: pki.clone(),
+        };
+
         let mut html = html::root::Html::builder();
         html.head(|h| h.title(|t| t.text("TEST TITLE"))).body(|b| {
             b.text(format!("{:#?}", config));
