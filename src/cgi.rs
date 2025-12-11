@@ -29,7 +29,7 @@ impl CgiConfiguration {
     fn make_web_page_context(&self, request: &cgi::Request) -> crate::webserver::WebPageContext {
         crate::webserver::WebPageContext {
             https: self.https,
-            domain: self.domain,
+            domain: self.domain.clone(),
             page: request.uri().path().to_string().into(),
             proxy: String::new(),
             post: PostContent::new(None,
