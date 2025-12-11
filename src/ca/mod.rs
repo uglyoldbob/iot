@@ -607,7 +607,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 }
 
 ///The main landing page for the certificate authority
-async fn ca_main_page(s: WebPageContext) -> WebResponse {
+pub async fn ca_main_page(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {

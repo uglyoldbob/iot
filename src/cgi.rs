@@ -8,8 +8,8 @@ mod utility;
 mod webserver;
 
 mod main_config;
+use http_body_util::BodyExt;
 pub use main_config::MainConfiguration;
-use nix::unistd::User;
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -32,7 +32,7 @@ async fn main() {
         let mut password_combined: Option<Vec<u8>> = None;
         let settings = MainConfiguration::load("./config.ini".into(), "default", contents, &mut password_combined).await;
         let hsm: Arc<hsm2::SecurityModule> = settings.pki.init_hsm(&"./config.ini".into(), "default", &settings).await;
-        let mut pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
+        let pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
         let pki = Arc::new(futures_util::lock::Mutex::new(pki));
 
         let get_map = {
@@ -73,23 +73,11 @@ async fn main() {
             pki: pki.clone(),
         };
 
-        let mut html = html::root::Html::builder();
-        html.head(|h| h.title(|t| t.text("TEST TITLE"))).body(|b| {
-            b.text(format!("{:#?}", config));
-            b.text(format!("{:#?}", request));
-            b.anchor(|ab| {
-                ab.text("List pending requests");
-                ab.href("list.rs");
-                ab
-            });
-            b.line_break(|lb| lb);
-            b
-        });
-        let html = html.build();
-
-        let response = hyper::Response::new("dummy");
-        let (response, _dummybody) = response.into_parts();
-        cgi::html_response(200, html.to_string())
+        let resp = ca::ca_main_page(p).await;
+        let b = resp.response.into_body().collect().await.unwrap().to_bytes();
+        let b = b.as_ref();
+        let response : String = String::from_utf8(b.to_vec()).unwrap();
+        cgi::html_response(200, response)
     })
     .await
 }
