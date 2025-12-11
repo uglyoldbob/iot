@@ -2,6 +2,7 @@
 #![recursion_limit = "512"]
 
 mod ca;
+mod tpm2;
 mod hsm2;
 mod utility;
 mod webserver;

@@ -1,9 +1,14 @@
 //! Contains code related to the main configuration of the application
 
+use crate::tpm2;
 use der::Decode;
 use egui_multiwin::egui;
 
 use crate::ca::{ComplexName, HttpsCertificate, ProxyConfig};
+
+use std::io::Write;
+use tokio::io::AsyncReadExt;
+use userprompt::Prompting;
 
 #[cfg(target_os = "linux")]
 /// Returns the default config file.
@@ -614,6 +619,94 @@ pub struct MainConfiguration {
     pub pki: crate::ca::PkiConfigurationEnum,
 }
 
+/// Perform the decryption without the tpm2 hardware
+pub async fn do_without_tpm2<T: serde::de::DeserializeOwned>(
+    settings_con: Vec<u8>,
+    config_path: &std::path::PathBuf,
+    name: &str,
+) -> T {
+    let mut password: Option<String> = None;
+    if password.is_none() {
+        let mut pw = Vec::new();
+        let mut f = tokio::fs::File::open(config_path.join(format!("{}-credentials.bin", name)))
+            .await
+            .unwrap();
+        f.read_to_end(&mut pw).await.unwrap();
+        let mut pw = String::from_utf8(pw).unwrap();
+        loop {
+            if pw.ends_with('\n') {
+                pw.pop();
+                continue;
+            }
+            if pw.ends_with('\r') {
+                pw.pop();
+                continue;
+            }
+            break;
+        }
+        password = Some(pw);
+    }
+    if password.is_none() {
+        let mut password2: userprompt::Password;
+        loop {
+            print!("Please enter a password:");
+            std::io::stdout().flush().unwrap();
+            password2 = userprompt::Password::prompt(None, None).unwrap();
+            if !password2.is_empty() {
+                password = Some(password2.to_string());
+                break;
+            }
+        }
+    }
+
+    let password = password.expect("No password provided");
+    let password_combined = password.as_bytes();
+    let pconfig = tpm2::decrypt(settings_con, password_combined);
+    let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+    if settings2.is_err() {
+        panic!(
+            "Failed to parse configuration file {}",
+            settings2.err().unwrap()
+        );
+    }
+    settings2.unwrap()
+}
+
+/// Perform the tpm2 operation to deserialize/decrypt the contents
+pub async fn do_tpm2_operation<T: serde::de::DeserializeOwned>(
+    password_combined: Option<&Vec<u8>>,
+    contents: Vec<u8>,
+    config_path: &std::path::PathBuf,
+    name: &str,
+) -> T {
+    let settings: T;
+    #[cfg(feature = "tpm2")]
+    {
+        let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+
+        if let Some(tpm2) = &mut tpm2 {
+            if let Some(password_combined) = &password_combined {
+                let pconfig = tpm2::decrypt(contents, password_combined);
+
+                let settings2 = toml::from_str(std::str::from_utf8(&pconfig).unwrap());
+                if settings2.is_err() {
+                    panic!("Failed to parse configuration file");
+                }
+                settings = settings2.unwrap();
+            } else {
+                settings = do_without_tpm2(contents, config_path, name).await;
+            }
+        } else {
+            settings = do_without_tpm2(contents, config_path, name).await;
+        }
+    }
+    #[cfg(not(feature = "tpm2"))]
+    {
+        settings = do_without_tpm2(contents, config_path, name).await;
+    }
+    settings
+}
+
 impl MainConfiguration {
     /// Is the tpm2 required?
     pub fn tpm2_required(&self) -> bool {
@@ -626,6 +719,63 @@ impl MainConfiguration {
                 standalone_ca_configuration.service.tpm2_required
             }
         }
+    }
+
+    /// Load the configuration
+    pub async fn load(config_path: std::path::PathBuf, name: &str, settings_con: Vec<u8>, password_combined: &mut Option<Vec<u8>>) -> Self {
+
+        #[cfg(not(feature = "tpm2"))]
+        let mut password: Option<String> = None;
+
+        #[cfg(not(feature = "tpm2"))]
+        if password.is_none() {
+            let mut pw = Vec::new();
+            let mut f = tokio::fs::File::open(config_path.join(format!("{}-credentials.bin", name)))
+                .await
+                .unwrap();
+            f.read_to_end(&mut pw).await.unwrap();
+            let mut pw = String::from_utf8(pw).unwrap();
+            loop {
+                if pw.ends_with('\n') {
+                    pw.pop();
+                    continue;
+                }
+                if pw.ends_with('\r') {
+                    pw.pop();
+                    continue;
+                }
+                break;
+            }
+            password = Some(pw);
+        }
+
+        *password_combined = None;
+        #[cfg(feature = "tpm2")]
+        {
+            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+
+            if let Some(tpm2) = &mut tpm2 {
+                let mut tpm_data = Vec::new();
+                let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
+                    .await
+                    .unwrap();
+                f.read_to_end(&mut tpm_data).await.unwrap();
+
+                let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
+
+                let epdata = tpm2.decrypt(tpm_data).unwrap();
+                let protected_password = tpm2::Password::rebuild(&epdata);
+                *password_combined = Some(protected_password.password().to_vec());
+            }
+        }
+
+        do_tpm2_operation(
+            password_combined.as_ref(),
+            settings_con,
+            &config_path,
+            &name,
+        )
+        .await
     }
 }
 
