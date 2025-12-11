@@ -1,5 +1,6 @@
 //! This module is used to run a webserver.
 
+use crate::ca::SimplifiedPkiConfigurationEnum;
 use futures::stream::FuturesUnordered;
 use futures::{Future, FutureExt};
 use hyper::{Request, Response, StatusCode};
@@ -149,7 +150,7 @@ pub struct WebPageContext {
     /// The list of user certificates presented by the user
     pub user_certs: UserCerts,
     /// The application settings
-    pub settings: Arc<crate::MainConfiguration>,
+    pub pki_type: SimplifiedPkiConfigurationEnum,
     /// The pki object
     pub pki: Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
 }
@@ -157,22 +158,22 @@ pub struct WebPageContext {
 impl WebPageContext {
     /// Build an absolute url
     pub fn get_absolute_url(&self, sd: &str, url: &str) -> String {
-        match &self.settings.pki {
-            crate::ca::PkiConfigurationEnum::AddedCa(ca) => {
+        match &self.pki_type {
+            crate::ca::SimplifiedPkiConfigurationEnum::AddedCa => {
                 if self.https {
                     format!("https://{}/{}{}", self.domain, self.proxy, url)
                 } else {
                     format!("http://{}/{}{}", self.domain, self.proxy, url)
                 }
             }
-            crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
+            crate::ca::SimplifiedPkiConfigurationEnum::Pki => {
                 if self.https {
                     format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
                 } else {
                     format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
                 }
             }
-            crate::ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+            crate::ca::SimplifiedPkiConfigurationEnum::Ca => {
                 if self.https {
                     format!("https://{}/{}{}", self.domain, self.proxy, url)
                 } else {
@@ -231,8 +232,7 @@ impl PostContent {
                         Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
                     });
                     Some(multer::Multipart::new(data, boundary))
-                }
-                else {
+                } else {
                     None
                 }
             } else {
@@ -446,7 +446,7 @@ async fn handle<'a>(
         logincookie: ourcookie.clone(),
         pool: mysql,
         user_certs,
-        settings: context.settings.clone(),
+        pki_type: context.settings.pki.clone().into(),
         pki: context.pki.clone(),
     };
 

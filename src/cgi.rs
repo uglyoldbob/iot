@@ -11,8 +11,8 @@ pub use main_config::MainConfiguration;
 use nix::unistd::User;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::io::Read;
+use std::sync::Arc;
 
 use crate::webserver::PostContent;
 
@@ -32,20 +32,20 @@ impl CgiConfiguration {
             domain: self.domain.clone(),
             page: request.uri().path().to_string().into(),
             proxy: String::new(),
-            post: PostContent::new(None,
-                hyper::header::HeaderMap::new()),
+            post: PostContent::new(None, hyper::header::HeaderMap::new()),
             get: HashMap::new(),
             logincookie: None,
             pool: None,
             user_certs: crate::webserver::UserCerts::new(),
-            settings: todo!(),
-            pki: Arc::new(todo!()),
+            pki_type: crate::ca::SimplifiedPkiConfigurationEnum::Ca,
+            pki: Arc::new(futures::lock::Mutex::new(todo!())),
         }
     }
 }
 
-fn main() {
-    cgi::handle(|request: cgi::Request| -> cgi::Response {
+#[tokio::main]
+async fn main() {
+    cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
         let config = std::fs::File::open("./config.ini");
         if config.is_err() {
             return cgi::html_response(500, "Invalid configuration 1");
@@ -60,7 +60,7 @@ fn main() {
                 return cgi::html_response(500, "Invalid configuration 3");
             }
             Ok(config) => {
-                let config :  CgiConfiguration = config;
+                let config: CgiConfiguration = config;
                 config
             }
         };
@@ -97,4 +97,5 @@ fn main() {
         let (response, _dummybody) = response.into_parts();
         cgi::html_response(200, html.to_string())
     })
+    .await
 }

@@ -396,6 +396,28 @@ impl DatabaseSettings {
 }
 
 /// The server configuration of the application
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub enum SecurityModuleConfiguration {
+    Hardware {
+        /// Is there a path override for the location of the hsm library?
+        hsm_path_override: Option<userprompt::FileOpen>,
+        /// The pin for the hardware security module
+        hsm_pin: String,
+        /// The user pin for the hardware security module
+        hsm_pin2: String,
+        /// The slot override for the hsm
+        hsm_slot: Option<usize>,
+    },
+    Software(std::path::PathBuf),
+}
+
+impl Default for SecurityModuleConfiguration {
+    fn default() -> Self {
+        Self::Software("./".into())
+    }
+}
+
+/// The server configuration of the application
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ServerConfiguration {
     /// General settings
@@ -417,14 +439,8 @@ pub struct ServerConfiguration {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: bool,
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    /// The pin for the hardware security module
-    pub hsm_pin: String,
-    /// The user pin for the hardware security module
-    pub hsm_pin2: String,
-    /// The slot override for the hsm
-    pub hsm_slot: Option<usize>,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
 }
 
 impl ServerConfiguration {
@@ -544,10 +560,11 @@ impl From<ServerConfigurationAnswers> for ServerConfiguration {
                 .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
             debug_level: Some(value.debug_level),
             tpm2_required: value.tpm2_required,
-            hsm_path_override: value.hsm_path_override,
+            security_module: todo!(),
+            /*hsm_path_override: value.hsm_path_override,
             hsm_pin: crate::utility::generate_password(32),
             hsm_pin2: crate::utility::generate_password(32),
-            hsm_slot: value.hsm_slot,
+            hsm_slot: value.hsm_slot,*/
         }
     }
 }

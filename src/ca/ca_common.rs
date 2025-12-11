@@ -21,7 +21,10 @@ use serde::Serialize;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
+use crate::hsm2::SecurityModuleTrait;
 use crate::hsm2::KeyPairTrait;
+use crate::hsm2::SecurityModule;
+use crate::main_config::SecurityModuleConfiguration;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
 
@@ -310,10 +313,7 @@ impl StandaloneCaConfiguration {
             proxy,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
             debug_level: service.debug_level.clone(),
-            hsm_path_override: service.hsm_path_override.clone(),
-            hsm_pin: Some(service.hsm_pin.clone()),
-            hsm_pin2: Some(service.hsm_pin2.clone()),
-            hsm_slot: service.hsm_slot.clone(),
+            security_config: Some(service.security_module.clone()),
             tpm2_required: Some(service.tpm2_required),
         }
     }
@@ -655,10 +655,7 @@ impl LocalCaConfiguration {
             proxy: None,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
             debug_level: None,
-            hsm_path_override: None,
-            hsm_pin: None,
-            hsm_pin2: None,
-            hsm_slot: None,
+            security_config: None,
             tpm2_required: None,
         }
     }
@@ -710,14 +707,8 @@ pub struct CaConfiguration {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: Option<bool>,
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    /// The pin for the hardware security module
-    pub hsm_pin: Option<String>,
-    /// The user pin for the hardware security module
-    pub hsm_pin2: Option<String>,
-    /// The slot override for the hsm
-    pub hsm_slot: Option<usize>,
+    /// The security module configuration
+    security_config: Option<SecurityModuleConfiguration>,
 }
 
 impl CaConfiguration {
@@ -1336,7 +1327,7 @@ impl CaCertificateStorage {
     /// Load a certificate from the storage medium
     pub async fn load_hsm_from_medium(
         &self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         name: &str,
     ) -> Result<CaCertificate, CertificateLoadingError> {
         match self {
@@ -2244,6 +2235,31 @@ impl PkiConfigurationEnumAnswers {
     }
 }
 
+///A simplified form of PkiConfigurationEnum that just identifies the type
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub enum SimplifiedPkiConfigurationEnum {
+    /// A generic Pki configuration
+    Pki,
+    /// A certificate authority added after the fact
+    AddedCa,
+    /// A standard certificate authority configuration
+    Ca,
+}
+
+impl From<PkiConfigurationEnum> for SimplifiedPkiConfigurationEnum {
+    fn from(value: PkiConfigurationEnum) -> Self {
+        match value {
+            PkiConfigurationEnum::Pki(pki_configuration) => SimplifiedPkiConfigurationEnum::Pki,
+            PkiConfigurationEnum::AddedCa(local_ca_configuration) => {
+                SimplifiedPkiConfigurationEnum::AddedCa
+            }
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
+                SimplifiedPkiConfigurationEnum::Ca
+            }
+        }
+    }
+}
+
 ///A generic configuration for a pki or certificate authority.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub enum PkiConfigurationEnum {
@@ -2262,64 +2278,67 @@ impl PkiConfigurationEnum {
         config_path: &PathBuf,
         name: &str,
         settings: &MainConfiguration,
-    ) -> Arc<crate::hsm2::Hsm> {
+    ) -> Arc<crate::hsm2::SecurityModule> {
         use crate::hsm2;
-        let hsm: Arc<hsm2::Hsm>;
-        let n = config_path.join(format!("{}-initialized", name));
-        let (hsm_path_override, hsm_pin, hsm_pin2, hsm_slot) = match self {
-            PkiConfigurationEnum::Pki(c) => (
-                &c.service.hsm_path_override,
-                &c.service.hsm_pin,
-                &c.service.hsm_pin2,
-                &c.service.hsm_slot,
-            ),
+        let security_config = match self {
+            PkiConfigurationEnum::Pki(c) => c.service.security_module.clone(),
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => {
-                (&None, &String::new(), &String::new(), &None)
+                SecurityModuleConfiguration::default()
             }
-            PkiConfigurationEnum::Ca(c) => (
-                &c.service.hsm_path_override,
-                &c.service.hsm_pin,
-                &c.service.hsm_pin2,
-                &c.service.hsm_slot,
-            ),
+            PkiConfigurationEnum::Ca(c) => c.service.security_module.clone(),
         };
-        if n.exists() && n.metadata().unwrap().len() > 2 {
-            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::create(
-                hsm_path_override.as_ref().map(|a| a.to_path_buf()),
-                Zeroizing::new(hsm_pin.clone()),
-                Zeroizing::new(hsm_pin2.clone()),
-            ) {
-                hsm_t
-            } else {
-                service::log::error!("Failed to open the hardware security module");
-                panic!("Failed to open the hardware security module");
-            };
+        let hsm: Arc<hsm2::SecurityModule>;
+        match security_config {
+            SecurityModuleConfiguration::Hardware {
+                hsm_path_override,
+                hsm_pin,
+                hsm_pin2,
+                hsm_slot,
+            } => {
+                let n = config_path.join(format!("{}-initialized", name));
+                if n.exists() && n.metadata().unwrap().len() > 2 {
+                    let hsm2 = if let Some(hsm_t) = hsm2::Hsm::create(
+                        hsm_path_override.as_ref().map(|a| a.to_path_buf()),
+                        Zeroizing::new(hsm_pin.clone()),
+                        Zeroizing::new(hsm_pin2.clone()),
+                    ) {
+                        hsm_t
+                    } else {
+                        service::log::error!("Failed to open the hardware security module");
+                        panic!("Failed to open the hardware security module");
+                    };
 
-            hsm = Arc::new(hsm2);
+                    hsm2.list_certificates();
 
-            hsm.list_certificates();
+                    hsm = Arc::new(hsm2::SecurityModule::Hardware(hsm2));
 
-            use tokio::io::AsyncWriteExt;
-            let _ca_instance = crate::ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
-                .await
-                .unwrap();
-            let mut f = tokio::fs::File::create(&n).await.unwrap();
-            f.write_all("".as_bytes())
-                .await
-                .expect("Failed to initialization file update");
-        } else {
-            let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
-                hsm_slot.unwrap_or(0),
-                hsm_path_override.as_ref().map(|a| a.to_path_buf()),
-                Zeroizing::new(hsm_pin2.clone()),
-            ) {
-                hsm_t
-            } else {
-                service::log::error!("Failed to open the hardware security module");
-                panic!("Failed to open the hardware security module");
-            };
+                    use tokio::io::AsyncWriteExt;
+                    let _ca_instance =
+                        crate::ca::PkiInstance::init(hsm.clone(), &settings.pki, &settings)
+                            .await
+                            .unwrap();
+                    let mut f = tokio::fs::File::create(&n).await.unwrap();
+                    f.write_all("".as_bytes())
+                        .await
+                        .expect("Failed to initialization file update");
+                } else {
+                    let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
+                        hsm_slot.unwrap_or(0),
+                        hsm_path_override.as_ref().map(|a| a.to_path_buf()),
+                        Zeroizing::new(hsm_pin2.clone()),
+                    ) {
+                        hsm_t
+                    } else {
+                        service::log::error!("Failed to open the hardware security module");
+                        panic!("Failed to open the hardware security module");
+                    };
 
-            hsm = Arc::new(hsm2);
+                    hsm = Arc::new(hsm2::SecurityModule::Hardware(hsm2));
+                }
+            }
+            SecurityModuleConfiguration::Software(p) => {
+                todo!();
+            }
         }
         hsm
     }
@@ -2568,14 +2587,8 @@ pub struct Pki {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: bool,
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    /// The pin for the hardware security module
-    pub hsm_pin: String,
-    /// The user pin for the hardware security module
-    pub hsm_pin2: String,
-    /// The slot override for the hsm
-    pub hsm_slot: Option<usize>,
+    /// The security module configuration
+    pub security_module: SecurityModuleConfiguration,
 }
 
 /// Potential errors when loading a pki object
@@ -2624,7 +2637,7 @@ impl Pki {
         config: &LocalCaConfiguration,
         main_config: &crate::main_config::MainConfiguration,
         service: Option<&crate::main_config::ServerConfiguration>,
-        hsm: &Arc<crate::hsm2::Hsm>,
+        hsm: &Arc<crate::hsm2::SecurityModule>,
         done: Option<&mut bool>,
     ) -> Result<(), PkiLoadError> {
         let ca_name =
@@ -2676,7 +2689,7 @@ impl Pki {
     /// Initialize a Pki instance with the specified configuration and options for setting file ownerships (as required).
     #[allow(dead_code)]
     pub async fn init(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
@@ -2701,10 +2714,7 @@ impl Pki {
         }
         Ok(Self {
             debug_level: settings.service.debug_level.clone(),
-            hsm_path_override: settings.service.hsm_path_override.clone(),
-            hsm_pin: settings.service.hsm_pin.clone(),
-            hsm_pin2: settings.service.hsm_pin2.clone(),
-            hsm_slot: settings.service.hsm_slot,
+            security_module: settings.service.security_module.clone(),
             tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
@@ -2719,7 +2729,7 @@ impl Pki {
     /// Load pki stuff
     #[allow(dead_code)]
     pub async fn load(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::ca::PkiConfiguration,
         main_config: &MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
@@ -2817,10 +2827,7 @@ impl Pki {
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
             debug_level: settings.service.debug_level.clone(),
-            hsm_path_override: settings.service.hsm_path_override.clone(),
-            hsm_pin: settings.service.hsm_pin.clone(),
-            hsm_pin2: settings.service.hsm_pin2.clone(),
-            hsm_slot: settings.service.hsm_slot,
+            security_module: settings.service.security_module.clone(),
             tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
@@ -2937,7 +2944,7 @@ impl PkiInstance {
     pub async fn register_extra_configs(
         &mut self,
         extra_configs: Vec<crate::main_config::ExtendedConfiguration>,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         main_config: &crate::main_config::MainConfiguration,
     ) {
         if let PkiInstance::Pki(pki) = self {
@@ -2974,7 +2981,7 @@ impl PkiInstance {
     /// Init a pki Instance from the given settings
     #[allow(dead_code)]
     pub async fn init(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::ca::PkiConfigurationEnum,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
@@ -3013,7 +3020,7 @@ impl PkiInstance {
     /// Load an instance of self from the settings.
     #[allow(dead_code)]
     pub async fn load(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::MainConfiguration,
     ) -> Result<Self, PkiLoadError> {
         match &settings.pki {
@@ -3203,14 +3210,8 @@ pub struct Ca {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: bool,
-    /// Is there a path override for the location of the hsm library?
-    pub hsm_path_override: Option<userprompt::FileOpen>,
-    /// The pin for the hardware security module
-    pub hsm_pin: String,
-    /// The user pin for the hardware security module
-    pub hsm_pin2: String,
-    /// The slot override for the hsm
-    pub hsm_slot: Option<usize>,
+    /// Security module configuration
+    security_configuration: Option<SecurityModuleConfiguration>,
 }
 
 /// The data submitted by the user or admin for revoking a certificate
@@ -3363,7 +3364,7 @@ impl Ca {
     /// Check to see if the https certifiate should be created
     pub async fn check_https_create(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<(), ()> {
         self.create_https_certificate(
@@ -3377,7 +3378,7 @@ impl Ca {
     /// Create the required https certificate
     pub async fn create_https_certificate(
         &mut self,
-        _hsm: Arc<crate::hsm2::Hsm>,
+        _hsm: Arc<crate::hsm2::SecurityModule>,
         https_names: Vec<String>,
     ) -> Result<(), ()> {
         let mut stuff = None;
@@ -3474,10 +3475,7 @@ impl Ca {
             admin_authorities: Vec::new(),
             shutdown: None,
             debug_level: settings.debug_level.clone(),
-            hsm_path_override: settings.hsm_path_override.clone(),
-            hsm_pin: settings.hsm_pin.clone().unwrap(),
-            hsm_pin2: settings.hsm_pin2.clone().unwrap(),
-            hsm_slot: settings.hsm_slot.clone(),
+            security_configuration: settings.security_config.clone(),
             tpm2_required: settings.tpm2_required.unwrap(),
         })
     }
@@ -3485,7 +3483,7 @@ impl Ca {
     /// Initialize a Ca instance with the specified configuration.
     /// superior is used to generate the root certificate for intermediate authorities.
     pub async fn init(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::ca::CaConfiguration,
         superior: Option<&mut LocalOrRemoteCa>,
     ) -> Result<Self, CaLoadError> {
@@ -4482,7 +4480,7 @@ impl Ca {
     /// Attempt to load a certificate by name, first from hsm, then from p12
     async fn load_cert(
         &self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         name: &str,
         password: Option<&str>,
     ) -> Result<CaCertificate, CertificateLoadingError> {
@@ -4520,7 +4518,7 @@ impl Ca {
 
     /// Load ca stuff
     pub async fn load(
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         settings: &crate::ca::CaConfiguration,
     ) -> Result<Self, CaLoadError> {
         service::log::debug!("Trying to load ca from config");
@@ -4570,7 +4568,7 @@ impl Ca {
     /// Load the root ca cert from the specified storage media, converting to der as required.
     pub async fn load_root_ca_cert(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.root_cert.is_err() {
             self.root_cert = self.load_cert(hsm, "root", None).await;
@@ -4609,7 +4607,7 @@ impl Ca {
     /// Load the admin certificate as defined by a smartcard certificate
     pub async fn load_admin_smartcard(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
             self.admin = self.load_cert(hsm, "admin", None).await.map(|mut a| {
@@ -4623,7 +4621,7 @@ impl Ca {
     /// Load the admin signer certificate, loading if required and erasing the private key.
     pub async fn load_admin_cert(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
         password: &str,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.admin.is_err() {
@@ -4641,7 +4639,7 @@ impl Ca {
     /// Load the ocsp signer certificate, loading if required.
     pub async fn load_ocsp_cert(
         &mut self,
-        hsm: Arc<crate::hsm2::Hsm>,
+        hsm: Arc<crate::hsm2::SecurityModule>,
     ) -> Result<&CaCertificate, &CertificateLoadingError> {
         if self.ocsp_signer.is_err() {
             self.ocsp_signer = self.load_cert(hsm, "ocsp", None).await;
@@ -4695,10 +4693,7 @@ impl Ca {
             admin_authorities: Vec::new(),
             shutdown: None,
             debug_level: settings.debug_level.clone(),
-            hsm_path_override: settings.hsm_path_override.clone(),
-            hsm_pin: settings.hsm_pin.clone().unwrap(),
-            hsm_pin2: settings.hsm_pin2.clone().unwrap(),
-            hsm_slot: settings.hsm_slot.clone(),
+            security_configuration: settings.security_config.clone(),
             tpm2_required: settings.tpm2_required.unwrap(),
         })
     }
@@ -5280,7 +5275,7 @@ impl InternalSignature {
 /// The options required to build a signing request for a certificate
 pub struct SigningRequestParams {
     /// The hsm to used when using the hsm to generate a certificate
-    pub hsm: Option<Arc<crate::hsm2::Hsm>>,
+    pub hsm: Option<Arc<crate::hsm2::SecurityModule>>,
     /// The smartcard keypair to use when using a certifcate for a smartcard
     pub smartcard: Option<card::KeyPair>,
     /// The signing method

@@ -80,10 +80,10 @@ async fn main_redirect(s: WebPageContext) -> webserver::WebResponse {
     let response = hyper::Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let url = match &s.settings.pki {
-        ca::PkiConfigurationEnum::AddedCa(ca) => format!("{}ca", s.proxy),
-        ca::PkiConfigurationEnum::Pki(pki_configuration) => format!("{}pki", s.proxy),
-        ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => format!("{}ca", s.proxy),
+    let url = match &s.pki_type {
+        ca::SimplifiedPkiConfigurationEnum::AddedCa => format!("{}ca", s.proxy),
+        ca::SimplifiedPkiConfigurationEnum::Pki => format!("{}pki", s.proxy),
+        ca::SimplifiedPkiConfigurationEnum::Ca => format!("{}ca", s.proxy),
     };
 
     response.status = hyper::http::StatusCode::from_u16(302).unwrap();
@@ -245,7 +245,9 @@ async fn smain() {
     };
     std::env::set_current_dir(&config_path).expect("Failed to switch to config directory");
 
-    std::env::set_var("SOFTHSM2_CONF", config_path.join("softhsm2.conf"));
+    unsafe {
+        std::env::set_var("SOFTHSM2_CONF", config_path.join("softhsm2.conf"));
+    }
 
     let name = args.name.unwrap_or("default".to_string());
 
