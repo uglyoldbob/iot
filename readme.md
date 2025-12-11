@@ -27,6 +27,14 @@ services.msc can be used to manage the services for the system in general. The s
 
 Helpful openssl commands see [openssl](openssl.md)
 
+**Running on docker to get a lower glibc requirement**
+
+* docker build -t rustbuild .
+
+* docker run -v $PWD:/volume -it rustbuild
+
+* cargo build (as normal)
+
 **List of future changes**
 
 - [x] Add more configuration to the client certificate verifier, allowing ca to be something besides self.

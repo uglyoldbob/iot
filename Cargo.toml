@@ -180,6 +180,10 @@ name = "rust-iot-cgi"
 path = "src/cgi.rs"
 
 [[bin]]
+name = "rust-iot-cgi-construct"
+path = "src/cgi-construct.rs"
+
+[[bin]]
 name = "rust-iot-construct"
 path = "src/construct.rs"
 
