@@ -10,12 +10,14 @@ mod webserver;
 mod main_config;
 pub use main_config::MainConfiguration;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use base64::Engine;
 
-fn build_toml_string(doc: &toml::Value) -> String {
-    let c = doc.to_string();
+use crate::{ca::StandaloneCaConfigurationAnswers, main_config::MainConfigurationAnswers};
+
+fn build_toml_string(doc: &MainConfigurationAnswers) -> String {
+    let c = toml::to_string(doc).unwrap();
     base64::prelude::BASE64_STANDARD_NO_PAD.encode(c)
 }
 
@@ -62,6 +64,9 @@ async fn main() {
             get_map
         };
 
+        let example = MainConfigurationAnswers::default();
+        let example = toml::to_string(&example).unwrap();
+
         let toml_plain = post_map
             .get("object")
             .map(|a| base64::prelude::BASE64_STANDARD_NO_PAD.decode(a).ok())
@@ -70,14 +75,11 @@ async fn main() {
             .flatten();
         let toml_decoded = toml_plain
             .clone()
-            .map(|t| toml::from_str::<toml::Value>(&t).ok())
+            .map(|t| toml::from_str::<MainConfigurationAnswers>(&t).ok())
             .flatten();
         let toml_value = match &toml_decoded {
             Some(a) => a.clone(),
-            None => {
-                let t = toml::Table::new();
-                toml::Value::Table(t)
-            }
+            None => MainConfigurationAnswers::default(),
         };
         let mut toml = toml_value;
 
@@ -86,159 +88,70 @@ async fn main() {
             .map(|a| a.parse::<u16>().ok())
             .flatten()
             .unwrap_or(0);
-        match post_map.get("config").map(|a| a.as_str()) {
-            Some("test1") => match step {
-                1 => {
-                    toml.as_table_mut()
-                        .unwrap()
-                        .insert("val1".to_string(), toml::Value::String("groot".to_string()));
-                    html.head(|h| h.title(|t| t.text("Test1 Builder")))
-                        .body(|b| {
-                            b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                            b.text(format!("GET IS {:#?}<br />\n", get_map));
-                            b.text(format!("POST IS {:#?}<br />\n", post_map));
-                            b.form(|f| {
-                                f.method("POST");
-                                f.input(|i| i.type_("hidden").name("config").value("test1"));
-                                f.input(|i| {
-                                    i.type_("hidden")
-                                        .name("step")
-                                        .value(format!("{}", step + 1))
-                                });
-                                f.input(|i| {
-                                    i.type_("hidden")
-                                        .name("object")
-                                        .value(build_toml_string(&toml))
-                                });
-                                f.button(|b| b.text("Next"))
-                            });
-                            b.line_break(|lb| lb);
-                            b
+        html.head(|h| h.title(|t| t.text("CA Builder")));
+        match step {
+            1 => {
+                let Some(p) = post_map.get("name") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                toml.pki = ca::PkiConfigurationEnumAnswers::Ca {
+                    pki_name: p.clone(),
+                    config: Box::new(StandaloneCaConfigurationAnswers::default()),
+                };
+
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML STRING {:#?}<br />\n", toml::to_string(&toml)));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", step + 1))
                         });
-                }
-                _ => {
-                    toml.as_table_mut().unwrap().insert(
-                        "class".to_string(),
-                        toml::Value::String("test1".to_string()),
-                    );
-                    html.head(|h| h.title(|t| t.text("Test1 Builder")))
-                        .body(|b| {
-                            b.text(format!("{:#?}<br />\n", request));
-                            b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                            b.text(format!("GET IS {:#?}<br />\n", get_map));
-                            b.text(format!("POST IS {:#?}<br />\n", post_map));
-                            b.form(|f| {
-                                f.method("POST");
-                                f.input(|i| i.type_("hidden").name("config").value("test1"));
-                                f.input(|i| {
-                                    i.type_("hidden")
-                                        .name("step")
-                                        .value(format!("{}", step + 1))
-                                });
-                                f.input(|i| {
-                                    i.type_("hidden")
-                                        .name("object")
-                                        .value(build_toml_string(&toml))
-                                });
-                                f.button(|b| b.text("Next"))
-                            });
-                            b.line_break(|lb| lb);
-                            b
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
                         });
-                }
-            },
-            Some("test2") => {
-                html.head(|h| h.title(|t| t.text("Test2 Builder")))
-                    .body(|b| {
-                        b.text(format!("{:#?}<br />\n", request));
-                        b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                        b.text(format!("GET IS {:#?}<br />\n", get_map));
-                        b.text(format!("POST IS {:#?}<br />\n", post_map));
-                        b.form(|f| {
-                            f.method("POST");
-                            f.input(|i| i.type_("hidden").name("config").value("test2"));
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("step")
-                                    .value(format!("{}", step + 1))
-                            });
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("object")
-                                    .value(build_toml_string(&toml))
-                            });
-                            f.button(|b| b.text("Next"))
-                        });
-                        b.line_break(|lb| lb);
-                        b
+                        f.text("Name of CA");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("name"));
+                        f.button(|b| b.text("Next"))
                     });
-            }
-            Some("test3") => {
-                html.head(|h| h.title(|t| t.text("Test3 Builder")))
-                    .body(|b| {
-                        b.text(format!("{:#?}<br />\n", request));
-                        b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                        b.text(format!("GET IS {:#?}<br />\n", get_map));
-                        b.text(format!("POST IS {:#?}<br />\n", post_map));
-                        b.form(|f| {
-                            f.method("POST");
-                            f.input(|i| i.type_("hidden").name("config").value("test3"));
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("step")
-                                    .value(format!("{}", step + 1))
-                            });
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("object")
-                                    .value(build_toml_string(&toml))
-                            });
-                            f.button(|b| b.text("Next"))
-                        });
-                        b.line_break(|lb| lb);
-                        b
-                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
             }
             _ => {
-                html.head(|h| h.title(|t| t.text("Configuration Builder")))
-                    .body(|b| {
-                        b.text(format!("{:#?}<br />\n", request));
-                        b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                        b.text(format!("GET IS {:#?}<br />\n", get_map));
-                        b.text(format!("POST IS {:#?}<br />\n", post_map));
-                        b.form(|f| {
-                            f.method("POST");
-                            f.input(|i| i.type_("hidden").name("config").value("test1"));
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("object")
-                                    .value(build_toml_string(&toml))
-                            });
-                            f.button(|b| b.text("Start 1"))
+                html.body(|b| {
+                    b.text(format!("{:#?}<br />\n", request));
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML STRING {:#?}<br />\n", toml::to_string(&toml)));
+                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
+                    b.text(format!("GET IS {:#?}<br />\n", get_map));
+                    b.text(format!("POST IS {:#?}<br />\n", post_map));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", step + 1))
                         });
-                        b.form(|f| {
-                            f.method("POST");
-                            f.input(|i| i.type_("hidden").name("config").value("test2"));
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("object")
-                                    .value(build_toml_string(&toml))
-                            });
-                            f.button(|b| b.text("Start 2"))
+                        f.text("Name of CA");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("name"));
+                        f.line_break(|a| a);
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
                         });
-                        b.form(|f| {
-                            f.method("POST");
-                            f.input(|i| i.type_("hidden").name("config").value("test3"));
-                            f.input(|i| {
-                                i.type_("hidden")
-                                    .name("object")
-                                    .value(build_toml_string(&toml))
-                            });
-                            f.button(|b| b.text("Start 3"))
-                        });
-                        b.line_break(|lb| lb);
-                        b
+                        f.button(|b| b.text("Start"))
                     });
+                    b.line_break(|lb| lb);
+                    b
+                });
             }
         }
         let html = html.build();

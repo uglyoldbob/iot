@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 use crate::hsm2::KeyPairTrait;
 use crate::hsm2::SecurityModule;
 use crate::hsm2::SecurityModuleTrait;
+use crate::main_config::DatabaseSettings;
 use crate::main_config::SecurityModuleConfiguration;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
@@ -196,7 +197,9 @@ impl From<CertificateTypeAnswers> for CertificateType {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct StandaloneCaConfiguration {
     /// The settings specified to run the ca service
-    pub service: crate::main_config::ServerConfiguration,
+    pub service: Option<crate::main_config::ServerConfiguration>,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
@@ -225,7 +228,8 @@ impl StandaloneCaConfiguration {
     /// Build a Self using answers and the containing pki_name, which must be blank or end with /
     fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
-            service: value.service.clone().into(),
+            service: value.service.clone().map(|a| a.into()),
+            security_module: value.hsm_config.clone(),
             sign_method: value.sign_method,
             path: value.path.clone(),
             inferior_to: value.inferior_to.clone(),
@@ -331,7 +335,29 @@ impl StandaloneCaConfiguration {
 pub struct StandaloneCaConfigurationAnswers {
     /// The settings specified to run the ca service
     #[PromptComment = "Settings for the service"]
-    pub service: crate::main_config::ServerConfigurationAnswers,
+    pub service: Option<crate::main_config::ServerConfigurationAnswers>,
+    #[PromptComment = "The security module configuration"]
+    /// The configuration for the security module
+    pub hsm_config: SecurityModuleConfiguration,
+    #[PromptComment = "Settings for the database"]
+    /// Optional settings for the mysql database
+    pub database: Option<DatabaseSettings>,
+    #[PromptComment = "The public name of the service, such as example.com/asdf"]
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    #[PromptComment = "The optional proxy port configuration"]
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+    #[PromptComment = "An optional list of custom client certificates to load"]
+    /// Settings for client certificates
+    pub client_certs: Option<Vec<userprompt::FileOpen>>,
+    #[PromptComment = "The desired level for logging"]
+    /// The desired minimum debug level
+    pub debug_level: service::LogLevel,
+    #[PromptComment = "Should a trusted platform module version 2 be required?"]
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
     #[PromptComment = "The signing method for this authority"]
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
@@ -579,6 +605,8 @@ pub struct RemoteCaConfiguration {
 /// The items used to configure a local certificate authority in a pki configuration
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct LocalCaConfiguration {
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
@@ -2097,6 +2125,8 @@ pub struct PkiConfigurationAnswers {
 pub struct PkiConfiguration {
     /// The settings specified to run the pki service
     pub service: crate::main_config::ServerConfiguration,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
     /// List of remote ca
@@ -2281,11 +2311,9 @@ impl PkiConfigurationEnum {
     ) -> Arc<crate::hsm2::SecurityModule> {
         use crate::hsm2;
         let security_config = match self {
-            PkiConfigurationEnum::Pki(c) => c.service.security_module.clone(),
-            PkiConfigurationEnum::AddedCa(local_ca_configuration) => {
-                SecurityModuleConfiguration::default()
-            }
-            PkiConfigurationEnum::Ca(c) => c.service.security_module.clone(),
+            PkiConfigurationEnum::Pki(c) => c.security_module.clone(),
+            PkiConfigurationEnum::AddedCa(c) => c.security_module.clone(),
+            PkiConfigurationEnum::Ca(c) => c.security_module.clone(),
         };
         let hsm: Arc<hsm2::SecurityModule>;
         match security_config {
@@ -2413,7 +2441,9 @@ impl PkiConfigurationEnum {
                 }
             }
             PkiConfigurationEnum::Ca(ca) => {
-                ca.service.remove_relative_paths().await;
+                if let Some(service) = &mut ca.service {
+                    service.remove_relative_paths().await;
+                }
                 let _ = ca.path.remove_relative_paths().await;
             }
         }
@@ -2714,7 +2744,7 @@ impl Pki {
         }
         Ok(Self {
             debug_level: settings.service.debug_level.clone(),
-            security_module: settings.service.security_module.clone(),
+            security_module: settings.security_module.clone(),
             tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
@@ -2827,7 +2857,7 @@ impl Pki {
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
             debug_level: settings.service.debug_level.clone(),
-            security_module: settings.service.security_module.clone(),
+            security_module: settings.security_module.clone(),
             tpm2_required: settings.service.tpm2_required,
             public_names: settings.service.public_names.clone(),
             database: settings.service.database.clone(),
@@ -3001,16 +3031,18 @@ impl PkiInstance {
                         service::log::error!("Failed to load ca 9 {:?}", e);
                         PkiLoadError::FailedToLoadCa("ca".to_string(), e)
                     })?; //TODO Use the proper ca superior object instead of None
-                if ca_config.service.https.is_some() {
-                    ca.check_https_create(hsm.clone(), main_config)
-                        .await
-                        .map_err(|_| {
-                            service::log::error!("Failed to init https cert");
-                            PkiLoadError::FailedToLoadCa(
-                                "ca".to_string(),
-                                CaLoadError::FailedToInitHttps,
-                            )
-                        })?;
+                if let Some(service) = &ca_config.service {
+                    if service.https.is_some() {
+                        ca.check_https_create(hsm.clone(), main_config)
+                            .await
+                            .map_err(|_| {
+                                service::log::error!("Failed to init https cert");
+                                PkiLoadError::FailedToLoadCa(
+                                    "ca".to_string(),
+                                    CaLoadError::FailedToInitHttps,
+                                )
+                            })?;
+                    }
                 }
                 Ok(Self::Ca(ca))
             }
