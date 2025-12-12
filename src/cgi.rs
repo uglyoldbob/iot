@@ -2,8 +2,8 @@
 #![recursion_limit = "512"]
 
 mod ca;
-mod tpm2;
 mod hsm2;
+mod tpm2;
 mod utility;
 mod webserver;
 
@@ -30,8 +30,17 @@ async fn main() {
             return cgi::html_response(500, "Invalid configuration 2");
         }
         let mut password_combined: Option<Vec<u8>> = None;
-        let settings = MainConfiguration::load("./config.ini".into(), "default", contents, &mut password_combined).await;
-        let hsm: Arc<hsm2::SecurityModule> = settings.pki.init_hsm(&"./config.ini".into(), "default", &settings).await;
+        let settings = MainConfiguration::load(
+            "./config.ini".into(),
+            "default",
+            contents,
+            &mut password_combined,
+        )
+        .await;
+        let hsm: Arc<hsm2::SecurityModule> = settings
+            .pki
+            .init_hsm(&"./config.ini".into(), "default", &settings)
+            .await;
         let pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
         let pki = Arc::new(futures_util::lock::Mutex::new(pki));
 
@@ -61,7 +70,13 @@ async fn main() {
 
         let p = crate::webserver::WebPageContext {
             https: true,
-            domain: request.headers().get("host").unwrap().to_str().unwrap().to_string(),
+            domain: request
+                .headers()
+                .get("host")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string(),
             page: request.uri().to_string().into(),
             post: post_data,
             get: get_map,
@@ -74,9 +89,15 @@ async fn main() {
         };
 
         let resp = ca::ca_main_page(p).await;
-        let b = resp.response.into_body().collect().await.unwrap().to_bytes();
+        let b = resp
+            .response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
         let b = b.as_ref();
-        let response : String = String::from_utf8(b.to_vec()).unwrap();
+        let response: String = String::from_utf8(b.to_vec()).unwrap();
         cgi::html_response(200, response)
     })
     .await

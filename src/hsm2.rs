@@ -235,16 +235,15 @@ pub struct Hsm {
 
 /// A software security module
 #[derive(Debug)]
-pub struct Ssm {
-}
+pub struct Ssm {}
 
 impl SecurityModuleTrait for Ssm {
     fn generate_https_keypair(
-            &self,
-            name: &str,
-            method: HttpsSigningMethod,
-            keysize: usize,
-        ) -> Option<KeyPair> {
+        &self,
+        name: &str,
+        method: HttpsSigningMethod,
+        keysize: usize,
+    ) -> Option<KeyPair> {
         todo!()
     }
 

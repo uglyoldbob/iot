@@ -21,9 +21,9 @@ use serde::Serialize;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
-use crate::hsm2::SecurityModuleTrait;
 use crate::hsm2::KeyPairTrait;
 use crate::hsm2::SecurityModule;
+use crate::hsm2::SecurityModuleTrait;
 use crate::main_config::SecurityModuleConfiguration;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;

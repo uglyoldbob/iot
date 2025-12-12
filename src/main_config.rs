@@ -722,17 +722,22 @@ impl MainConfiguration {
     }
 
     /// Load the configuration
-    pub async fn load(config_path: std::path::PathBuf, name: &str, settings_con: Vec<u8>, password_combined: &mut Option<Vec<u8>>) -> Self {
-
+    pub async fn load(
+        config_path: std::path::PathBuf,
+        name: &str,
+        settings_con: Vec<u8>,
+        password_combined: &mut Option<Vec<u8>>,
+    ) -> Self {
         #[cfg(not(feature = "tpm2"))]
         let mut password: Option<String> = None;
 
         #[cfg(not(feature = "tpm2"))]
         if password.is_none() {
             let mut pw = Vec::new();
-            let mut f = tokio::fs::File::open(config_path.join(format!("{}-credentials.bin", name)))
-                .await
-                .unwrap();
+            let mut f =
+                tokio::fs::File::open(config_path.join(format!("{}-credentials.bin", name)))
+                    .await
+                    .unwrap();
             f.read_to_end(&mut pw).await.unwrap();
             let mut pw = String::from_utf8(pw).unwrap();
             loop {
@@ -756,9 +761,10 @@ impl MainConfiguration {
 
             if let Some(tpm2) = &mut tpm2 {
                 let mut tpm_data = Vec::new();
-                let mut f = tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
-                    .await
-                    .unwrap();
+                let mut f =
+                    tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
+                        .await
+                        .unwrap();
                 f.read_to_end(&mut tpm_data).await.unwrap();
 
                 let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);

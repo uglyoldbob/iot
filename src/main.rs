@@ -188,11 +188,18 @@ async fn smain() {
     f.read_to_end(&mut settings_con).await.unwrap();
 
     let mut password_combined: Option<Vec<u8>> = None;
-    let settings: MainConfiguration = MainConfiguration::load(config_path.clone(), &name, settings_con, &mut password_combined).await;
+    let settings: MainConfiguration = MainConfiguration::load(
+        config_path.clone(),
+        &name,
+        settings_con,
+        &mut password_combined,
+    )
+    .await;
 
     settings.pki.set_log_level();
 
-    let hsm: Arc<hsm2::SecurityModule> = settings.pki.init_hsm(&config_path, &name, &settings).await;
+    let hsm: Arc<hsm2::SecurityModule> =
+        settings.pki.init_hsm(&config_path, &name, &settings).await;
 
     hsm.list_certificates();
 
@@ -222,9 +229,13 @@ async fn smain() {
             if let Ok(mut f) = tokio::fs::File::open(&pb).await {
                 service::log::debug!("Opening extra config {}", pb.display());
                 f.read_to_end(&mut contents).await.unwrap();
-                let ec =
-                    main_config::do_tpm2_operation(password_combined.as_ref(), contents, &config_path, &name)
-                        .await;
+                let ec = main_config::do_tpm2_operation(
+                    password_combined.as_ref(),
+                    contents,
+                    &config_path,
+                    &name,
+                )
+                .await;
                 extra_configs.push(ec);
                 i += 1;
             } else {
