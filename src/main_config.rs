@@ -429,6 +429,14 @@ impl Default for SecurityModuleConfiguration {
     }
 }
 
+/// The configuration details specific for cgi configuration
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, userprompt::Prompting,
+    userprompt::EguiPrompting,)]
+pub struct CgiConfiguration {
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+}
+
 /// The server configuration of the application
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ServerConfiguration {

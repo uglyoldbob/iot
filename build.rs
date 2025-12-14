@@ -18,18 +18,19 @@ fn main() {
             .arg("--target")
             .arg("no-modules")
             .current_dir("./certgen")
-            .output()
-            .unwrap();
-        if !wasm_build.status.success() {
-            println!(
-                "WASM build failed {}",
-                String::from_utf8(wasm_build.stdout).unwrap()
-            );
-            eprintln!(
-                "WASM build failed {}",
-                String::from_utf8(wasm_build.stderr).unwrap()
-            );
-            //panic!("build failed");
+            .output();
+        if let Ok(wasm_build) = wasm_build {
+            if !wasm_build.status.success() {
+                println!(
+                    "WASM build failed {}",
+                    String::from_utf8(wasm_build.stdout).unwrap()
+                );
+                eprintln!(
+                    "WASM build failed {}",
+                    String::from_utf8(wasm_build.stderr).unwrap()
+                );
+                //panic!("build failed");
+            }
         }
     }
 

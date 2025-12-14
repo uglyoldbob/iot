@@ -198,6 +198,8 @@ impl From<CertificateTypeAnswers> for CertificateType {
 pub struct StandaloneCaConfiguration {
     /// The settings specified to run the ca service
     pub service: Option<crate::main_config::ServerConfiguration>,
+    /// The cgi details, if applicable
+    pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// security module configuration
     pub security_module: SecurityModuleConfiguration,
     /// The signing method for the certificate authority
@@ -228,6 +230,7 @@ impl StandaloneCaConfiguration {
     /// Build a Self using answers and the containing pki_name, which must be blank or end with /
     fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
+            cgi: value.cgi.clone(),
             service: value.service.clone().map(|a| a.into()),
             security_module: value.hsm_config.clone(),
             sign_method: value.sign_method,
@@ -255,27 +258,42 @@ impl StandaloneCaConfiguration {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let san: Vec<String> = self
-            .service
-            .public_names
-            .iter()
-            .map(|n| n.domain.clone())
-            .collect();
+        let public_names = if let Some(service) = &self.service {
+            &service.public_names
+        } else if let Some(cgi) = &self.cgi {
+            &cgi.public_names
+        } else {
+            panic!("No service configuration - no server configuration, no cgi configuration");
+        };
+        let san: Vec<String> = public_names.iter().map(|n| n.domain.clone()).collect();
         let http_port = self
             .service
-            .proxy_config
-            .as_ref()
-            .and_then(|a| a.http_port)
-            .or_else(|| settings.get_http_port());
+            .map(|service| {
+                service
+                    .proxy_config
+                    .as_ref()
+                    .and_then(|a| a.http_port)
+                    .or_else(|| settings.get_http_port())
+            })
+            .unwrap_or(None);
         let https_port = self
             .service
-            .proxy_config
-            .as_ref()
-            .and_then(|a| a.https_port)
-            .or_else(|| settings.get_https_port());
-        let proxy = if !self.service.public_names.is_empty() {
-            Some(self.service.public_names[0].subdomain.to_owned())
+            .map(|service| {
+                service
+                    .proxy_config
+                    .as_ref()
+                    .and_then(|a| a.https_port)
+                    .or_else(|| settings.get_https_port())
+            })
+            .unwrap_or(None);
+        let proxy = if let Some(service) = &self.service {
+            if !service.public_names.is_empty() {
+                Some(service.public_names[0].subdomain.to_owned())
+            } else {
+                None
+            }
         } else {
+            // For now, cgi configurations don't do proxy
             None
         };
         let (http, https) = match &settings.pki {
@@ -284,21 +302,21 @@ impl StandaloneCaConfiguration {
                 pki_configuration.service.https.clone(),
             ),
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => (None, None),
-            PkiConfigurationEnum::Ca(standalone_ca_configuration) => (
-                standalone_ca_configuration.service.http.clone(),
-                standalone_ca_configuration.service.https.clone(),
-            ),
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration
+                .service
+                .map(|service| (service.http.clone(), service.https.clone()))
+                .unwrap_or((None, None)),
         };
         let service = match &settings.pki {
-            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service,
+            PkiConfigurationEnum::Pki(pki_configuration) => Some(&pki_configuration.service),
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => unimplemented!(),
             PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                &standalone_ca_configuration.service
+                standalone_ca_configuration.service.as_ref()
             }
         };
         CaConfiguration {
-            public_names: service.public_names.clone(),
-            database: service.database.clone(),
+            public_names: public_names.clone(),
+            database: service.map(|s| s.database.clone()).flatten(),
             http,
             https,
             general: settings.pki.get_general_settings(),
@@ -316,9 +334,9 @@ impl StandaloneCaConfiguration {
             https_port,
             proxy,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
-            debug_level: service.debug_level.clone(),
-            security_config: Some(service.security_module.clone()),
-            tpm2_required: Some(service.tpm2_required),
+            debug_level: service.map(|s| s.debug_level.clone()).flatten(),
+            security_config: Some(self.security_module.clone()),
+            tpm2_required: service.map(|s| s.tpm2_required),
         }
     }
 }
@@ -333,6 +351,8 @@ impl StandaloneCaConfiguration {
     serde::Serialize,
 )]
 pub struct StandaloneCaConfigurationAnswers {
+    /// The cgi details, if applicable
+    pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// The settings specified to run the ca service
     #[PromptComment = "Settings for the service"]
     pub service: Option<crate::main_config::ServerConfigurationAnswers>,
