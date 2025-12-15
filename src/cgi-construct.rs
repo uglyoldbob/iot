@@ -101,7 +101,7 @@ async fn main() {
 
                 html.body(|b| {
                     b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML STRING {:#?}<br />\n", toml::to_string(&toml)));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -127,7 +127,7 @@ async fn main() {
                 html.body(|b| {
                     b.text(format!("{:#?}<br />\n", request));
                     b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML STRING {:#?}<br />\n", toml::to_string(&toml)));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
                     b.text(format!("GET IS {:#?}<br />\n", get_map));
                     b.text(format!("POST IS {:#?}<br />\n", post_map));
