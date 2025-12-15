@@ -42,7 +42,7 @@ rsa = "0.9.6"
 rustls-pki-types = "1.4.1"
 scrypt = "0.11.0"
 sha1 = "0.10.6"
-pcsc = "2.7.2"
+pcsc = { version = "2.7.2", optional = true }
 sha2 = "^0.10"
 sha256 = "1.5.0"
 simple_logger = "5.0.0"
@@ -63,6 +63,7 @@ futures-util = "0.3.31"
 
 [dependencies.card]
 git = "https://github.com/uglyoldbob/smartcard.git"
+optional = true
 
 [dependencies.cert-common]
 version = "0.2.1"
@@ -168,10 +169,9 @@ predicates = "3.1"
 serial_test = "3.0"
 
 [features]
-default = ["tpm2"]
+default = []
 tpm2 = [ "dep:tss-esapi" ]
-
-
+smartcard = [ "dep:pcsc", "dep:card" ]
 
 [[bin]]
 name = "rust-iot"
@@ -200,6 +200,7 @@ path = "src/destroy.rs"
 [[bin]]
 name = "smartcard-gui"
 path = "src/smartcard-gui.rs"
+required-features = ["smartcard"]
 
 #[patch."https://github.com/uglyoldbob/smartcard.git"]
 #card = { path = "../smartcard" }

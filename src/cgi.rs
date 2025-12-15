@@ -26,7 +26,7 @@ use crate::webserver::PostContent;
 #[tokio::main]
 async fn main() {
     cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
-        let config = std::fs::File::open("./config.ini");
+        let config = std::fs::File::open("./config.bin");
         if config.is_err() {
             return cgi::html_response(500, "Invalid configuration 1");
         }
