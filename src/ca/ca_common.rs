@@ -198,6 +198,8 @@ impl From<CertificateTypeAnswers> for CertificateType {
 pub struct StandaloneCaConfiguration {
     /// The settings specified to run the ca service
     pub service: Option<crate::main_config::ServerConfiguration>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
     /// The cgi details, if applicable
     pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// security module configuration
@@ -224,12 +226,31 @@ pub struct StandaloneCaConfiguration {
     pub name: String,
     /// The pki name to use, must be blank or end with /
     pub pki_name: String,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
 }
 
 impl StandaloneCaConfiguration {
+    /// Set the log level
+    pub fn set_log_level(&self) {
+        service::log::set_max_level(
+            self.debug_level
+                .as_ref()
+                .unwrap_or(&service::LogLevel::Trace)
+                .level_filter(),
+        );
+    }
+
     /// Build a Self using answers and the containing pki_name, which must be blank or end with /
     fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
+            proxy_config: value.proxy_config.clone(),
+            debug_level: Some(value.debug_level.clone()),
             cgi: value.cgi.clone(),
             service: value.service.clone().map(|a| a.into()),
             security_module: value.hsm_config.clone(),
@@ -244,6 +265,8 @@ impl StandaloneCaConfiguration {
             ocsp_signature: value.ocsp_signature,
             name: value.name.clone(),
             pki_name: pki_name.clone(),
+            public_names: value.public_names.clone(),
+            tpm2_required: value.tpm2_required,
         }
     }
 }
@@ -258,42 +281,13 @@ impl StandaloneCaConfiguration {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let public_names = if let Some(service) = &self.service {
-            &service.public_names
-        } else if let Some(cgi) = &self.cgi {
-            &cgi.public_names
-        } else {
-            panic!("No service configuration - no server configuration, no cgi configuration");
-        };
+        let public_names = &self.public_names;
         let san: Vec<String> = public_names.iter().map(|n| n.domain.clone()).collect();
-        let http_port = self
-            .service
-            .map(|service| {
-                service
-                    .proxy_config
-                    .as_ref()
-                    .and_then(|a| a.http_port)
-                    .or_else(|| settings.get_http_port())
-            })
-            .unwrap_or(None);
-        let https_port = self
-            .service
-            .map(|service| {
-                service
-                    .proxy_config
-                    .as_ref()
-                    .and_then(|a| a.https_port)
-                    .or_else(|| settings.get_https_port())
-            })
-            .unwrap_or(None);
-        let proxy = if let Some(service) = &self.service {
-            if !service.public_names.is_empty() {
-                Some(service.public_names[0].subdomain.to_owned())
-            } else {
-                None
-            }
+        let http_port = self.proxy_config.as_ref().map(|pc| pc.http_port).flatten();
+        let https_port = self.proxy_config.as_ref().map(|pc| pc.https_port).flatten();
+        let proxy = if !public_names.is_empty() {
+            Some(public_names[0].subdomain.to_owned())
         } else {
-            // For now, cgi configurations don't do proxy
             None
         };
         let (http, https) = match &settings.pki {
@@ -304,6 +298,7 @@ impl StandaloneCaConfiguration {
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => (None, None),
             PkiConfigurationEnum::Ca(standalone_ca_configuration) => standalone_ca_configuration
                 .service
+                .as_ref()
                 .map(|service| (service.http.clone(), service.https.clone()))
                 .unwrap_or((None, None)),
         };
@@ -334,9 +329,9 @@ impl StandaloneCaConfiguration {
             https_port,
             proxy,
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
-            debug_level: service.map(|s| s.debug_level.clone()).flatten(),
+            debug_level: self.debug_level.clone(),
             security_config: Some(self.security_module.clone()),
-            tpm2_required: service.map(|s| s.tpm2_required),
+            tpm2_required: Some(self.tpm2_required),
         }
     }
 }
@@ -351,6 +346,9 @@ impl StandaloneCaConfiguration {
     serde::Serialize,
 )]
 pub struct StandaloneCaConfigurationAnswers {
+    #[PromptComment = "The security module configuration"]
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
     /// The cgi details, if applicable
     pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// The settings specified to run the ca service
@@ -420,6 +418,15 @@ impl StandaloneCaConfigurationAnswers {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            security_module: SecurityModuleConfiguration::default(),
+            cgi: None,
+            client_certs: None,
+            database: None,
+            hsm_config: Default::default(),
+            public_names: Vec::new(),
+            proxy_config: None,
+            debug_level: service::LogLevel::Warning,
+            tpm2_required: false,
             service: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
@@ -437,6 +444,7 @@ impl StandaloneCaConfigurationAnswers {
     /// Convert to a local ca configuration
     pub fn to_local(&self) -> LocalCaConfigurationAnswers {
         LocalCaConfigurationAnswers {
+            security_module: self.security_module.clone(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -452,6 +460,7 @@ impl StandaloneCaConfigurationAnswers {
     ///Get a Caconfiguration for editing
     pub fn get_editable_ca(&self) -> CaConfigurationAnswers {
         CaConfigurationAnswers {
+            security_module: self.security_module.clone(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -478,25 +487,19 @@ impl StandaloneCaConfigurationAnswers {
         if !full_name.ends_with('/') && !full_name.is_empty() {
             full_name.push('/');
         }
-        let san: Vec<String> = self
-            .service
-            .public_names
-            .iter()
-            .map(|n| n.domain.clone())
-            .collect();
+        let san: Vec<String> = self.public_names.iter().map(|n| n.domain.clone()).collect();
         let http_port = self
-            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.http_port)
             .or_else(|| settings.get_http_port());
         let https_port = self
-            .service
             .proxy_config
             .as_ref()
             .and_then(|a| a.https_port)
             .or_else(|| settings.get_https_port());
         CaConfigurationAnswers {
+            security_module: self.security_module.clone(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -509,7 +512,7 @@ impl StandaloneCaConfigurationAnswers {
             ocsp_signature: self.ocsp_signature,
             http_port,
             https_port,
-            proxy: Some(self.service.public_names[0].subdomain.to_owned()),
+            proxy: Some(self.public_names[0].subdomain.to_owned()),
             pki_name: Some(format!("pki/{}", full_name)),
         }
     }
@@ -525,6 +528,9 @@ impl StandaloneCaConfigurationAnswers {
     serde::Serialize,
 )]
 pub struct LocalCaConfigurationAnswers {
+    #[PromptComment = "The security module configuration"]
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
     #[PromptComment = "The signing method used by the authority"]
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
@@ -564,6 +570,7 @@ impl LocalCaConfigurationAnswers {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            security_module: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
             path: CaCertificateStorageBuilder::Nowhere,
             inferior_to: None,
@@ -579,6 +586,7 @@ impl LocalCaConfigurationAnswers {
     /// Convert into a LocalCaConfiguration
     pub fn into_local_config(self) -> LocalCaConfiguration {
         LocalCaConfiguration {
+            security_module: self.security_module,
             sign_method: self.sign_method,
             path: self.path,
             inferior_to: self.inferior_to,
@@ -597,6 +605,7 @@ impl LocalCaConfigurationAnswers {
     ///Get a Caconfiguration for editing
     pub fn get_editable_ca(&self) -> CaConfigurationAnswers {
         CaConfigurationAnswers {
+            security_module: self.security_module.clone(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -656,6 +665,7 @@ pub struct LocalCaConfiguration {
 impl LocalCaConfigurationAnswers {
     fn into_config(self, pki_config: &PkiConfigurationAnswers) -> LocalCaConfiguration {
         LocalCaConfiguration {
+            security_module: self.security_module,
             sign_method: self.sign_method,
             path: self.path,
             inferior_to: self.inferior_to,
@@ -813,6 +823,8 @@ pub struct CaConfigurationAnswers {
     pub proxy: Option<String>,
     /// The pki name for the authority, used when operating a pki
     pub pki_name: Option<String>,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
 }
 
 impl Default for CaConfigurationAnswers {
@@ -825,6 +837,7 @@ impl CaConfigurationAnswers {
     /// Get a local ca configuration
     pub fn get_local(&self) -> LocalCaConfigurationAnswers {
         LocalCaConfigurationAnswers {
+            security_module: self.security_module.clone(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -863,6 +876,7 @@ impl CaConfigurationAnswers {
             https_port: None,
             proxy: None,
             pki_name: None,
+            security_module: SecurityModuleConfiguration::default(),
         }
     }
 }
@@ -2138,6 +2152,17 @@ pub struct PkiConfigurationAnswers {
     #[PromptComment = "The name to use for the pki"]
     /// The name to use for the pki
     pub pki_name: String,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
 }
 
 /// The configuration of a general pki instance.
@@ -2145,8 +2170,6 @@ pub struct PkiConfigurationAnswers {
 pub struct PkiConfiguration {
     /// The settings specified to run the pki service
     pub service: crate::main_config::ServerConfiguration,
-    /// security module configuration
-    pub security_module: SecurityModuleConfiguration,
     /// List of local ca
     pub local_ca: std::collections::HashMap<String, LocalCaConfiguration>,
     /// List of remote ca
@@ -2155,6 +2178,29 @@ pub struct PkiConfiguration {
     pub super_admin: Option<String>,
     /// The name to use for the pki
     pub pki_name: String,
+    /// security module configuration
+    pub security_module: SecurityModuleConfiguration,
+    /// Is tpm2 hardware required to setup the pki?
+    #[cfg(feature = "tpm2")]
+    pub tpm2_required: bool,
+    /// The public name of the service, contains example.com/asdf for the example
+    pub public_names: Vec<ComplexName>,
+    /// The desired minimum debug level
+    pub debug_level: Option<service::LogLevel>,
+    /// The optional proxy configuration
+    pub proxy_config: Option<ProxyConfig>,
+}
+
+impl PkiConfiguration {
+    /// Set the log level
+    pub fn set_log_level(&self) {
+        service::log::set_max_level(
+            self.debug_level
+                .as_ref()
+                .unwrap_or(&service::LogLevel::Trace)
+                .level_filter(),
+        );
+    }
 }
 
 impl From<PkiConfigurationAnswers> for PkiConfiguration {
@@ -2168,11 +2214,16 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             })
             .collect();
         Self {
+            proxy_config: value.proxy_config,
             local_ca: map2,
             service: value.service.into(),
             super_admin: value.super_admin.clone(),
             pki_name: value.pki_name.clone(),
             remote_ca: HashMap::new(),
+            debug_level: value.debug_level,
+            public_names: value.public_names.clone(),
+            security_module: value.security_module.clone(),
+            tpm2_required: value.tpm2_required,
         }
     }
 }
@@ -2216,10 +2267,15 @@ impl PkiConfigurationEnumAnswers {
     /// Construct a new ca, defaulting to a Pki configuration
     pub fn new() -> Self {
         Self::Pki(PkiConfigurationAnswers {
+            proxy_config: None,
             service: Default::default(),
             local_ca: Default::default(),
             super_admin: Default::default(),
             pki_name: Default::default(),
+            debug_level: None,
+            public_names: Vec::new(),
+            security_module: SecurityModuleConfiguration::default(),
+            tpm2_required: false,
         })
     }
 
@@ -2228,7 +2284,7 @@ impl PkiConfigurationEnumAnswers {
             PkiConfigurationEnumAnswers::Pki(config) => Some(config.service.username.clone()),
             PkiConfigurationEnumAnswers::AddedCa(config) => None,
             PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
-                Some(config.service.username.clone())
+                config.service.as_ref().map(|s| s.username.clone())
             }
         }
     }
@@ -2395,8 +2451,8 @@ impl PkiConfigurationEnum {
     pub fn set_log_level(&self) {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => {}
-            PkiConfigurationEnum::Pki(pki) => pki.service.set_log_level(),
-            PkiConfigurationEnum::Ca(config) => config.service.set_log_level(),
+            PkiConfigurationEnum::Pki(pki) => pki.set_log_level(),
+            PkiConfigurationEnum::Ca(config) => config.set_log_level(),
         }
     }
 
@@ -2405,7 +2461,11 @@ impl PkiConfigurationEnum {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => None,
             PkiConfigurationEnum::Pki(pki) => pki.service.http.as_ref().map(|a| a.port),
-            PkiConfigurationEnum::Ca(config) => config.service.http.as_ref().map(|a| a.port),
+            PkiConfigurationEnum::Ca(config) => config
+                .service
+                .as_ref()
+                .map(|service| service.http.as_ref().map(|a| a.port))
+                .flatten(),
         }
     }
 
@@ -2414,7 +2474,11 @@ impl PkiConfigurationEnum {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => None,
             PkiConfigurationEnum::Pki(pki) => pki.service.https.as_ref().map(|a| a.port),
-            PkiConfigurationEnum::Ca(config) => config.service.https.as_ref().map(|a| a.port),
+            PkiConfigurationEnum::Ca(config) => config
+                .service
+                .as_ref()
+                .map(|service| service.https.as_ref().map(|a| a.port))
+                .flatten(),
         }
     }
 
@@ -2423,7 +2487,10 @@ impl PkiConfigurationEnum {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => None,
             PkiConfigurationEnum::Pki(pki) => Some(pki.service.general.clone()),
-            PkiConfigurationEnum::Ca(config) => Some(config.service.general.clone()),
+            PkiConfigurationEnum::Ca(config) => config
+                .service
+                .as_ref()
+                .map(|service| service.general.clone()),
         }
     }
 
@@ -2444,7 +2511,10 @@ impl PkiConfigurationEnum {
         match self {
             Self::AddedCa(_) => None,
             Self::Pki(pki) => Some(pki.service.general.static_content.to_owned()),
-            Self::Ca(ca) => Some(ca.service.general.static_content.to_owned()),
+            Self::Ca(ca) => ca
+                .service
+                .as_ref()
+                .map(|service| service.general.static_content.to_owned()),
         }
     }
 
@@ -2481,22 +2551,26 @@ impl PkiConfigurationEnum {
         let http = match self {
             PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.http,
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
-            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                &standalone_ca_configuration.service.http
-            }
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => &standalone_ca_configuration
+                .service
+                .as_ref()
+                .map(|service| service.http.clone())
+                .flatten(),
         };
         let https = match self {
             PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.https,
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
-            PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                &standalone_ca_configuration.service.https
-            }
+            PkiConfigurationEnum::Ca(standalone_ca_configuration) => &standalone_ca_configuration
+                .service
+                .as_ref()
+                .map(|service| service.https.clone())
+                .flatten(),
         };
         let public_names = match self {
-            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.public_names,
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.public_names,
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => &Vec::new(),
             PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                &standalone_ca_configuration.service.public_names
+                &standalone_ca_configuration.public_names
             }
         };
         if let Some(http_port) = proxy.http_port {
@@ -2580,10 +2654,10 @@ impl PkiConfigurationEnum {
     /// Build a example config for reverse proxy if applicable
     pub fn reverse_proxy(&self, config: &MainConfiguration) -> Option<String> {
         let proxy_config = match self {
-            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.service.proxy_config,
+            PkiConfigurationEnum::Pki(pki_configuration) => &pki_configuration.proxy_config,
             PkiConfigurationEnum::AddedCa(local_ca_configuration) => &None,
             PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                &standalone_ca_configuration.service.proxy_config
+                &standalone_ca_configuration.proxy_config
             }
         };
         if let Some(proxy) = &proxy_config {
@@ -2763,10 +2837,10 @@ impl Pki {
             }
         }
         Ok(Self {
-            debug_level: settings.service.debug_level.clone(),
+            debug_level: settings.debug_level.clone(),
             security_module: settings.security_module.clone(),
-            tpm2_required: settings.service.tpm2_required,
-            public_names: settings.service.public_names.clone(),
+            tpm2_required: settings.tpm2_required,
+            public_names: settings.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
@@ -2876,10 +2950,10 @@ impl Pki {
         }
         service::log::info!("Adding admin certificate for inferior certificates done");
         Ok(Self {
-            debug_level: settings.service.debug_level.clone(),
+            debug_level: settings.debug_level.clone(),
             security_module: settings.security_module.clone(),
-            tpm2_required: settings.service.tpm2_required,
-            public_names: settings.service.public_names.clone(),
+            tpm2_required: settings.tpm2_required,
+            public_names: settings.public_names.clone(),
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),

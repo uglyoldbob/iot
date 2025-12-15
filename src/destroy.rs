@@ -205,7 +205,7 @@ async fn main() {
             }
         }
         ca::PkiConfigurationEnum::Ca(ca) => {
-            ca.service.destroy();
+            ca.service.as_mut().map(|c| c.destroy());
             let ca = ca.get_ca(&settings);
             ca.destroy_backend().await;
         }

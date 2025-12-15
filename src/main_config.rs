@@ -430,8 +430,15 @@ impl Default for SecurityModuleConfiguration {
 }
 
 /// The configuration details specific for cgi configuration
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize, userprompt::Prompting,
-    userprompt::EguiPrompting,)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Deserialize,
+    serde::Serialize,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+)]
 pub struct CgiConfiguration {
     /// The public name of the service, contains example.com/asdf for the example
     pub public_names: Vec<ComplexName>,
@@ -448,29 +455,6 @@ pub struct ServerConfiguration {
     pub https: Option<HttpsSettings>,
     /// Settings for the database
     pub database: Option<DatabaseSettings>,
-    /// The public name of the service, contains example.com/asdf for the example
-    pub public_names: Vec<ComplexName>,
-    /// The optional proxy configuration
-    pub proxy_config: Option<ProxyConfig>,
-    /// Settings for client certificates
-    pub client_certs: Option<Vec<std::path::PathBuf>>,
-    /// The desired minimum debug level
-    pub debug_level: Option<service::LogLevel>,
-    /// Is tpm2 hardware required to setup the pki?
-    #[cfg(feature = "tpm2")]
-    pub tpm2_required: bool,
-}
-
-impl ServerConfiguration {
-    /// Set the log level
-    pub fn set_log_level(&self) {
-        service::log::set_max_level(
-            self.debug_level
-                .as_ref()
-                .unwrap_or(&service::LogLevel::Trace)
-                .level_filter(),
-        );
-    }
 }
 
 /// The server configuration of the application
@@ -499,6 +483,9 @@ pub struct ServerConfigurationAnswers {
     #[PromptComment = "Optional settings for the https service"]
     /// Settings for the https server
     pub https: Option<HttpsSettingsAnswers>,
+    #[PromptComment = "The optional settings for the mysql database"]
+    /// Settings for the database
+    pub database: Option<DatabaseSettings>,
 }
 
 impl ServerConfiguration {
@@ -546,14 +533,6 @@ impl From<ServerConfigurationAnswers> for ServerConfiguration {
             http: value.http.into(),
             https: value.https.map(|a| a.into()),
             database: value.database,
-            public_names: value.public_names,
-            proxy_config: value.proxy_config,
-            client_certs: value
-                .client_certs
-                .map(|a| a.iter().map(|b| b.to_path_buf()).collect()),
-            debug_level: Some(value.debug_level),
-            tpm2_required: value.tpm2_required,
-            security_module: todo!(),
             /*hsm_path_override: value.hsm_path_override,
             hsm_pin: crate::utility::generate_password(32),
             hsm_pin2: crate::utility::generate_password(32),
@@ -700,11 +679,11 @@ impl MainConfiguration {
     pub fn tpm2_required(&self) -> bool {
         match &self.pki {
             crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
-                pki_configuration.service.tpm2_required
+                pki_configuration.tpm2_required
             }
             crate::ca::PkiConfigurationEnum::AddedCa(local_ca_configuration) => false,
             crate::ca::PkiConfigurationEnum::Ca(standalone_ca_configuration) => {
-                standalone_ca_configuration.service.tpm2_required
+                standalone_ca_configuration.tpm2_required
             }
         }
     }
