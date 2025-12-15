@@ -14,7 +14,10 @@ mod utility;
 mod webserver;
 
 mod main_config;
-use crate::ca::{CaCertificateStorageBuilder, ProxyConfig};
+use crate::ca::{
+    CaCertificateStorageBuilder, CaCertificateStorageBuilderAnswers, CertificateTypeAnswers,
+    ProxyConfig,
+};
 use cert_common::{CertificateSigningMethod, HttpsSigningMethod, SshSigningMethod};
 pub use main_config::{DatabaseSettings, MainConfiguration, SecurityModuleConfiguration};
 
@@ -57,6 +60,9 @@ enum BuildStep {
     ApplySshSigningMethod,
     GetCertStoragePath,
     ApplyCertStoragePath,
+    GetRemainingOptions,
+    ApplyRemainingOptions,
+    Finalize,
 }
 
 #[tokio::main]
@@ -468,7 +474,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("step")
-                                .value(format!("{}", BuildStep::ApplyPublicNames as usize))
+                                .value(format!("{}", BuildStep::ApplyDatabaseConfig as usize))
                         });
                         f.text("Database username");
                         f.line_break(|a| a);
@@ -552,7 +558,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("step")
-                                .value(format!("{}", BuildStep::ApplyPublicNames as usize))
+                                .value(format!("{}", BuildStep::ApplyProxyConfig as usize))
                         });
                         f.text("Proxy: http port (blank if not applicable)");
                         f.line_break(|a| a);
@@ -658,9 +664,7 @@ async fn main() {
                 });
             }
             BuildStep::ApplyTpm2Config => {
-                let Some(tpm2_required) = post_map.get("tpm2_required") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
+                let tpm2_required = post_map.get("tpm2_required").map(|a|a.to_string()).unwrap_or("off".to_string());
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
                     config.tpm2_required = match tpm2_required.as_str() {
                         "on" => true,
@@ -919,7 +923,228 @@ async fn main() {
                     return cgi::html_response(500, "Missing argument");
                 };
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
-                    config.path = CaCertificateStorageBuilder::Sqlite(todo!());
+                    config.path = CaCertificateStorageBuilderAnswers::Sqlite(
+                        std::path::PathBuf::from(cert_path).into(),
+                    );
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("Applied certificate path settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetRemainingOptions as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetRemainingOptions => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Configure the authority");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyRemainingOptions as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text("Common Name");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("common_name"));
+                        f.line_break(|a| a);
+                        f.text("Length in days");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("length_days"));
+                        f.line_break(|a| a);
+                        f.text("Maximum chain length");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("max_chain_length"));
+                        f.line_break(|a| a);
+                        f.text("Admin access password - used to access the admin certificate");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_access_password").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin access password again");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_access_password2").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin password");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_password").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin password again");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_password2").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("OCSP signature required?");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("ocsp_signature").type_("checkbox"));
+                        f.line_break(|a| a);
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyRemainingOptions => {
+                let Some(common_name) = post_map.get("common_name") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(length_days) = post_map.get("length_days") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Ok(length_days) = length_days.parse::<u32>() else {
+                    return cgi::html_response(500, "Invalid number of days");
+                };
+                let Some(max_chain_length) = post_map.get("max_chain_length") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Ok(max_chain_length) = max_chain_length.parse::<u8>() else {
+                    return cgi::html_response(500, "Invalid maximum chain length");
+                };
+                let Some(admin_access_password) = post_map.get("admin_access_password") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_access_password2) = post_map.get("admin_access_password2") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_password) = post_map.get("admin_password") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_password2) = post_map.get("admin_password2") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let ocsp_signature = post_map.get("ocsp_signature").map(|a|a.to_string()).unwrap_or("off".to_string());
+                if admin_access_password != admin_access_password2 {
+                    return cgi::html_response(500, "Admin access passwords do not match");
+                }
+                if admin_password != admin_password2 {
+                    return cgi::html_response(500, "Admin passwords do not match");
+                }
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.common_name = common_name.clone();
+                    config.days = length_days;
+                    config.chain_length = max_chain_length;
+                    config.ocsp_signature = match ocsp_signature.as_str() {
+                        "on" => true,
+                        _ => false,
+                    };
+                    config.admin_access_password =
+                        userprompt::Password2::new(admin_access_password.clone());
+                    config.admin_cert = CertificateTypeAnswers::Soft {
+                        password: userprompt::Password2::new(admin_password.clone()),
+                    };
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("Applied remaining settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::Finalize as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Finish"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::Finalize => {
+                let main_config = MainConfiguration::provide_answers(&toml);
+                let config_data = toml::to_string(&main_config).unwrap();
+                #[cfg(feature = "tpm2")]
+                let (pw, econfig) = {
+                    #[cfg(feature = "tpm2")]
+                    let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+                    let (pw, econfig) = if let Some(tpm2) = &mut tpm2 {
+                        let password2: [u8; 32] = rand::random();
+
+                        let protected_password = tpm2::Password::build(
+                            &password2,
+                            std::num::NonZeroU32::new(2048).unwrap(),
+                        );
+
+                        let password_combined = protected_password.password();
+
+                        let econfig: Vec<u8> =
+                            tpm2::encrypt(config_data.as_bytes(), password_combined);
+
+                        let epdata = protected_password.data();
+                        let tpmblob: tpm2::TpmBlob = tpm2.encrypt(&epdata).unwrap();
+
+                        (tpmblob.data(), econfig)
+                    } else {
+                        service::log::error!("TPM2 NOT DETECTED!!!");
+                        if main_config.tpm2_required() {
+                            return cgi::html_response(
+                                500,
+                                "TPM2 not detected and i was told to require it",
+                            );
+                        }
+                        let (pw, config_encrypted) =
+                            main_config::do_encryption_without_tpm2(config_data, "default").await;
+                        (pw, config_encrypted)
+                    };
+
+                    (pw, econfig)
+                };
+                #[cfg(not(feature = "tpm2"))]
+                let (pw, econfig) = {
+                    let (pw, config_encrypted) =
+                        main_config::do_encryption_without_tpm2(config_data, "default").await;
+                    (pw, config_encrypted)
+                };
+                use std::io::Write;
+                let mut zip_contents2 = Vec::new();
+                let mut zip_contents = std::io::Cursor::new(&mut zip_contents2);
+                let mut zip = zip::ZipWriter::new(&mut zip_contents);
+                zip.start_file(
+                    "password.bin",
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored)
+                        .unix_permissions(0o600),
+                );
+                zip.write_all(&pw);
+                zip.start_file(
+                    "config.bin",
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored)
+                        .unix_permissions(0o600),
+                );
+                zip.write_all(&econfig);
+                if let Ok(a) = zip.finish() {
+                    return cgi::binary_response(200, "application/zip", zip_contents2);
+                } else {
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("FAILED creating settings");
+                        b.line_break(|lb| lb);
+                        b
+                    });
                 }
             }
         }

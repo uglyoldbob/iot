@@ -617,8 +617,24 @@ pub struct MainConfiguration {
     pub pki: crate::ca::PkiConfigurationEnum,
 }
 
+/// Perform the encryption without the tpm2 hardware
+pub async fn do_encryption_without_tpm2(config_data: String, name: &str) -> (Vec<u8>, Vec<u8>) {
+    let password = {
+        let s: String =
+            rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
+                .take(32)
+                .map(char::from)
+                .collect();
+        s
+    };
+
+    let password_combined = password.as_bytes();
+    let encrypted_config = tpm2::encrypt(config_data.as_bytes(), password_combined);
+    (password_combined.to_vec(), encrypted_config)
+}
+
 /// Perform the decryption without the tpm2 hardware
-pub async fn do_without_tpm2<T: serde::de::DeserializeOwned>(
+pub async fn do_decryption_without_tpm2<T: serde::de::DeserializeOwned>(
     settings_con: Vec<u8>,
     config_path: &std::path::PathBuf,
     name: &str,
@@ -671,7 +687,7 @@ pub async fn do_without_tpm2<T: serde::de::DeserializeOwned>(
 }
 
 /// Perform the tpm2 operation to deserialize/decrypt the contents
-pub async fn do_tpm2_operation<T: serde::de::DeserializeOwned>(
+pub async fn do_tpm2_decryption<T: serde::de::DeserializeOwned>(
     password_combined: Option<&Vec<u8>>,
     contents: Vec<u8>,
     config_path: &std::path::PathBuf,
@@ -692,15 +708,15 @@ pub async fn do_tpm2_operation<T: serde::de::DeserializeOwned>(
                 }
                 settings = settings2.unwrap();
             } else {
-                settings = do_without_tpm2(contents, config_path, name).await;
+                settings = do_decryption_without_tpm2(contents, config_path, name).await;
             }
         } else {
-            settings = do_without_tpm2(contents, config_path, name).await;
+            settings = do_decryption_without_tpm2(contents, config_path, name).await;
         }
     }
     #[cfg(not(feature = "tpm2"))]
     {
-        settings = do_without_tpm2(contents, config_path, name).await;
+        settings = do_decryption_without_tpm2(contents, config_path, name).await;
     }
     settings
 }
@@ -773,7 +789,7 @@ impl MainConfiguration {
             }
         }
 
-        do_tpm2_operation(
+        do_tpm2_decryption(
             password_combined.as_ref(),
             settings_con,
             &config_path,

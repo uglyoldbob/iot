@@ -229,7 +229,7 @@ async fn smain() {
             if let Ok(mut f) = tokio::fs::File::open(&pb).await {
                 service::log::debug!("Opening extra config {}", pb.display());
                 f.read_to_end(&mut contents).await.unwrap();
-                let ec = main_config::do_tpm2_operation(
+                let ec = main_config::do_tpm2_decryption(
                     password_combined.as_ref(),
                     contents,
                     &config_path,

@@ -399,33 +399,6 @@ library.reset_on_fork = false
         }
         let mut f = tokio::fs::File::create(config_file).await.unwrap();
 
-        let do_without_tpm2 = || async {
-            let password = {
-                let s: String =
-                    rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
-                        .take(32)
-                        .map(char::from)
-                        .collect();
-                s
-            };
-
-            let password_combined = password.as_bytes();
-            let p = config_path.join(format!("{}-credentials.bin", name));
-            if p.exists() {
-                panic!("Credendials file already exists");
-            }
-            let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-            fpw.write_all(password.to_string().as_bytes())
-                .await
-                .expect("Failed to write credentials");
-            if let Some(options) = &options {
-                options
-                    .set_owner(&p, 0o400)
-                    .expect("Failed to set file owner and permissions");
-            }
-            tpm2::encrypt(config_data.as_bytes(), password_combined)
-        };
-
         #[cfg(feature = "tpm2")]
         {
             let econfig = if let Some(tpm2) = &mut tpm2 {
@@ -464,7 +437,22 @@ library.reset_on_fork = false
                         "Cannot continue due to missing tpm2 support and I was told to require it"
                     );
                 }
-                do_without_tpm2().await
+                let (pw, config_encrypted) =
+                    main_config::do_encryption_without_tpm2(config_data, &name).await;
+                let p = config_path.join(format!("{}-credentials.bin", name));
+                if p.exists() {
+                    panic!("Credendials file already exists");
+                }
+                let mut fpw = tokio::fs::File::create(&p).await.unwrap();
+                fpw.write_all(&pw)
+                    .await
+                    .expect("Failed to write credentials");
+                if let Some(options) = &options {
+                    options
+                        .set_owner(&p, 0o400)
+                        .expect("Failed to set file owner and permissions");
+                }
+                config_encrypted
             };
 
             f.write_all(&econfig)
@@ -473,7 +461,22 @@ library.reset_on_fork = false
         }
         #[cfg(not(feature = "tpm2"))]
         {
-            do_without_tpm2().await
+            let (pw, config_encrypted) =
+                main_config::do_encryption_without_tpm2(config_data, &name).await;
+            let p = config_path.join(format!("{}-credentials.bin", name));
+            if p.exists() {
+                panic!("Credendials file already exists");
+            }
+            let mut fpw = tokio::fs::File::create(&p).await.unwrap();
+            fpw.write_all(&pw)
+                .await
+                .expect("Failed to write credentials");
+            if let Some(options) = &options {
+                options
+                    .set_owner(&p, 0o400)
+                    .expect("Failed to set file owner and permissions");
+            }
+            config_encrypted
         }
     }
 

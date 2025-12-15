@@ -252,7 +252,7 @@ impl StandaloneCaConfiguration {
             service: value.service.clone().map(|a| a.into()),
             security_module: value.hsm_config.clone(),
             sign_method: value.sign_method,
-            path: value.path.clone(),
+            path: value.path.clone().into(),
             inferior_to: value.inferior_to.clone(),
             common_name: value.common_name.clone(),
             days: value.days,
@@ -376,7 +376,7 @@ pub struct StandaloneCaConfigurationAnswers {
     pub sign_method: CertificateSigningMethod,
     #[PromptComment = "Where the authority should be stored"]
     /// Where to store the certificate authority
-    pub path: CaCertificateStorageBuilder,
+    pub path: CaCertificateStorageBuilderAnswers,
     #[PromptComment = "Does this authority have a superior authority?"]
     /// Does this authority have a superior authority?
     pub inferior_to: Option<String>,
@@ -423,7 +423,7 @@ impl StandaloneCaConfigurationAnswers {
             tpm2_required: false,
             service: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-            path: CaCertificateStorageBuilder::Nowhere,
+            path: CaCertificateStorageBuilderAnswers::Nowhere,
             inferior_to: None,
             common_name: "".to_string(),
             days: 1,
@@ -530,7 +530,7 @@ pub struct LocalCaConfigurationAnswers {
     pub sign_method: CertificateSigningMethod,
     #[PromptComment = "Where to store the certificate authority"]
     /// Where to store the certificate authority
-    pub path: CaCertificateStorageBuilder,
+    pub path: CaCertificateStorageBuilderAnswers,
     #[PromptComment = "Does this have an authority that is superior to it?"]
     /// Does this authority have a superior authority?
     pub inferior_to: Option<String>,
@@ -566,7 +566,7 @@ impl LocalCaConfigurationAnswers {
         Self {
             security_module: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-            path: CaCertificateStorageBuilder::Nowhere,
+            path: CaCertificateStorageBuilderAnswers::Nowhere,
             inferior_to: None,
             common_name: "".to_string(),
             days: 1,
@@ -582,7 +582,7 @@ impl LocalCaConfigurationAnswers {
         LocalCaConfiguration {
             security_module: self.security_module,
             sign_method: self.sign_method,
-            path: self.path,
+            path: self.path.into(),
             inferior_to: self.inferior_to,
             common_name: self.common_name,
             days: self.days,
@@ -661,7 +661,7 @@ impl LocalCaConfigurationAnswers {
         LocalCaConfiguration {
             security_module: self.security_module,
             sign_method: self.sign_method,
-            path: self.path,
+            path: self.path.into(),
             inferior_to: self.inferior_to,
             common_name: self.common_name,
             days: self.days,
@@ -792,7 +792,7 @@ pub struct CaConfigurationAnswers {
     /// The signing method for the certificate authority
     pub sign_method: CertificateSigningMethod,
     /// Where to store the certificate authority
-    pub path: CaCertificateStorageBuilder,
+    pub path: CaCertificateStorageBuilderAnswers,
     /// Does this authority have a superior authority?
     pub inferior_to: Option<String>,
     /// The subject alternate names for the certificate authority.
@@ -857,7 +857,7 @@ impl CaConfigurationAnswers {
     pub fn new() -> Self {
         Self {
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
-            path: CaCertificateStorageBuilder::Nowhere,
+            path: CaCertificateStorageBuilderAnswers::Nowhere,
             inferior_to: None,
             san: Vec::new(),
             common_name: "".to_string(),
@@ -929,13 +929,43 @@ use egui_multiwin::egui;
     serde::Serialize,
     strum::EnumIter,
 )]
-pub enum CaCertificateStorageBuilder {
+pub enum CaCertificateStorageBuilderAnswers {
     #[PromptComment = "Don't store certificates anywhere (only for testing)"]
     /// Certificates are stored nowhere
     Nowhere,
     #[PromptComment = "Store the certificates in a sqlite database on local storage"]
     /// Ca uses a sqlite database on a filesystem
     Sqlite(userprompt::FileCreate),
+}
+
+impl From<CaCertificateStorageBuilderAnswers> for CaCertificateStorageBuilder {
+    fn from(value: CaCertificateStorageBuilderAnswers) -> Self {
+        match value {
+            CaCertificateStorageBuilderAnswers::Nowhere => CaCertificateStorageBuilder::Nowhere,
+            CaCertificateStorageBuilderAnswers::Sqlite(p) => {
+                CaCertificateStorageBuilder::Sqlite(p.to_path_buf())
+            }
+        }
+    }
+}
+
+/// The information needed to construct a CaCertificateStorage
+#[derive(
+    Clone,
+    Debug,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+    serde::Deserialize,
+    serde::Serialize,
+    strum::EnumIter,
+)]
+pub enum CaCertificateStorageBuilder {
+    #[PromptComment = "Don't store certificates anywhere (only for testing)"]
+    /// Certificates are stored nowhere
+    Nowhere,
+    #[PromptComment = "Store the certificates in a sqlite database on local storage"]
+    /// Ca uses a sqlite database on a filesystem
+    Sqlite(std::path::PathBuf),
 }
 
 impl CaCertificateStorageBuilder {
@@ -946,10 +976,9 @@ impl CaCertificateStorageBuilder {
             Self::Sqlite(p) => {
                 if p.is_relative() {
                     use tokio::io::AsyncWriteExt;
-                    let p2: std::path::PathBuf = p.to_path_buf();
-                    let mut f = tokio::fs::File::create(p2).await?;
+                    let mut f = tokio::fs::File::create(&p).await?;
                     f.write_all(" ".as_bytes()).await?;
-                    **p = p.canonicalize()?;
+                    *p = p.canonicalize()?;
                 }
             }
         }
