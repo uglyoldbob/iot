@@ -305,57 +305,7 @@ library.reset_on_fork = false
     ];
 
     let mut service_config = answers.make_service_config(service_args, &name, exe.join("rust-iot"));
-
-    if let Some(config) = answers.make_extended_config() {
-        let mut i = 0;
-        loop {
-            let pb = config_path.join(format!("{name}-extra-config{i}.toml"));
-            service::log::debug!("Checking for extra config {}", pb.display());
-            if std::path::Path::exists(&pb) {
-                i += 1;
-            } else {
-                break;
-            }
-        }
-        let new_config = config_path.join(format!("{name}-extra-config{i}.toml"));
-        service::log::debug!(
-            "Creating extended configuration at {:?}",
-            new_config.display()
-        );
-        todo!();
-
-        #[cfg(feature = "tpm2")]
-        {
-            use tokio::io::AsyncReadExt;
-            let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
-
-            if let Some(tpm2) = &mut tpm2 {
-                let mut tpm_data = Vec::new();
-                let mut f =
-                    tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
-                        .await
-                        .unwrap();
-                f.read_to_end(&mut tpm_data).await.unwrap();
-
-                let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
-
-                let epdata = tpm2.decrypt(tpm_data).unwrap();
-                let protected_password = tpm2::Password::rebuild(&epdata);
-                let econfig = tpm2::encrypt(
-                    toml::to_string(&config).unwrap().as_bytes(),
-                    protected_password.password(),
-                );
-                let mut f2 = tokio::fs::File::open(new_config).await.unwrap();
-                f2.write_all(&econfig)
-                    .await
-                    .expect("Failed to write encrypted extended configuration file");
-            }
-        }
-        #[cfg(not(feature = "tpm2"))]
-        {
-            save_extended_without_tpm2(config, config_path, password, config_file, options).await;
-        }
-    }
+    let config_file = config_path.join(format!("{}-config.toml", name));
 
     if let Some(service_config) = &mut service_config {
         #[cfg(target_os = "linux")]
@@ -390,7 +340,6 @@ library.reset_on_fork = false
         }
 
         let config_data = toml::to_string(&config).unwrap();
-        let config_file = config_path.join(format!("{}-config.toml", name));
         if config_file.exists() {
             panic!(
                 "Configuration file {} already exists",
@@ -398,7 +347,7 @@ library.reset_on_fork = false
             );
         }
         let mut f = tokio::fs::File::create(config_file).await.unwrap();
-
+        let password: String;
         #[cfg(feature = "tpm2")]
         {
             let econfig = if let Some(tpm2) = &mut tpm2 {
@@ -463,12 +412,13 @@ library.reset_on_fork = false
         {
             let (pw, config_encrypted) =
                 main_config::do_encryption_without_tpm2(config_data, &name).await;
+            password = pw.clone();
             let p = config_path.join(format!("{}-credentials.bin", name));
             if p.exists() {
                 panic!("Credendials file already exists");
             }
             let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-            fpw.write_all(&pw)
+            fpw.write_all(pw.as_bytes())
                 .await
                 .expect("Failed to write credentials");
             if let Some(options) = &options {
@@ -476,7 +426,64 @@ library.reset_on_fork = false
                     .set_owner(&p, 0o400)
                     .expect("Failed to set file owner and permissions");
             }
-            config_encrypted
+        }
+
+        if let Some(config) = answers.make_extended_config() {
+            let mut i = 0;
+            loop {
+                let pb = config_path.join(format!("{name}-extra-config{i}.toml"));
+                service::log::debug!("Checking for extra config {}", pb.display());
+                if std::path::Path::exists(&pb) {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let new_config = config_path.join(format!("{name}-extra-config{i}.toml"));
+            service::log::debug!(
+                "Creating extended configuration at {:?}",
+                new_config.display()
+            );
+            todo!();
+
+            #[cfg(feature = "tpm2")]
+            {
+                use tokio::io::AsyncReadExt;
+                let mut tpm2 = tpm2::Tpm2::new(tpm2::tpm2_path());
+
+                if let Some(tpm2) = &mut tpm2 {
+                    let mut tpm_data = Vec::new();
+                    let mut f =
+                        tokio::fs::File::open(config_path.join(format!("{}-password.bin", name)))
+                            .await
+                            .unwrap();
+                    f.read_to_end(&mut tpm_data).await.unwrap();
+
+                    let tpm_data = tpm2::TpmBlob::rebuild(&tpm_data);
+
+                    let epdata = tpm2.decrypt(tpm_data).unwrap();
+                    let protected_password = tpm2::Password::rebuild(&epdata);
+                    let econfig = tpm2::encrypt(
+                        toml::to_string(&config).unwrap().as_bytes(),
+                        protected_password.password(),
+                    );
+                    let mut f2 = tokio::fs::File::open(new_config).await.unwrap();
+                    f2.write_all(&econfig)
+                        .await
+                        .expect("Failed to write encrypted extended configuration file");
+                }
+            }
+            #[cfg(not(feature = "tpm2"))]
+            {
+                save_extended_without_tpm2(
+                    &config,
+                    &config_path,
+                    &password,
+                    &config_file,
+                    &options,
+                )
+                .await;
+            }
         }
     }
 

@@ -263,6 +263,7 @@ impl StandaloneCaConfiguration {
             name: value.name.clone(),
             pki_name: pki_name.clone(),
             public_names: value.public_names.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: value.tpm2_required,
         }
     }
@@ -328,6 +329,7 @@ impl StandaloneCaConfiguration {
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
             debug_level: self.debug_level.clone(),
             security_config: Some(self.security_module.clone()),
+            #[cfg(feature = "tpm2")]
             tpm2_required: Some(self.tpm2_required),
         }
     }
@@ -420,6 +422,7 @@ impl StandaloneCaConfigurationAnswers {
             public_names: Vec::new(),
             proxy_config: None,
             debug_level: service::LogLevel::Warning,
+            #[cfg(feature = "tpm2")]
             tpm2_required: false,
             service: Default::default(),
             sign_method: CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256),
@@ -708,6 +711,7 @@ impl LocalCaConfiguration {
             pki_name: Some(format!("{}{}", self.pki_name, full_name)),
             debug_level: None,
             security_config: None,
+            #[cfg(feature = "tpm2")]
             tpm2_required: None,
         }
     }
@@ -2246,6 +2250,7 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             debug_level: value.debug_level,
             public_names: value.public_names.clone(),
             security_module: value.security_module.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: value.tpm2_required,
         }
     }
@@ -2298,6 +2303,7 @@ impl PkiConfigurationEnumAnswers {
             debug_level: None,
             public_names: Vec::new(),
             security_module: SecurityModuleConfiguration::default(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: false,
         })
     }
@@ -2862,6 +2868,7 @@ impl Pki {
         Ok(Self {
             debug_level: settings.debug_level.clone(),
             security_module: settings.security_module.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: settings.tpm2_required,
             public_names: settings.public_names.clone(),
             database: settings.service.database.clone(),
@@ -2975,6 +2982,7 @@ impl Pki {
         Ok(Self {
             debug_level: settings.debug_level.clone(),
             security_module: settings.security_module.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: settings.tpm2_required,
             public_names: settings.public_names.clone(),
             database: settings.service.database.clone(),
@@ -3625,6 +3633,7 @@ impl Ca {
             shutdown: None,
             debug_level: settings.debug_level.clone(),
             security_configuration: settings.security_config.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: settings.tpm2_required.unwrap(),
         })
     }
@@ -4843,6 +4852,7 @@ impl Ca {
             shutdown: None,
             debug_level: settings.debug_level.clone(),
             security_configuration: settings.security_config.clone(),
+            #[cfg(feature = "tpm2")]
             tpm2_required: settings.tpm2_required.unwrap(),
         })
     }

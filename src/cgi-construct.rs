@@ -664,12 +664,19 @@ async fn main() {
                 });
             }
             BuildStep::ApplyTpm2Config => {
-                let tpm2_required = post_map.get("tpm2_required").map(|a|a.to_string()).unwrap_or("off".to_string());
+                #[cfg(feature = "tpm2")]
+                let tpm2_required = post_map
+                    .get("tpm2_required")
+                    .map(|a| a.to_string())
+                    .unwrap_or("off".to_string());
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
-                    config.tpm2_required = match tpm2_required.as_str() {
-                        "on" => true,
-                        _ => false,
-                    };
+                    #[cfg(feature = "tpm2")]
+                    {
+                        config.tpm2_required = match tpm2_required.as_str() {
+                            "on" => true,
+                            _ => false,
+                        };
+                    }
                     html.body(|b| {
                         b.text("Applied tpm2 settings");
                         b.line_break(|lb| lb);
@@ -1032,7 +1039,10 @@ async fn main() {
                 let Some(admin_password2) = post_map.get("admin_password2") else {
                     return cgi::html_response(500, "Missing argument");
                 };
-                let ocsp_signature = post_map.get("ocsp_signature").map(|a|a.to_string()).unwrap_or("off".to_string());
+                let ocsp_signature = post_map
+                    .get("ocsp_signature")
+                    .map(|a| a.to_string())
+                    .unwrap_or("off".to_string());
                 if admin_access_password != admin_access_password2 {
                     return cgi::html_response(500, "Admin access passwords do not match");
                 }
@@ -1129,7 +1139,7 @@ async fn main() {
                         .compression_method(zip::CompressionMethod::Stored)
                         .unix_permissions(0o600),
                 );
-                zip.write_all(&pw);
+                zip.write_all(pw.as_bytes());
                 zip.start_file(
                     "config.bin",
                     zip::write::SimpleFileOptions::default()

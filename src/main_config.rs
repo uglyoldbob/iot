@@ -618,7 +618,7 @@ pub struct MainConfiguration {
 }
 
 /// Perform the encryption without the tpm2 hardware
-pub async fn do_encryption_without_tpm2(config_data: String, name: &str) -> (Vec<u8>, Vec<u8>) {
+pub async fn do_encryption_without_tpm2(config_data: String, name: &str) -> (String, Vec<u8>) {
     let password = {
         let s: String =
             rand::Rng::sample_iter(rand::thread_rng(), &rand::distributions::Alphanumeric)
@@ -630,7 +630,7 @@ pub async fn do_encryption_without_tpm2(config_data: String, name: &str) -> (Vec
 
     let password_combined = password.as_bytes();
     let encrypted_config = tpm2::encrypt(config_data.as_bytes(), password_combined);
-    (password_combined.to_vec(), encrypted_config)
+    (password, encrypted_config)
 }
 
 /// Perform the decryption without the tpm2 hardware
@@ -724,6 +724,7 @@ pub async fn do_tpm2_decryption<T: serde::de::DeserializeOwned>(
 impl MainConfiguration {
     /// Is the tpm2 required?
     pub fn tpm2_required(&self) -> bool {
+        #[cfg(feature = "tpm2")]
         match &self.pki {
             crate::ca::PkiConfigurationEnum::Pki(pki_configuration) => {
                 pki_configuration.tpm2_required
@@ -733,6 +734,8 @@ impl MainConfiguration {
                 standalone_ca_configuration.tpm2_required
             }
         }
+        #[cfg(not(feature = "tpm2"))]
+        false
     }
 
     /// Load the configuration

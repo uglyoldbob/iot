@@ -36,16 +36,11 @@ async fn main() {
             return cgi::html_response(500, "Invalid configuration 2");
         }
         let mut password_combined: Option<Vec<u8>> = None;
-        let settings = MainConfiguration::load(
-            "./config.ini".into(),
-            "default",
-            contents,
-            &mut password_combined,
-        )
-        .await;
+        let settings =
+            MainConfiguration::load("./".into(), "default", contents, &mut password_combined).await;
         let hsm: Arc<hsm2::SecurityModule> = settings
             .pki
-            .init_hsm(&"./config.ini".into(), "default", &settings)
+            .init_hsm(&"./".into(), "default", &settings)
             .await;
         let pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
         let pki = Arc::new(futures_util::lock::Mutex::new(pki));
