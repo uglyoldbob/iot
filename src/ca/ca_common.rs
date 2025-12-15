@@ -200,8 +200,6 @@ pub struct StandaloneCaConfiguration {
     pub service: Option<crate::main_config::ServerConfiguration>,
     /// The desired minimum debug level
     pub debug_level: Option<service::LogLevel>,
-    /// The cgi details, if applicable
-    pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// security module configuration
     pub security_module: SecurityModuleConfiguration,
     /// The signing method for the certificate authority
@@ -251,7 +249,6 @@ impl StandaloneCaConfiguration {
         Self {
             proxy_config: value.proxy_config.clone(),
             debug_level: Some(value.debug_level.clone()),
-            cgi: value.cgi.clone(),
             service: value.service.clone().map(|a| a.into()),
             security_module: value.hsm_config.clone(),
             sign_method: value.sign_method,
@@ -349,8 +346,6 @@ pub struct StandaloneCaConfigurationAnswers {
     #[PromptComment = "The security module configuration"]
     /// security module configuration
     pub security_module: SecurityModuleConfiguration,
-    /// The cgi details, if applicable
-    pub cgi: Option<crate::main_config::CgiConfiguration>,
     /// The settings specified to run the ca service
     #[PromptComment = "Settings for the service"]
     pub service: Option<crate::main_config::ServerConfigurationAnswers>,
@@ -419,7 +414,6 @@ impl StandaloneCaConfigurationAnswers {
     pub fn new() -> Self {
         Self {
             security_module: SecurityModuleConfiguration::default(),
-            cgi: None,
             client_certs: None,
             database: None,
             hsm_config: Default::default(),

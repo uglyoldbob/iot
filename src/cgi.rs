@@ -1,3 +1,9 @@
+//! The main cgi application for the pki instance run on a web server
+
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
+#![allow(unused)]
 //For the html crate
 #![recursion_limit = "512"]
 

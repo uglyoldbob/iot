@@ -1,3 +1,9 @@
+//! This is the page for constructing a configuration for the pki instance to run on cgi pages.
+
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+#![warn(unused_extern_crates)]
+#![allow(unused)]
 //For the html crate
 #![recursion_limit = "512"]
 
@@ -8,17 +14,49 @@ mod utility;
 mod webserver;
 
 mod main_config;
-pub use main_config::MainConfiguration;
+use crate::ca::{CaCertificateStorageBuilder, ProxyConfig};
+use cert_common::{CertificateSigningMethod, HttpsSigningMethod, SshSigningMethod};
+pub use main_config::{DatabaseSettings, MainConfiguration, SecurityModuleConfiguration};
 
 use std::{collections::HashMap, str::FromStr};
 
 use base64::Engine;
 
-use crate::{ca::StandaloneCaConfigurationAnswers, main_config::MainConfigurationAnswers};
+use crate::{
+    ca::{PkiConfigurationAnswers, StandaloneCaConfigurationAnswers},
+    hsm2::SecurityModule,
+    main_config::MainConfigurationAnswers,
+};
 
 fn build_toml_string(doc: &MainConfigurationAnswers) -> String {
     let c = toml::to_string(doc).unwrap();
     base64::prelude::BASE64_STANDARD_NO_PAD.encode(c)
+}
+
+#[derive(strum::FromRepr, Debug, PartialEq)]
+#[repr(usize)]
+enum BuildStep {
+    Beginning,
+    GetSecurityModuleType,
+    GetHardwareSecurityOptions,
+    ApplyHardwareSecurityOptions,
+    GetSoftwareSecurityOptions,
+    ApplySoftwareSecurityOptions,
+    GetPublicNames,
+    ApplyPublicNames,
+    GetDatabaseConfig,
+    ApplyDatabaseConfig,
+    GetProxyConfig,
+    ApplyProxyConfig,
+    GetTpm2Config,
+    ApplyTpm2Config,
+    GetSigningMethod,
+    GetHttpsSigning,
+    GetSshSigning,
+    ApplyHttpsSigningMethod,
+    ApplySshSigningMethod,
+    GetCertStoragePath,
+    ApplyCertStoragePath,
 }
 
 #[tokio::main]
@@ -85,45 +123,15 @@ async fn main() {
 
         let step = post_map
             .get("step")
-            .map(|a| a.parse::<u16>().ok())
+            .map(|a| a.parse::<usize>().ok())
             .flatten()
             .unwrap_or(0);
         html.head(|h| h.title(|t| t.text("CA Builder")));
+        let Some(step) = BuildStep::from_repr(step) else {
+            return cgi::html_response(500, "Invalid step");
+        };
         match step {
-            1 => {
-                let Some(p) = post_map.get("name") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
-                toml.pki = ca::PkiConfigurationEnumAnswers::Ca {
-                    pki_name: p.clone(),
-                    config: Box::new(StandaloneCaConfigurationAnswers::default()),
-                };
-
-                html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.form(|f| {
-                        f.method("POST");
-                        f.input(|i| {
-                            i.type_("hidden")
-                                .name("step")
-                                .value(format!("{}", step + 1))
-                        });
-                        f.input(|i| {
-                            i.type_("hidden")
-                                .name("object")
-                                .value(build_toml_string(&toml))
-                        });
-                        f.text("Name of CA");
-                        f.line_break(|a| a);
-                        f.input(|i| i.name("name"));
-                        f.button(|b| b.text("Next"))
-                    });
-                    b.line_break(|lb| lb);
-                    b
-                });
-            }
-            _ => {
+            BuildStep::Beginning => {
                 html.body(|b| {
                     b.text(format!("{:#?}<br />\n", request));
                     b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
@@ -136,7 +144,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("step")
-                                .value(format!("{}", step + 1))
+                                .value(format!("{}", BuildStep::GetSecurityModuleType as usize))
                         });
                         f.text("Name of CA");
                         f.line_break(|a| a);
@@ -152,6 +160,767 @@ async fn main() {
                     b.line_break(|lb| lb);
                     b
                 });
+            }
+            BuildStep::GetSecurityModuleType => {
+                let Some(p) = post_map.get("name") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                toml.pki = ca::PkiConfigurationEnumAnswers::Ca {
+                    pki_name: p.clone(),
+                    config: Box::new(StandaloneCaConfigurationAnswers::default()),
+                };
+
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the security module type");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden").name("step").value(format!(
+                                "{}",
+                                BuildStep::GetHardwareSecurityOptions as usize
+                            ))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Hardware"))
+                    });
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden").name("step").value(format!(
+                                "{}",
+                                BuildStep::GetSoftwareSecurityOptions as usize
+                            ))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Software"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::GetSoftwareSecurityOptions => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the security module options");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden").name("step").value(format!(
+                                "{}",
+                                BuildStep::ApplySoftwareSecurityOptions as usize
+                            ))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text("Path for software security module files");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("hsm_path"));
+                        f.line_break(|a| a);
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::GetHardwareSecurityOptions => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the security module options");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden").name("step").value(format!(
+                                "{}",
+                                BuildStep::ApplyHardwareSecurityOptions as usize
+                            ))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text("Path override for hardware security module library");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("hsm_path"));
+                        f.line_break(|a| a);
+                        f.text("HSM pin");
+                        f.line_break(|a| a);
+                        f.input(|i| i.type_("password").name("hsm_pin"));
+                        f.line_break(|a| a);
+                        f.input(|i| i.type_("password").name("hsm_pin2"));
+                        f.line_break(|a| a);
+                        f.text("Slot for hardware security module");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("hsm_slot").type_("number"));
+                        f.line_break(|a| a);
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplySoftwareSecurityOptions => {
+                let Some(hsm_path) = post_map.get("hsm_path") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    let h =
+                        SecurityModuleConfiguration::Software(std::path::PathBuf::from(hsm_path));
+                    config.hsm_config = h;
+                    html.body(|b| {
+                        b.text("Applied software security module settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetPublicNames as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::ApplyHardwareSecurityOptions => {
+                let Some(hsm_path) = post_map.get("hsm_path") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(hsm_pin) = post_map.get("hsm_pin") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(hsm_pin2) = post_map.get("hsm_pin2") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(hsm_slot) = post_map.get("hsm_slot") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let hsm_slot = if !hsm_slot.is_empty() {
+                    let Ok(hsm_slot) = hsm_slot.parse::<usize>() else {
+                        return cgi::html_response(500, "Invalid hsm_slot");
+                    };
+                    Some(hsm_slot)
+                } else {
+                    None
+                };
+                if hsm_pin != hsm_pin2 {
+                    html.body(|b| {
+                        b.text("Hardware security module pins don't match");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetSecurityModuleType as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Try again"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                } else {
+                    if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki
+                    {
+                        let h = SecurityModuleConfiguration::Hardware {
+                            hsm_path_override: if !hsm_path.is_empty() {
+                                Some(std::path::PathBuf::from(hsm_path))
+                            } else {
+                                None
+                            },
+                            hsm_pin: hsm_pin.clone(),
+                            hsm_pin2: hsm_pin2.clone(),
+                            hsm_slot,
+                        };
+                        config.hsm_config = h;
+                        html.body(|b| {
+                            b.text("Applied hardware security module settings");
+                            b.line_break(|lb| lb);
+                            b.form(|f| {
+                                f.method("POST");
+                                f.input(|i| {
+                                    i.type_("hidden")
+                                        .name("step")
+                                        .value(format!("{}", BuildStep::GetPublicNames as usize))
+                                });
+                                f.input(|i| {
+                                    i.type_("hidden")
+                                        .name("object")
+                                        .value(build_toml_string(&toml))
+                                });
+                                f.button(|b| b.type_("submit").text("Next"))
+                            });
+                            b.line_break(|lb| lb);
+                            b
+                        });
+                    }
+                }
+            }
+            BuildStep::GetPublicNames => {
+                html.body(|b| {
+                    b.text(format!("{:#?}<br />\n", request));
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
+                    b.text(format!("GET IS {:#?}<br />\n", get_map));
+                    b.text(format!("POST IS {:#?}<br />\n", post_map));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyPublicNames as usize))
+                        });
+                        f.text("Public Names of CA (like example.com/asdf)");
+                        f.line_break(|a| a);
+                        f.text_area(|i| i.name("names"));
+                        f.line_break(|a| a);
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyPublicNames => {
+                let Some(names) = post_map.get("names") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let names = names
+                    .lines()
+                    .map(|a| ca::ComplexName::from_str(a))
+                    .filter(|a| a.is_ok())
+                    .map(|a| a.unwrap())
+                    .collect();
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.public_names = names;
+                    html.body(|b| {
+                        b.text("Applied public names");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetDatabaseConfig as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                } else {
+                    html.body(|b| {
+                        b.text(format!("Invalid object: {:#?}\n<br />\n", toml));
+                        b
+                    });
+                }
+            }
+            BuildStep::GetDatabaseConfig => {
+                html.body(|b| {
+                    b.text(format!("{:#?}<br />\n", request));
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
+                    b.text(format!("GET IS {:#?}<br />\n", get_map));
+                    b.text(format!("POST IS {:#?}<br />\n", post_map));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyPublicNames as usize))
+                        });
+                        f.text("Database username");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("db_username"));
+                        f.line_break(|a| a);
+                        f.text("Database password");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("db_password").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Database name");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("db_name"));
+                        f.line_break(|a| a);
+                        f.text("Database url");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("db_url"));
+                        f.line_break(|a| a);
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyDatabaseConfig => {
+                let Some(db_username) = post_map.get("db_username") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(db_password) = post_map.get("db_password") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(db_name) = post_map.get("db_name") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(db_url) = post_map.get("db_url") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.database = Some(DatabaseSettings {
+                        username: db_username.clone(),
+                        password: userprompt::Password2::new(db_password.clone()),
+                        name: db_name.clone(),
+                        url: db_url.clone(),
+                    });
+                    html.body(|b| {
+                        b.text("Applied database settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetProxyConfig as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetProxyConfig => {
+                html.body(|b| {
+                    b.text(format!("{:#?}<br />\n", request));
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
+                    b.text(format!("GET IS {:#?}<br />\n", get_map));
+                    b.text(format!("POST IS {:#?}<br />\n", post_map));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyPublicNames as usize))
+                        });
+                        f.text("Proxy: http port (blank if not applicable)");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("proxy_http"));
+                        f.line_break(|a| a);
+                        f.text("Proxy: https port (blank if not applicable)");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("proxy_https"));
+                        f.line_break(|a| a);
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyProxyConfig => {
+                let Some(http) = post_map.get("proxy_http") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(https) = post_map.get("proxy_https") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let http = if !http.is_empty() {
+                    let Ok(v) = http.parse::<u16>() else {
+                        return cgi::html_response(500, "Invalid http port");
+                    };
+                    Some(v)
+                } else {
+                    None
+                };
+                let https = if !https.is_empty() {
+                    let Ok(v) = https.parse::<u16>() else {
+                        return cgi::html_response(500, "Invalid https port");
+                    };
+                    Some(v)
+                } else {
+                    None
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    if http.is_some() || https.is_some() {
+                        config.proxy_config = Some(ProxyConfig {
+                            http_port: http,
+                            https_port: https,
+                        });
+                    }
+                    html.body(|b| {
+                        b.text("Applied proxy settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetTpm2Config as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetTpm2Config => {
+                html.body(|b| {
+                    b.text(format!("{:#?}<br />\n", request));
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
+                    b.text(format!("GET IS {:#?}<br />\n", get_map));
+                    b.text(format!("POST IS {:#?}<br />\n", post_map));
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyTpm2Config as usize))
+                        });
+                        f.text("TPM2 configuration");
+                        f.line_break(|a| a);
+                        f.text("TPM2 Required?");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("tpm2_required").type_("checkbox"));
+                        f.line_break(|a| a);
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyTpm2Config => {
+                let Some(tpm2_required) = post_map.get("tpm2_required") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.tpm2_required = match tpm2_required.as_str() {
+                        "on" => true,
+                        _ => false,
+                    };
+                    html.body(|b| {
+                        b.text("Applied tpm2 settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetSigningMethod as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetSigningMethod => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the signing method");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::GetHttpsSigning as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.text("HTTPS"))
+                    });
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::GetSshSigning as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b: &mut html::forms::builders::ButtonBuilder| b.text("SSH"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::GetHttpsSigning => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the HTTPS signing method");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyHttpsSigningMethod as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.input(|i| i.type_("hidden").name("method").value("RsaSha256"));
+                        f.button(|b| b.text("RsaSha256"))
+                    });
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyHttpsSigningMethod as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.input(|i| i.type_("hidden").name("method").value("EcdsaSha256"));
+                        f.button(|b| b.text("EcdsaSha256"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyHttpsSigningMethod => {
+                let Some(method) = post_map.get("method") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    match method.as_str() {
+                        "RsaSha256" => {
+                            config.sign_method =
+                                CertificateSigningMethod::Https(HttpsSigningMethod::RsaSha256);
+                        }
+                        "EcdsaSha256" => {
+                            config.sign_method =
+                                CertificateSigningMethod::Https(HttpsSigningMethod::EcdsaSha256);
+                        }
+                        _ => {
+                            return cgi::html_response(500, "Invalid signing method");
+                        }
+                    }
+                    html.body(|b| {
+                        b.text("Applied https signing method settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetCertStoragePath as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetSshSigning => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the SSH signing method");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplySshSigningMethod as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.input(|i| i.type_("hidden").name("method").value("Rsa"));
+                        f.button(|b| b.text("Rsa"))
+                    });
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplySshSigningMethod as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.input(|i| i.type_("hidden").name("method").value("Ed25519"));
+                        f.button(|b| b.text("Ed25519"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplySshSigningMethod => {
+                let Some(method) = post_map.get("method") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    match method.as_str() {
+                        "Rsa" => {
+                            config.sign_method =
+                                CertificateSigningMethod::Ssh(SshSigningMethod::Rsa);
+                        }
+                        "Ed25519" => {
+                            config.sign_method =
+                                CertificateSigningMethod::Ssh(SshSigningMethod::Ed25519);
+                        }
+                        _ => {
+                            return cgi::html_response(500, "Invalid signing method");
+                        }
+                    }
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("Applied ssh signing method settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetCertStoragePath as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetCertStoragePath => {
+                html.body(|b| {
+                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
+                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
+                    b.text("Select the path for certificates");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyCertStoragePath as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text("Path for generated certificates");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("cert_path"));
+                        f.line_break(|a| a);
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyCertStoragePath => {
+                let Some(cert_path) = post_map.get("cert_path") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.path = CaCertificateStorageBuilder::Sqlite(todo!());
+                }
             }
         }
         let html = html.build();

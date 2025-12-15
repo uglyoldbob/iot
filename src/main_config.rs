@@ -410,6 +410,37 @@ impl DatabaseSettings {
     userprompt::EguiPrompting,
 )]
 pub enum SecurityModuleConfiguration {
+    /// A hardware based security module
+    Hardware {
+        /// Is there a path override for the location of the hsm library?
+        hsm_path_override: Option<std::path::PathBuf>,
+        /// The pin for the hardware security module
+        hsm_pin: String,
+        /// The user pin for the hardware security module
+        hsm_pin2: String,
+        /// The slot override for the hsm
+        hsm_slot: Option<usize>,
+    },
+    /// A software based security module
+    Software(std::path::PathBuf),
+}
+
+impl Default for SecurityModuleConfiguration {
+    fn default() -> Self {
+        Self::Software("./".into())
+    }
+}
+
+/// The server configuration of the application
+#[derive(
+    Clone,
+    Debug,
+    serde::Deserialize,
+    serde::Serialize,
+    userprompt::Prompting,
+    userprompt::EguiPrompting,
+)]
+pub enum SecurityModuleConfigurationAnswers {
     Hardware {
         /// Is there a path override for the location of the hsm library?
         hsm_path_override: Option<userprompt::FileOpen>,
@@ -423,7 +454,7 @@ pub enum SecurityModuleConfiguration {
     Software(std::path::PathBuf),
 }
 
-impl Default for SecurityModuleConfiguration {
+impl Default for SecurityModuleConfigurationAnswers {
     fn default() -> Self {
         Self::Software("./".into())
     }
