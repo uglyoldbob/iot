@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use crate::webserver::PostContent;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
         let config = std::fs::File::open("./config.bin");
@@ -38,6 +38,9 @@ async fn main() {
         let mut password_combined: Option<Vec<u8>> = None;
         let settings =
             MainConfiguration::load("./".into(), "default", contents, &mut password_combined).await;
+        if false {
+            return cgi::html_response(200, format!("Config is {:#?}<br />\n", settings));
+        }
         let hsm: Arc<hsm2::SecurityModule> = settings
             .pki
             .init_hsm(&"./".into(), "default", &settings)

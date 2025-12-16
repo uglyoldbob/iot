@@ -4568,6 +4568,7 @@ dependencies = [
  "untrusted",
  "url-escape",
  "url_encoded_data",
+ "urlencoding",
  "userprompt",
  "whoami",
  "winapi",

@@ -24,7 +24,9 @@ use zeroize::Zeroizing;
 use crate::hsm2::KeyPairTrait;
 use crate::hsm2::SecurityModule;
 use crate::hsm2::SecurityModuleTrait;
+use crate::hsm2::Ssm;
 use crate::main_config::DatabaseSettings;
+use crate::main_config::GeneralSettings;
 use crate::main_config::SecurityModuleConfiguration;
 use crate::MainConfiguration;
 use cert_common::pkcs12::BagAttribute;
@@ -234,6 +236,8 @@ pub struct StandaloneCaConfiguration {
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
     pub tpm2_required: bool,
+    /// General settings
+    pub general: GeneralSettings,
 }
 
 impl StandaloneCaConfiguration {
@@ -250,6 +254,7 @@ impl StandaloneCaConfiguration {
     /// Build a Self using answers and the containing pki_name, which must be blank or end with /
     fn from(value: &StandaloneCaConfigurationAnswers, pki_name: String) -> Self {
         Self {
+            general: value.general.clone(),
             proxy_config: value.proxy_config.clone(),
             debug_level: Some(value.debug_level.clone()),
             service: value.service.clone().map(|a| a.into()),
@@ -406,6 +411,9 @@ pub struct StandaloneCaConfigurationAnswers {
     #[PromptComment = "The name of the authority instance"]
     /// The name of the ca instance
     pub name: String,
+    #[PromptComment = "The general settings"]
+    /// General settings
+    pub general: GeneralSettings,
 }
 
 impl Default for StandaloneCaConfigurationAnswers {
@@ -418,6 +426,7 @@ impl StandaloneCaConfigurationAnswers {
     /// Construct a blank Self.
     pub fn new() -> Self {
         Self {
+            general: GeneralSettings::default(),
             security_module: SecurityModuleConfiguration::default(),
             client_certs: None,
             database: None,
@@ -2209,6 +2218,8 @@ pub struct PkiConfigurationAnswers {
     pub debug_level: Option<service::LogLevel>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
+    /// General settings
+    pub general: GeneralSettings,
 }
 
 /// The configuration of a general pki instance.
@@ -2235,6 +2246,8 @@ pub struct PkiConfiguration {
     pub debug_level: Option<service::LogLevel>,
     /// The optional proxy configuration
     pub proxy_config: Option<ProxyConfig>,
+    /// General settings
+    pub general: GeneralSettings,
 }
 
 impl PkiConfiguration {
@@ -2260,6 +2273,7 @@ impl From<PkiConfigurationAnswers> for PkiConfiguration {
             })
             .collect();
         Self {
+            general: value.general.clone(),
             proxy_config: value.proxy_config,
             local_ca: map2,
             service: value.service.into(),
@@ -2314,6 +2328,7 @@ impl PkiConfigurationEnumAnswers {
     /// Construct a new ca, defaulting to a Pki configuration
     pub fn new() -> Self {
         Self::Pki(PkiConfigurationAnswers {
+            general: GeneralSettings::default(),
             proxy_config: None,
             service: Default::default(),
             local_ca: Default::default(),
@@ -2439,7 +2454,6 @@ impl PkiConfigurationEnum {
             PkiConfigurationEnum::AddedCa(c) => c.security_module.clone(),
             PkiConfigurationEnum::Ca(c) => c.security_module.clone(),
         };
-        let hsm: Arc<hsm2::SecurityModule>;
         match security_config {
             SecurityModuleConfiguration::Hardware {
                 hsm_path_override,
@@ -2462,7 +2476,7 @@ impl PkiConfigurationEnum {
 
                     hsm2.list_certificates();
 
-                    hsm = Arc::new(hsm2::SecurityModule::Hardware(hsm2));
+                    let hsm = Arc::new(hsm2::SecurityModule::Hardware(hsm2));
 
                     use tokio::io::AsyncWriteExt;
                     let _ca_instance =
@@ -2473,6 +2487,7 @@ impl PkiConfigurationEnum {
                     f.write_all("".as_bytes())
                         .await
                         .expect("Failed to initialization file update");
+                    hsm
                 } else {
                     let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
                         hsm_slot.unwrap_or(0),
@@ -2485,14 +2500,16 @@ impl PkiConfigurationEnum {
                         panic!("Failed to open the hardware security module");
                     };
 
-                    hsm = Arc::new(hsm2::SecurityModule::Hardware(hsm2));
+                    Arc::new(hsm2::SecurityModule::Hardware(hsm2))
                 }
             }
             SecurityModuleConfiguration::Software(p) => {
-                todo!();
+                if !p.exists() {
+                    std::fs::create_dir_all(&p).unwrap();
+                }
+                Arc::new(hsm2::SecurityModule::Software(Ssm { }))
             }
         }
-        hsm
     }
 
     /// Set the log level
@@ -2534,11 +2551,9 @@ impl PkiConfigurationEnum {
     pub fn get_general_settings(&self) -> Option<crate::main_config::GeneralSettings> {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => None,
-            PkiConfigurationEnum::Pki(pki) => Some(pki.service.general.clone()),
-            PkiConfigurationEnum::Ca(config) => config
-                .service
-                .as_ref()
-                .map(|service| service.general.clone()),
+            PkiConfigurationEnum::Pki(pki) => Some(pki.general.clone()),
+            PkiConfigurationEnum::Ca(config) => Some(config
+                .general.clone()),
         }
     }
 
@@ -2558,11 +2573,9 @@ impl PkiConfigurationEnum {
     pub fn get_static_root(&self) -> Option<String> {
         match self {
             Self::AddedCa(_) => None,
-            Self::Pki(pki) => Some(pki.service.general.static_content.to_owned()),
-            Self::Ca(ca) => ca
-                .service
-                .as_ref()
-                .map(|service| service.general.static_content.to_owned()),
+            Self::Pki(pki) => Some(pki.general.static_content.to_owned()),
+            Self::Ca(ca) => Some(ca
+                .general.static_content.to_owned()),
         }
     }
 
@@ -2893,7 +2906,7 @@ impl Pki {
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
-            general: settings.service.general.clone(),
+            general: settings.general.clone(),
             all_ca: hm,
             super_admin: None,
         })
@@ -3007,7 +3020,7 @@ impl Pki {
             database: settings.service.database.clone(),
             http: settings.service.http.clone(),
             https: settings.service.https.clone(),
-            general: settings.service.general.clone(),
+            general: settings.general.clone(),
             all_ca: hm,
             super_admin,
         })

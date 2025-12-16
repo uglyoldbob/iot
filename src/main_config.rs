@@ -478,8 +478,6 @@ pub struct CgiConfiguration {
 /// The server configuration of the application
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct ServerConfiguration {
-    /// General settings
-    pub general: GeneralSettings,
     /// Settings for the http server
     pub http: Option<HttpSettings>,
     /// Settings for the https server
@@ -505,9 +503,6 @@ pub struct ServerConfigurationAnswers {
     #[PromptComment = "The optional password for the user that the service will run as"]
     /// The password for the user
     pub password: Option<userprompt::Password2>,
-    #[PromptComment = "General settings"]
-    /// General settings
-    pub general: GeneralSettings,
     #[PromptComment = "Optional settings for the http service"]
     /// Settings for the http server
     pub http: Option<HttpSettings>,
@@ -560,7 +555,6 @@ impl ServerConfiguration {
 impl From<ServerConfigurationAnswers> for ServerConfiguration {
     fn from(value: ServerConfigurationAnswers) -> Self {
         Self {
-            general: value.general,
             http: value.http.into(),
             https: value.https.map(|a| a.into()),
             database: value.database,

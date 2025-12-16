@@ -100,7 +100,8 @@ async fn main() {
                             let mut ele_split = get_elem.split('=').take(2);
                             let i1 = ele_split.next().unwrap_or_default();
                             let i2 = ele_split.next().unwrap_or_default();
-                            get_map.insert(i1.to_owned(), i2.to_owned());
+                            let s = urlencoding::decode(i2).unwrap().into_owned().to_string();
+                            get_map.insert(i1.to_owned(), s);
                         }
                     }
                 }
@@ -1134,7 +1135,7 @@ async fn main() {
                 let mut zip_contents = std::io::Cursor::new(&mut zip_contents2);
                 let mut zip = zip::ZipWriter::new(&mut zip_contents);
                 zip.start_file(
-                    "password.bin",
+                    "default-credentials.bin",
                     zip::write::SimpleFileOptions::default()
                         .compression_method(zip::CompressionMethod::Stored)
                         .unix_permissions(0o600),
