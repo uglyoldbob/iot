@@ -27,3 +27,5 @@ RUN apt-get update && apt install -y \
     llvm
 
 RUN cargo install wasm-pack
+
+RUN export CARGO_TARGET_DIR=target2

@@ -2589,16 +2589,32 @@ fn generic_head<'a>(
 ) -> &'a mut html::metadata::builders::HeadBuilder {
     let pki = ca.config.get_pki_name();
     h.meta(|m| m.charset("UTF-8"));
-    h.link(|h| {
-        h.href(s.get_absolute_url(pki, "css/ca.css"))
-            .rel("stylesheet")
-            .media("all")
-    });
-    h.link(|h| {
-        h.href(s.get_absolute_url(pki, "css/ca-mobile.css"))
-            .rel("stylesheet")
-            .media("screen and (max-width: 640px)")
-    });
+    match s.delivery {
+        crate::main_config::PageDelivery::Cgi => {
+            h.link(|h| {
+                h.href("./css/ca.css")
+                    .rel("stylesheet")
+                    .media("all")
+            });
+            h.link(|h| {
+                h.href("./css/ca-mobile.css")
+                    .rel("stylesheet")
+                    .media("screen and (max-width: 640px)")
+            });
+        }
+        crate::main_config::PageDelivery::DedicatedServer => {
+            h.link(|h| {
+                h.href(s.get_absolute_url(pki, "css/ca.css"))
+                    .rel("stylesheet")
+                    .media("all")
+            });
+            h.link(|h| {
+                h.href(s.get_absolute_url(pki, "css/ca-mobile.css"))
+                    .rel("stylesheet")
+                    .media("screen and (max-width: 640px)")
+            });
+        }
+    }
     h
 }
 
