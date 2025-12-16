@@ -386,7 +386,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 }
 
 /// The page that allows a user to generate a signing request.
-async fn ca_request(s: WebPageContext) -> WebResponse {
+pub async fn ca_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -542,55 +542,135 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
             }
             match &ca.config.sign_method {
                 CertificateSigningMethod::Https(_m) => {
-                    b.anchor(|ab| {
-                        ab.text("Download CA certificate as der");
-                        ab.href("ca/get_ca.rs?type=der");
-                        ab.target("_blank");
-                        ab
-                    });
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as der");
+                                ab.href("?action=download_ca&type=der");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as der");
+                                ab.href("ca/get_ca.rs?type=der");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
                     b.line_break(|lb| lb);
-                    b.anchor(|ab| {
-                        ab.text("Download CA certificate as pem");
-                        ab.href("ca/get_ca.rs?type=pem");
-                        ab.target("_blank");
-                        ab
-                    });
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as pem");
+                                ab.href("?action=download_ca&type=pem");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as pem");
+                                ab.href("ca/get_ca.rs?type=pem");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
                     b.line_break(|lb| lb);
                 }
                 CertificateSigningMethod::Ssh(_m) => {
-                    b.anchor(|ab| {
-                        ab.text("Download SSH CA certificate");
-                        ab.href("ca/get_ca.rs");
-                        ab.target("_blank");
-                        ab
-                    });
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download SSH CA certificate");
+                                ab.href("?action=download_ca");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download SSH CA certificate");
+                                ab.href("ca/get_ca.rs");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
                     b.line_break(|lb| lb);
                 }
             }
-            b.anchor(|ab| {
-                ab.text("Request a signature on a certificate");
-                ab.href("ca/request.rs");
-                ab
-            });
+            match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    b.anchor(|ab| {
+                        ab.text("Request a signature on a certificate");
+                        ab.href("?action=request_signature");
+                        ab
+                    });
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    b.anchor(|ab| {
+                        ab.text("Request a signature on a certificate");
+                        ab.href("ca/request.rs");
+                        ab
+                    });
+                }
+            }
             b.line_break(|lb| lb);
             if admin {
-                b.anchor(|ab| {
-                    ab.text("List pending requests");
-                    ab.href("ca/list.rs");
-                    ab
-                });
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("List pending requests");
+                            ab.href("?action=list_pending_requests");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("List pending requests");
+                            ab.href("ca/list.rs");
+                            ab
+                        });
+                    }
+                }
                 b.line_break(|lb| lb);
-                b.anchor(|ab| {
-                    ab.text("List all certificates");
-                    ab.href("ca/view_all_certs.rs");
-                    ab
-                });
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("List all certificates");
+                            ab.href("?action=view_all_certs");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("List all certificates");
+                            ab.href("ca/view_all_certs.rs");
+                            ab
+                        });
+                    }
+                }
                 b.line_break(|lb| lb);
-                b.anchor(|ab| {
-                    ab.text("Refresh certificate search");
-                    ab.href("ca/refresh_certificate_search.rs");
-                    ab
-                });
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Refresh certificate search");
+                            ab.href("?action=refresh_certificate_search");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Refresh certificate search");
+                            ab.href("ca/refresh_certificate_search.rs");
+                            ab
+                        });
+                    }
+                }
                 b.line_break(|lb| lb);
             }
             b
@@ -2120,7 +2200,7 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                         );
                         response.headers.append(
                             "Content-Disposition",
-                            HeaderValue::from_static("attachment; filename=ca.cer"),
+                            HeaderValue::from_static("attachment; filename=ca.der"),
                         );
                         cert = cert_der.contents().ok();
                     }
@@ -2167,7 +2247,7 @@ async fn handle_ca_get_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 }
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
-async fn ca_get_cert(s: WebPageContext) -> WebResponse {
+pub async fn ca_get_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {

@@ -1,6 +1,7 @@
 //! This module is used to run a webserver.
 
 use crate::ca::SimplifiedPkiConfigurationEnum;
+use crate::main_config::PageDelivery;
 use futures::stream::FuturesUnordered;
 use futures::{Future, FutureExt};
 use hyper::{Request, Response, StatusCode};
@@ -74,6 +75,8 @@ where
 
 /// The context necessary to respond to a web request.
 pub struct HttpContext {
+    /// What kind of method was used to deliver the page?
+    pub delivery: PageDelivery,
     /// The map for static content, mapping urls to static content files
     pub static_map: HashMap<String, String>,
     /// The map that is used to route requests to the proper async function.
@@ -131,6 +134,8 @@ impl UserCerts {
 
 /// Represents the context necessary to render a webpage
 pub struct WebPageContext {
+    /// What kind of method was used to deliver the page?
+    pub delivery: PageDelivery,
     /// Was https used to access the page?
     pub https: bool,
     /// The domain that was used to access the request
@@ -437,6 +442,7 @@ async fn handle<'a>(
     service::log::info!("Lookup {} on {}{}", fixed_path, domain2, proxy);
 
     let p = WebPageContext {
+        delivery: context.delivery,
         https: ec.https,
         domain,
         page: <std::path::PathBuf as std::str::FromStr>::from_str(fixed_path).unwrap(),

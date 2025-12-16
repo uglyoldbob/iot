@@ -75,7 +75,31 @@ async fn main() {
         }
         let post_data = PostContent::new(Some(post_data), headers);
 
+        let post_map = {
+            let mut get_map = HashMap::new();
+            if let Some(c) = request.headers().get("x-cgi-content-type") {
+                if let Ok(c) = c.to_str() {
+                    if "application/x-www-form-urlencoded" == c {
+                        let body = request.body();
+                        let a: String = String::from_utf8(body.clone()).unwrap();
+                        let get_data = a;
+                        let get_data = get_data;
+                        let get_split = get_data.split('&');
+                        for get_elem in get_split {
+                            let mut ele_split = get_elem.split('=').take(2);
+                            let i1 = ele_split.next().unwrap_or_default();
+                            let i2 = ele_split.next().unwrap_or_default();
+                            let s = urlencoding::decode(i2).unwrap().into_owned().to_string();
+                            get_map.insert(i1.to_owned(), s);
+                        }
+                    }
+                }
+            }
+            get_map
+        };
+
         let p = crate::webserver::WebPageContext {
+            delivery: main_config::PageDelivery::Cgi,
             https: true,
             domain: request
                 .headers()
@@ -86,7 +110,7 @@ async fn main() {
                 .to_string(),
             page: request.uri().to_string().into(),
             post: post_data,
-            get: get_map,
+            get: get_map.clone(),
             proxy: String::new(),
             logincookie: None,
             pool: None,
@@ -95,17 +119,51 @@ async fn main() {
             pki: pki.clone(),
         };
 
-        let resp = ca::ca_main_page(p).await;
-        let b = resp
-            .response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes();
-        let b = b.as_ref();
-        let response: String = String::from_utf8(b.to_vec()).unwrap();
-        cgi::html_response(200, response)
+        match get_map.get("action").map(|a| a.as_str()) {
+            Some("download_ca") => {
+                let resp = ca::ca_get_cert(p).await;
+                let b = resp
+                    .response
+                    .clone()
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let mut r = cgi::Response::new(b.to_vec());
+                for h in resp.response.headers() {
+                    r.headers_mut().append(h.0, h.1.to_owned());
+                }
+                r
+            }
+            Some("request_signature") => {
+                let resp = ca::ca_request(p).await;
+                let b = resp
+                    .response
+                    .clone()
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                cgi::html_response(200, response)
+            }
+            _ => {
+                let resp = ca::ca_main_page(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                cgi::html_response(200, response)
+            }
+        }
     })
     .await
 }

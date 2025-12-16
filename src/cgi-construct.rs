@@ -610,6 +610,7 @@ async fn main() {
                             https_port: https,
                         });
                     }
+                    #[cfg(feature = "tpm2")]
                     html.body(|b| {
                         b.text("Applied proxy settings");
                         b.line_break(|lb| lb);
@@ -619,6 +620,27 @@ async fn main() {
                                 i.type_("hidden")
                                     .name("step")
                                     .value(format!("{}", BuildStep::GetTpm2Config as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                    #[cfg(not(feature = "tpm2"))]
+                    html.body(|b| {
+                        b.text("Applied proxy settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetSigningMethod as usize))
                             });
                             f.input(|i| {
                                 i.type_("hidden")

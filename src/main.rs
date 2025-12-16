@@ -252,6 +252,7 @@ async fn smain() {
     let pki = Arc::new(futures::lock::Mutex::new(pki));
 
     let hc = HttpContext {
+        delivery: main_config::PageDelivery::DedicatedServer,
         static_map,
         dirmap: router,
         root,

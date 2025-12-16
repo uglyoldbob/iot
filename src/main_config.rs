@@ -838,3 +838,12 @@ impl MainConfiguration {
         self.pki.get_https_port()
     }
 }
+
+/// How was the page delivered to the user
+#[derive(Copy, Clone)]
+pub enum PageDelivery {
+    /// A cgi script did the delivery
+    Cgi,
+    /// The dedicated server did the delivery
+    DedicatedServer,
+}
