@@ -1153,6 +1153,7 @@ impl CaCertificateStorageBuilder {
                 loop {
                     let p: &std::path::PathBuf = p;
                     let mode = async_sqlite::JournalMode::Wal;
+                    service::log::info!("Attempting to create poolbuilder for sqlite");
                     pool = async_sqlite::PoolBuilder::new()
                         .path(p)
                         .journal_mode(mode)
@@ -1160,6 +1161,10 @@ impl CaCertificateStorageBuilder {
                         .await;
                     if pool.is_err() {
                         count += 1;
+                        service::log::info!(
+                            "FAILED {} Attempting to create poolbuilder for sqlite",
+                            count
+                        );
                         if count > 10 {
                             return Err(StorageBuilderError::FailedToCreateStorage);
                         }
@@ -2504,10 +2509,25 @@ impl PkiConfigurationEnum {
                 }
             }
             SecurityModuleConfiguration::Software(p) => {
+                let n = config_path.join(format!("{}-initialized", name));
+                let ssm = Arc::new(hsm2::SecurityModule::Software(Ssm { path: p.clone() }));
+                service::log::info!("Checking for {} existing", n.display());
+                if !n.exists() {
+                    service::log::info!("Creating ssm");
+                    use tokio::io::AsyncWriteExt;
+                    let _ca_instance =
+                        crate::ca::PkiInstance::init(ssm.clone(), &settings.pki, &settings)
+                            .await
+                            .unwrap();
+                    let mut f = tokio::fs::File::create(&n).await.unwrap();
+                    f.write_all("".as_bytes())
+                        .await
+                        .expect("Failed to initialization file update");
+                }
                 if !p.exists() {
                     std::fs::create_dir_all(&p).unwrap();
                 }
-                Arc::new(hsm2::SecurityModule::Software(Ssm { }))
+                ssm
             }
         }
     }
@@ -2552,8 +2572,7 @@ impl PkiConfigurationEnum {
         match self {
             PkiConfigurationEnum::AddedCa(ca) => None,
             PkiConfigurationEnum::Pki(pki) => Some(pki.general.clone()),
-            PkiConfigurationEnum::Ca(config) => Some(config
-                .general.clone()),
+            PkiConfigurationEnum::Ca(config) => Some(config.general.clone()),
         }
     }
 
@@ -2574,8 +2593,7 @@ impl PkiConfigurationEnum {
         match self {
             Self::AddedCa(_) => None,
             Self::Pki(pki) => Some(pki.general.static_content.to_owned()),
-            Self::Ca(ca) => Some(ca
-                .general.static_content.to_owned()),
+            Self::Ca(ca) => Some(ca.general.static_content.to_owned()),
         }
     }
 
@@ -3862,7 +3880,7 @@ impl Ca {
                             .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                         admin_cert
                     }
-                    #[cfg(feature="smartcard")]
+                    #[cfg(feature = "smartcard")]
                     CertificateType::SmartCard(p) => {
                         let label = format!("{}-admin", ca.config.common_name);
                         let keypair = card::KeyPair::generate_with_smartcard_async(
@@ -4551,7 +4569,7 @@ impl Ca {
                 }
                 url.push_str("http://");
             } else {
-                return Err(());
+                url.push_str("https://");
             }
 
             url.push_str(san);

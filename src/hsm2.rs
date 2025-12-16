@@ -1,12 +1,16 @@
 //! Code related to the pkcs11 interface for hardware security modules
 
-use std::sync::{Arc, Mutex};
+use std::{
+    io::{Read, Write},
+    sync::{Arc, Mutex},
+};
 
 use cert_common::{
     oid::{OID_ECDSA_P256_SHA256_SIGNING, OID_PKCS1_SHA256_RSA_ENCRYPTION},
     HttpsSigningMethod,
 };
 use cryptoki::object::Attribute;
+use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey};
 use zeroize::Zeroizing;
 
 /// The trait that security module implements
@@ -31,6 +35,10 @@ pub trait SecurityModuleTrait {
 pub enum KeyPair {
     /// An rsa sha256 keypair
     RsaSha256(RsaSha256Keypair),
+    /// An rsa sha256 keypair in software
+    SoftRsaSha256(SsmRsaSha256Keypair),
+    /// An ecdsa sha256 keypair in software
+    SoftEcdsaSha256(SsmEcdsaSha256Keypair),
     /// An ecdsa sha256 keypair
     EcdsaSha256(EcdsaSha256Keypair),
 }
@@ -59,6 +67,8 @@ impl rcgen::RemoteKeyPair for KeyPair {
         match self {
             KeyPair::RsaSha256(m) => m.public_key(),
             KeyPair::EcdsaSha256(m) => m.public_key(),
+            KeyPair::SoftRsaSha256(m) => m.public_key(),
+            KeyPair::SoftEcdsaSha256(m) => m.public_key(),
         }
     }
 
@@ -66,6 +76,8 @@ impl rcgen::RemoteKeyPair for KeyPair {
         match self {
             KeyPair::RsaSha256(m) => m.sign(msg),
             KeyPair::EcdsaSha256(m) => m.sign(msg),
+            KeyPair::SoftRsaSha256(m) => m.sign(msg),
+            KeyPair::SoftEcdsaSha256(m) => m.sign(msg),
         }
     }
 
@@ -73,6 +85,8 @@ impl rcgen::RemoteKeyPair for KeyPair {
         match self {
             KeyPair::RsaSha256(m) => m.algorithm(),
             KeyPair::EcdsaSha256(m) => m.algorithm(),
+            KeyPair::SoftRsaSha256(m) => m.algorithm(),
+            KeyPair::SoftEcdsaSha256(m) => m.algorithm(),
         }
     }
 }
@@ -84,6 +98,45 @@ pub struct EcdsaSignature {
     pub r: der::asn1::Uint,
     /// The s component of the ECDSA signature
     pub s: der::asn1::Uint,
+}
+
+/// An ecdsa sha-256 ssm keypair
+#[derive(Clone, Debug)]
+pub struct SsmEcdsaSha256Keypair {
+    /// The cert contents
+    cert: Vec<u8>,
+    /// The actual public key
+    pubkey: Vec<u8>,
+    /// The label for the keypair
+    label: String,
+}
+
+impl KeyPairTrait for SsmEcdsaSha256Keypair {
+    fn keypair(&self) -> rcgen::KeyPair {
+        todo!()
+    }
+
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+
+    fn https_algorithm(&self) -> Option<HttpsSigningMethod> {
+        Some(HttpsSigningMethod::EcdsaSha256)
+    }
+}
+
+impl rcgen::RemoteKeyPair for SsmEcdsaSha256Keypair {
+    fn public_key(&self) -> &[u8] {
+        &self.pubkey
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+        todo!()
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components()).unwrap()
+    }
 }
 
 /// An ecdsa sha-256 hsm keypair
@@ -112,6 +165,24 @@ impl KeyPairTrait for EcdsaSha256Keypair {
 
     fn https_algorithm(&self) -> Option<HttpsSigningMethod> {
         Some(HttpsSigningMethod::EcdsaSha256)
+    }
+}
+
+impl rcgen::RemoteKeyPair for SsmRsaSha256Keypair {
+    fn public_key(&self) -> &[u8] {
+        &self.pubkey
+    }
+
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
+        use rsa::pkcs1v15::SigningKey;
+        use rsa::signature::SignatureEncoding;
+        use rsa::signature::Signer;
+        let signing_key = SigningKey::<sha2::Sha256>::new(self.rsa_priv_key.clone());
+        Ok(signing_key.sign(msg).to_vec())
+    }
+
+    fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
+        rcgen::SignatureAlgorithm::from_oid(&OID_PKCS1_SHA256_RSA_ENCRYPTION.components()).unwrap()
     }
 }
 
@@ -146,6 +217,19 @@ impl rcgen::RemoteKeyPair for EcdsaSha256Keypair {
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {
         rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components()).unwrap()
     }
+}
+
+/// An rsa sha-256 ssm keypair
+#[derive(Clone, Debug)]
+pub struct SsmRsaSha256Keypair {
+    /// The rsa private key object
+    rsa_priv_key: rsa::RsaPrivateKey,
+    /// The rsa public key object
+    rsa_pubkey: rsa::RsaPublicKey,
+    /// The actual public key
+    pubkey: Vec<u8>,
+    /// The label for the keypair
+    label: String,
 }
 
 /// An rsa sha-256 hsm keypair
@@ -235,7 +319,24 @@ pub struct Hsm {
 
 /// A software security module
 #[derive(Debug)]
-pub struct Ssm {}
+pub struct Ssm {
+    /// The path for where to save keypairs
+    pub path: std::path::PathBuf,
+}
+
+impl KeyPairTrait for SsmRsaSha256Keypair {
+    fn keypair(&self) -> rcgen::KeyPair {
+        rcgen::KeyPair::from_remote(Box::new(self.clone())).unwrap()
+    }
+
+    fn https_algorithm(&self) -> Option<HttpsSigningMethod> {
+        Some(HttpsSigningMethod::RsaSha256)
+    }
+
+    fn label(&self) -> String {
+        self.label.clone()
+    }
+}
 
 impl SecurityModuleTrait for Ssm {
     fn generate_https_keypair(
@@ -244,15 +345,87 @@ impl SecurityModuleTrait for Ssm {
         method: HttpsSigningMethod,
         keysize: usize,
     ) -> Option<KeyPair> {
-        todo!()
+        match method {
+            HttpsSigningMethod::RsaSha256 => {
+                let mut rng = rand::thread_rng();
+                let kp = rsa::RsaPrivateKey::new(&mut rng, keysize).ok()?;
+                let kpd = kp.to_pkcs1_der().ok()?;
+                let newpath = self.path.join(name);
+                let mut f = std::fs::File::create(newpath).ok()?;
+                f.write_all(kpd.as_bytes());
+                let pubkey = rsa::RsaPublicKey::from(kp.clone());
+                let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
+                    .expect("Failed to build public key bytes");
+                let k = SsmRsaSha256Keypair {
+                    rsa_priv_key: kp,
+                    rsa_pubkey: pubkey,
+                    pubkey: pubbytes.as_bytes().to_vec(),
+                    label: name.to_string(),
+                };
+                Some(KeyPair::SoftRsaSha256(k))
+            }
+            HttpsSigningMethod::EcdsaSha256 => {
+                let rand = ring::rand::SystemRandom::new();
+                let doc = ring::signature::EcdsaKeyPair::generate_pkcs8(
+                    &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
+                    &rand,
+                )
+                .ok()?;
+                let keypair = ring::signature::EcdsaKeyPair::from_pkcs8(
+                    &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
+                    doc.as_ref(),
+                    &rand,
+                )
+                .ok()?;
+                let cert = doc.as_ref().to_vec();
+                let newpath = self.path.join(name);
+                let mut f = std::fs::File::create(newpath).ok()?;
+                f.write_all(&cert);
+                let k = SsmEcdsaSha256Keypair {
+                    cert,
+                    pubkey: ring::signature::KeyPair::public_key(&keypair)
+                        .as_ref()
+                        .to_vec(),
+                    label: name.to_string(),
+                };
+                Some(KeyPair::SoftEcdsaSha256(k))
+            }
+        }
     }
 
-    fn list_certificates(&self) {
-        todo!()
-    }
+    fn list_certificates(&self) {}
 
     fn load_with_label(&self, label: &str) -> Option<KeyPair> {
-        todo!()
+        let rand = ring::rand::SystemRandom::new();
+        let newpath = self.path.join(label);
+        let mut f = std::fs::File::open(newpath).ok()?;
+        let mut contents = Vec::new();
+        f.read_to_end(&mut contents).ok()?;
+        if let Ok(kp) = ring::signature::EcdsaKeyPair::from_pkcs8(
+            &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
+            &contents,
+            &rand,
+        ) {
+            let k = SsmEcdsaSha256Keypair {
+                cert: contents,
+                pubkey: ring::signature::KeyPair::public_key(&kp).as_ref().to_vec(),
+                label: label.to_string(),
+            };
+            Some(KeyPair::SoftEcdsaSha256(k))
+        } else if let Ok(kp) = rsa::RsaPrivateKey::from_pkcs1_der(&contents) {
+            let pubkey = rsa::RsaPublicKey::from(kp.clone());
+            let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
+                .expect("Failed to build public key bytes");
+            let k = SsmRsaSha256Keypair {
+                rsa_priv_key: kp,
+                pubkey: pubbytes.as_bytes().to_vec(),
+                rsa_pubkey: pubkey,
+                label: label.to_string(),
+            };
+            Some(KeyPair::SoftRsaSha256(k))
+        } else {
+            None
+        }
     }
 }
 
