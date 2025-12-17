@@ -186,7 +186,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
             div.text("This page is used to generate a certificate. The generate button generates a private key and certificate signing request on your local device, protecting the private key with the password specified.").line_break(|a|a);
             div.anchor(|ab| {
                 ab.text("Back to main page");
-                ab.href(".");
+                ab.href("?");
                 ab
             }).line_break(|a|a);
             match ca.config.sign_method {
@@ -860,7 +860,7 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
                 .line_break(|a| a);
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(".");
+                    ab.href("?");
                     ab
                 })
                 .line_break(|a| a);
@@ -919,11 +919,22 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     }
                 },
             }
-            b.anchor(|ab| {
-                ab.text("List pending requests");
-                ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
-                ab
-            });
+            match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    b.anchor(|ab| {
+                        ab.text("List pending requests");
+                        ab.href("?action=list_pending_requests");
+                        ab
+                    });
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    b.anchor(|ab| {
+                        ab.text("List pending requests");
+                        ab.href("ca/list.rs");
+                        ab
+                    });
+                }
+            }
             b.line_break(|lb| lb);
             b
         });
@@ -1093,7 +1104,7 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
 }
 
 /// A page to sign a single request.
-async fn ca_sign_request(s: WebPageContext) -> WebResponse {
+pub async fn ca_sign_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1159,7 +1170,10 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         let t = csr_names.join(", ");
                         b.anchor(|ab| {
                             ab.text("Back to all requests");
-                            ab.href("list.rs");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => ab.href("?action=list_pending_requests"),
+                                crate::main_config::PageDelivery::DedicatedServer => ab.href("list.rs"),
+                            };
                             ab
                         })
                         .line_break(|a| a);
@@ -1205,12 +1219,18 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         }
                         b.anchor(|ab| {
                             ab.text("Sign this request");
-                            ab.href(format!("request_sign.rs?serial={}", serials));
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => ab.href(format!("?action=request_sign&serial={}", serials)),
+                                crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("request_sign.rs?serial={}", serials)),
+                            };
                             ab
                         })
                         .line_break(|a| a);
                         b.form(|f| {
-                            f.action("request_reject.rs");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => f.action("?action=request_reject"),
+                                crate::main_config::PageDelivery::DedicatedServer => f.action("request_reject.rs"),
+                            };
                             f.text("Reject reason")
                                 .line_break(|a| a)
                                 .input(|i| {
@@ -1247,7 +1267,10 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         let serials = crate::utility::encode_hex(&serial);
                         b.anchor(|ab| {
                             ab.text("View this request");
-                            ab.href(format!("list.rs?serial={}", serials));
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => ab.href(format!("?action=list_pending_requests&serial={}", serials)),
+                                crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("list.rs?serial={}", serials)),
+                            };
                             ab
                         })
                         .line_break(|a| a);
@@ -1259,7 +1282,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                 }
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(".");
+                    ab.href("?");
                     ab
                 });
             }
@@ -1277,7 +1300,7 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
 }
 
 /// A page for listing all https requests in the system. It also can enumerate a single request.
-async fn ca_list_https_requests(s: WebPageContext) -> WebResponse {
+pub async fn ca_list_https_requests(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1332,7 +1355,10 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                 if let Some(csrr) = csrr {
                     b.anchor(|ab| {
                         ab.text("Back to all requests");
-                        ab.href(format!("{}{}ca/list.rs", s.proxy, pki));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => ab.href("?action=list_pending_requests"),
+                            crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("{}{}ca/list.rs", s.proxy, pki)),
+                        };
                         ab
                     })
                     .line_break(|a| a);
@@ -1388,7 +1414,7 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                 }
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(format!("{}{}ca", s.proxy, pki));
+                    ab.href("?");
                     ab
                 });
             }
@@ -1555,7 +1581,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
             b.line_break(|lb| lb);
             b.anchor(|ab| {
                 ab.text("Back to main page");
-                ab.href(".");
+                ab.href("?");
                 ab
             });
             b.line_break(|lb| lb);
@@ -1779,10 +1805,16 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                     let myserial2 = myserial.clone();
                     b.division(|div| {
                         div.class("hidden");
-                        div.anchor(|a| {
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => div.anchor(|a| {
+                            a.id("get_request")
+                                .text(format!("?action=get_cert&serial={}&type=pem", myserial2))
+                        }),
+                            crate::main_config::PageDelivery::DedicatedServer => div.anchor(|a| {
                             a.id("get_request")
                                 .text(format!("get_cert.rs?serial={}&type=pem", myserial2))
-                        });
+                        }),
+                        };
                         div
                     });
                     b.line_break(|lb| lb);
@@ -1820,7 +1852,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(".");
+            ab.href("?");
             ab
         });
         b.line_break(|lb| lb);
@@ -1966,7 +1998,7 @@ async fn handle_ca_view_user_ssh_cert(ca: &mut Ca, s: &WebPageContext) -> WebRes
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
-            ab.href(".");
+            ab.href("?");
             ab
         });
         b.line_break(|lb| lb);
@@ -2087,7 +2119,7 @@ async fn handle_ca_get_user_cert(ca: &mut Ca, s: &WebPageContext) -> WebResponse
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_get_user_cert(s: WebPageContext) -> WebResponse {
+pub async fn ca_get_user_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -2144,7 +2176,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
             .body(|b| {
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(".");
+                    ab.href("?");
                     ab
                 })
                 .line_break(|a| a);
@@ -2541,7 +2573,7 @@ async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -
             if admin {
                 b.anchor(|ab| {
                     ab.text("Back to main page");
-                    ab.href(".");
+                    ab.href("?");
                     ab
                 })
                 .line_break(|a| a);

@@ -112,17 +112,21 @@ pub enum UserCert {
 }
 
 /// A list of all the `UserCert` that the current page knows about.
-pub struct UserCerts(Vec<UserCert>);
+pub struct UserCerts {
+    pub inner: Vec<UserCert>,
+}
 
 impl UserCerts {
     /// Build a new blank list
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self {
+            inner: Vec::new()
+        }
     }
 
     /// Return a list of all certs, regardless of how the made it here
     pub fn all_certs(&self) -> Vec<&x509_cert::Certificate> {
-        self.0
+        self.inner
             .iter()
             .map(|c| match c {
                 UserCert::HttpsCert(a) => a,
@@ -410,10 +414,10 @@ async fn handle<'a>(
         None
     };
 
-    let mut user_certs = UserCerts(Vec::new());
+    let mut user_certs = UserCerts::new();
     if let Some(uc) = ec.user_certs.as_ref() {
         for c in uc {
-            user_certs.0.push(UserCert::HttpsCert(c.to_owned()));
+            user_certs.inner.push(UserCert::HttpsCert(c.to_owned()));
         }
     }
 
@@ -422,7 +426,7 @@ async fn handle<'a>(
         use der::DecodePem;
         let ssl = url_escape::decode(std::str::from_utf8(ssl.as_bytes()).unwrap());
         let x509 = x509_cert::Certificate::from_pem(ssl.as_bytes()).unwrap();
-        user_certs.0.push(UserCert::ProxyCert(x509));
+        user_certs.inner.push(UserCert::ProxyCert(x509));
     }
 
     let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());

@@ -14,6 +14,7 @@ mod utility;
 mod webserver;
 
 mod main_config;
+use der::DecodePem;
 use http_body_util::BodyExt;
 pub use main_config::MainConfiguration;
 
@@ -21,7 +22,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-use crate::webserver::PostContent;
+use crate::webserver::{PostContent, UserCert};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -98,6 +99,13 @@ async fn main() {
             get_map
         };
 
+        let mut ucerts = webserver::UserCerts::new();
+        if let Ok(cert) = std::env::var("SSL_CLIENT_CERT") {
+            if let Ok(c) = x509_cert::Certificate::from_pem(cert) {
+                ucerts.inner.push(UserCert::HttpsCert(c));
+            }
+        }
+
         let p = crate::webserver::WebPageContext {
             delivery: main_config::PageDelivery::Cgi,
             https: true,
@@ -114,7 +122,7 @@ async fn main() {
             proxy: String::new(),
             logincookie: None,
             pool: None,
-            user_certs: webserver::UserCerts::new(),
+            user_certs: ucerts,
             pki_type: settings.pki.clone().into(),
             pki: pki.clone(),
         };
@@ -178,6 +186,54 @@ async fn main() {
             }
             Some("admin") => {
                 let resp = ca::ca_get_admin(p).await;
+                let b = resp
+                    .response
+                    .clone()
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let b = b.as_ref();
+                if let Some(ct) = resp.response.headers().get("Content-Type") {
+                    let mut r = cgi::Response::new(b.to_vec());
+                    for h in resp.response.headers() {
+                        r.headers_mut().append(h.0, h.1.to_owned());
+                    }
+                    r
+                } else {
+                    let response: String = String::from_utf8(b.to_vec()).unwrap();
+                    cgi::html_response(200, response)
+                }
+            }
+            Some("list_pending_requests") => {
+                let resp = ca::ca_list_https_requests(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                cgi::html_response(200, response)
+            }
+            Some("request_sign") => {
+                let resp = ca::ca_sign_request(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                cgi::html_response(200, response)
+            }
+            Some("get_cert") => {
+                let resp = ca::ca_get_user_cert(p).await;
                 let b = resp
                     .response
                     .clone()
