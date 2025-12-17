@@ -1597,7 +1597,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
 }
 
 /// A page for viewing all certificates in the certificate authority
-async fn ca_view_all_certs(s: WebPageContext) -> WebResponse {
+pub async fn ca_view_all_certs(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
