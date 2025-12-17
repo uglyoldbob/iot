@@ -2115,20 +2115,21 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 
     let p = s.post.form();
     if let Some(p) = p {
-        let token = p.get_first("token").unwrap();
-        if token == ca.admin_access.as_str() {
-            if let Ok(c) = ca.get_admin_cert().await {
-                if let CertificateType::Soft(p) = &ca.config.admin_cert {
-                    cert = c.try_p12(p);
-                    if cert.is_some() {
-                        response.headers.append(
-                            "Content-Type",
-                            HeaderValue::from_static("application/x-pkcs12"),
-                        );
-                        response.headers.append(
-                            "Content-Disposition",
-                            HeaderValue::from_static("attachment; filename=admin.p12"),
-                        );
+        if let Some(token) = p.get_first("token") {
+            if token == ca.admin_access.as_str() {
+                if let Ok(c) = ca.get_admin_cert().await {
+                    if let CertificateType::Soft(p) = &ca.config.admin_cert {
+                        cert = c.try_p12(p);
+                        if cert.is_some() {
+                            response.headers.append(
+                                "Content-Type",
+                                HeaderValue::from_static("application/x-pkcs12"),
+                            );
+                            response.headers.append(
+                                "Content-Disposition",
+                                HeaderValue::from_static("attachment; filename=admin.p12"),
+                            );
+                        }
                     }
                 }
             }
@@ -2167,7 +2168,7 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
 }
 
 /// Runs the page for fetching the ca certificate for the certificate authority being run
-async fn ca_get_admin(s: WebPageContext) -> WebResponse {
+pub async fn ca_get_admin(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
