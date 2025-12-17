@@ -90,7 +90,14 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     b.text("Your request has been submitted").line_break(|f| f);
                     b.anchor(|ab| {
                         ab.text("View status of request");
-                        ab.href(format!("view_cert.rs?serial={}", serial.unwrap()));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                ab.href(format!("?action=view_cert&serial={}", serial.unwrap()))
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!("view_cert.rs?serial={}", serial.unwrap()))
+                            }
+                        };
                         ab
                     });
                     b.line_break(|lb| lb);
@@ -137,7 +144,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
 }
 
 /// The page that allows users to submit a signing request.
-async fn ca_submit_request(s: WebPageContext) -> WebResponse {
+pub async fn ca_submit_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -218,7 +225,10 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                     div.division(|div| {
                         div.form(|f| {
                             f.name("request");
-                            f.action("submit_request.rs");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => f.action("?action=submit_request"),
+                                crate::main_config::PageDelivery::DedicatedServer => f.action("submit_request.rs"),
+                            };
                             f.method("post");
                             f.text("Your Name")
                                 .line_break(|a| a)
@@ -1826,7 +1836,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
 }
 
 /// Runs the page for fetching the user certificate for the certificate authority being run
-async fn ca_view_user_https_cert(s: WebPageContext) -> WebResponse {
+pub async fn ca_view_user_https_cert(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -2591,11 +2601,7 @@ fn generic_head<'a>(
     h.meta(|m| m.charset("UTF-8"));
     match s.delivery {
         crate::main_config::PageDelivery::Cgi => {
-            h.link(|h| {
-                h.href("./css/ca.css")
-                    .rel("stylesheet")
-                    .media("all")
-            });
+            h.link(|h| h.href("./css/ca.css").rel("stylesheet").media("all"));
             h.link(|h| {
                 h.href("./css/ca-mobile.css")
                     .rel("stylesheet")

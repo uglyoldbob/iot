@@ -348,10 +348,19 @@ impl SecurityModuleTrait for Ssm {
         match method {
             HttpsSigningMethod::RsaSha256 => {
                 let mut rng = rand::thread_rng();
-                let kp = rsa::RsaPrivateKey::new(&mut rng, keysize).ok()?;
-                let kpd = kp.to_pkcs1_der().ok()?;
+                let kp = rsa::RsaPrivateKey::new(&mut rng, keysize)
+                    .map_err(|e| service::log::error!("ERROR making private key: {}", e))
+                    .ok()?;
+                let kpd = kp
+                    .to_pkcs1_der()
+                    .map_err(|e| service::log::error!("ERROR making secret document: {}", e))
+                    .ok()?;
                 let newpath = self.path.join(name);
-                let mut f = std::fs::File::create(newpath).ok()?;
+                let mut f = std::fs::File::create(&newpath)
+                    .map_err(|e| {
+                        service::log::error!("ERROR making file {}: {}", newpath.display(), e)
+                    })
+                    .ok()?;
                 f.write_all(kpd.as_bytes());
                 let pubkey = rsa::RsaPublicKey::from(kp.clone());
                 let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)

@@ -2512,6 +2512,10 @@ impl PkiConfigurationEnum {
                 let n = config_path.join(format!("{}-initialized", name));
                 let ssm = Arc::new(hsm2::SecurityModule::Software(Ssm { path: p.clone() }));
                 service::log::info!("Checking for {} existing", n.display());
+                service::log::info!("Checking for {} existing", p.display());
+                if !p.exists() {
+                    std::fs::create_dir_all(&p).unwrap();
+                }
                 if !n.exists() {
                     service::log::info!("Creating ssm");
                     use tokio::io::AsyncWriteExt;
@@ -2523,9 +2527,6 @@ impl PkiConfigurationEnum {
                     f.write_all("".as_bytes())
                         .await
                         .expect("Failed to initialization file update");
-                }
-                if !p.exists() {
-                    std::fs::create_dir_all(&p).unwrap();
                 }
                 ssm
             }

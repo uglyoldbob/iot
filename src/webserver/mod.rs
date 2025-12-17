@@ -163,28 +163,33 @@ pub struct WebPageContext {
 impl WebPageContext {
     /// Build an absolute url
     pub fn get_absolute_url(&self, sd: &str, url: &str) -> String {
-        match &self.pki_type {
-            crate::ca::SimplifiedPkiConfigurationEnum::AddedCa => {
-                if self.https {
-                    format!("https://{}/{}{}", self.domain, self.proxy, url)
-                } else {
-                    format!("http://{}/{}{}", self.domain, self.proxy, url)
-                }
+        match self.delivery {
+            PageDelivery::Cgi => {
+                format!("{}", url)
             }
-            crate::ca::SimplifiedPkiConfigurationEnum::Pki => {
-                if self.https {
-                    format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
-                } else {
-                    format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+            PageDelivery::DedicatedServer => match &self.pki_type {
+                crate::ca::SimplifiedPkiConfigurationEnum::AddedCa => {
+                    if self.https {
+                        format!("https://{}/{}{}", self.domain, self.proxy, url)
+                    } else {
+                        format!("http://{}/{}{}", self.domain, self.proxy, url)
+                    }
                 }
-            }
-            crate::ca::SimplifiedPkiConfigurationEnum::Ca => {
-                if self.https {
-                    format!("https://{}/{}{}", self.domain, self.proxy, url)
-                } else {
-                    format!("http://{}/{}{}", self.domain, self.proxy, url)
+                crate::ca::SimplifiedPkiConfigurationEnum::Pki => {
+                    if self.https {
+                        format!("https://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                    } else {
+                        format!("http://{}/{}{}{}", self.domain, self.proxy, sd, url)
+                    }
                 }
-            }
+                crate::ca::SimplifiedPkiConfigurationEnum::Ca => {
+                    if self.https {
+                        format!("https://{}/{}{}", self.domain, self.proxy, url)
+                    } else {
+                        format!("http://{}/{}{}", self.domain, self.proxy, url)
+                    }
+                }
+            },
         }
     }
 }
