@@ -1171,8 +1171,12 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         b.anchor(|ab| {
                             ab.text("Back to all requests");
                             match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => ab.href("?action=list_pending_requests"),
-                                crate::main_config::PageDelivery::DedicatedServer => ab.href("list.rs"),
+                                crate::main_config::PageDelivery::Cgi => {
+                                    ab.href("?action=list_pending_requests")
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href("list.rs")
+                                }
                             };
                             ab
                         })
@@ -1220,16 +1224,24 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         b.anchor(|ab| {
                             ab.text("Sign this request");
                             match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => ab.href(format!("?action=request_sign&serial={}", serials)),
-                                crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("request_sign.rs?serial={}", serials)),
+                                crate::main_config::PageDelivery::Cgi => {
+                                    ab.href(format!("?action=request_sign&serial={}", serials))
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!("request_sign.rs?serial={}", serials))
+                                }
                             };
                             ab
                         })
                         .line_break(|a| a);
                         b.form(|f| {
                             match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => f.action("?action=request_reject"),
-                                crate::main_config::PageDelivery::DedicatedServer => f.action("request_reject.rs"),
+                                crate::main_config::PageDelivery::Cgi => {
+                                    f.action("?action=request_reject")
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    f.action("request_reject.rs")
+                                }
                             };
                             f.text("Reject reason")
                                 .line_break(|a| a)
@@ -1268,8 +1280,13 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         b.anchor(|ab| {
                             ab.text("View this request");
                             match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => ab.href(format!("?action=list_pending_requests&serial={}", serials)),
-                                crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("list.rs?serial={}", serials)),
+                                crate::main_config::PageDelivery::Cgi => ab.href(format!(
+                                    "?action=list_pending_requests&serial={}",
+                                    serials
+                                )),
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!("list.rs?serial={}", serials))
+                                }
                             };
                             ab
                         })
@@ -1356,8 +1373,12 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                     b.anchor(|ab| {
                         ab.text("Back to all requests");
                         match s.delivery {
-                            crate::main_config::PageDelivery::Cgi => ab.href("?action=list_pending_requests"),
-                            crate::main_config::PageDelivery::DedicatedServer => ab.href(format!("{}{}ca/list.rs", s.proxy, pki)),
+                            crate::main_config::PageDelivery::Cgi => {
+                                ab.href("?action=list_pending_requests")
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!("{}{}ca/list.rs", s.proxy, pki))
+                            }
                         };
                         ab
                     })
@@ -1807,13 +1828,13 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                         div.class("hidden");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => div.anchor(|a| {
-                            a.id("get_request")
-                                .text(format!("?action=get_cert&serial={}&type=pem", myserial2))
-                        }),
+                                a.id("get_request")
+                                    .text(format!("?action=get_cert&serial={}&type=pem", myserial2))
+                            }),
                             crate::main_config::PageDelivery::DedicatedServer => div.anchor(|a| {
-                            a.id("get_request")
-                                .text(format!("get_cert.rs?serial={}&type=pem", myserial2))
-                        }),
+                                a.id("get_request")
+                                    .text(format!("get_cert.rs?serial={}&type=pem", myserial2))
+                            }),
                         };
                         div
                     });

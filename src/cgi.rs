@@ -30,11 +30,9 @@ async fn main() {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off"))
             .target(env_logger::Target::Stdout)
             .init();
-        let config = std::fs::File::open("./config.bin");
-        if config.is_err() {
+        let Ok(mut config) = std::fs::File::open("./config.bin") else {
             return cgi::html_response(500, "Invalid configuration 1");
-        }
-        let mut config = config.unwrap();
+        };
         let mut contents = Vec::new();
         if config.read_to_end(&mut contents).is_err() {
             return cgi::html_response(500, "Invalid configuration 2");
@@ -49,20 +47,23 @@ async fn main() {
             .pki
             .init_hsm(&"./".into(), "default", &settings)
             .await;
-        let pki = ca::PkiInstance::load(hsm.clone(), &settings).await.unwrap(); //TODO remove this unwrap?
+        let Ok(pki) = ca::PkiInstance::load(hsm.clone(), &settings).await else {
+            return cgi::html_response(500, "Failed to load pki");
+        };
         let pki = Arc::new(futures_util::lock::Mutex::new(pki));
 
         let get_map = {
             let mut get_map = HashMap::new();
             let get_data = request.headers().get("x-cgi-query-string");
             if let Some(get_data) = get_data {
-                let get_data = get_data.to_str().unwrap();
-                let get_split = get_data.split('&');
-                for get_elem in get_split {
-                    let mut ele_split = get_elem.split('=').take(2);
-                    let i1 = ele_split.next().unwrap_or_default();
-                    let i2 = ele_split.next().unwrap_or_default();
-                    get_map.insert(i1.to_owned(), i2.to_owned());
+                if let Ok(get_data) = get_data.to_str() {
+                    let get_split = get_data.split('&');
+                    for get_elem in get_split {
+                        let mut ele_split = get_elem.split('=').take(2);
+                        let i1 = ele_split.next().unwrap_or_default();
+                        let i2 = ele_split.next().unwrap_or_default();
+                        get_map.insert(i1.to_owned(), i2.to_owned());
+                    }
                 }
             }
             get_map
@@ -82,7 +83,7 @@ async fn main() {
                 if let Ok(c) = c.to_str() {
                     if "application/x-www-form-urlencoded" == c {
                         let body = request.body();
-                        let a: String = String::from_utf8(body.clone()).unwrap();
+                        let a: String = String::from_utf8(body.clone()).unwrap_or_default();
                         let get_data = a;
                         let get_data = get_data;
                         let get_split = get_data.split('&');
@@ -90,7 +91,10 @@ async fn main() {
                             let mut ele_split = get_elem.split('=').take(2);
                             let i1 = ele_split.next().unwrap_or_default();
                             let i2 = ele_split.next().unwrap_or_default();
-                            let s = urlencoding::decode(i2).unwrap().into_owned().to_string();
+                            let s = urlencoding::decode(i2)
+                                .unwrap_or_default()
+                                .into_owned()
+                                .to_string();
                             get_map.insert(i1.to_owned(), s);
                         }
                     }
@@ -106,16 +110,17 @@ async fn main() {
             }
         }
 
+        let domain = request
+            .headers()
+            .get("host")
+            .map(|h| h.to_str().ok())
+            .flatten()
+            .unwrap_or_default();
+
         let p = crate::webserver::WebPageContext {
             delivery: main_config::PageDelivery::Cgi,
             https: true,
-            domain: request
-                .headers()
-                .get("host")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
+            domain: domain.to_string(),
             page: request.uri().to_string().into(),
             post: post_data,
             get: get_map.clone(),
@@ -136,7 +141,7 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let mut r = cgi::Response::new(b.to_vec());
                 for h in resp.response.headers() {
@@ -152,10 +157,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("submit_request") => {
@@ -165,10 +170,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("view_cert") => {
@@ -178,10 +183,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("admin") => {
@@ -192,7 +197,7 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
                 if let Some(ct) = resp.response.headers().get("Content-Type") {
@@ -202,7 +207,7 @@ async fn main() {
                     }
                     r
                 } else {
-                    let response: String = String::from_utf8(b.to_vec()).unwrap();
+                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                     cgi::html_response(200, response)
                 }
             }
@@ -213,10 +218,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("request_sign") => {
@@ -226,10 +231,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("get_cert") => {
@@ -240,7 +245,7 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
                 if let Some(ct) = resp.response.headers().get("Content-Type") {
@@ -250,7 +255,7 @@ async fn main() {
                     }
                     r
                 } else {
-                    let response: String = String::from_utf8(b.to_vec()).unwrap();
+                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                     cgi::html_response(200, response)
                 }
             }
@@ -261,10 +266,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             _ => {
@@ -274,10 +279,10 @@ async fn main() {
                     .into_body()
                     .collect()
                     .await
-                    .unwrap()
+                    .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
         }

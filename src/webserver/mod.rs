@@ -119,9 +119,7 @@ pub struct UserCerts {
 impl UserCerts {
     /// Build a new blank list
     pub fn new() -> Self {
-        Self {
-            inner: Vec::new()
-        }
+        Self { inner: Vec::new() }
     }
 
     /// Return a list of all certs, regardless of how the made it here
@@ -238,23 +236,14 @@ impl PostContent {
     /// Convert the post content to a multipart request if possible.
     #[allow(dead_code)]
     pub fn multipart(&self) -> Option<multer::Multipart<'_>> {
-        if let Some(body) = &self.body {
-            if let Some(boundary) = self.headers.get("Content-Type") {
-                let boundary = multer::parse_boundary(boundary.to_str().unwrap());
-                if let Ok(boundary) = boundary {
-                    let data = futures_util::stream::once(async move {
-                        Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
-                    });
-                    Some(multer::Multipart::new(data, boundary))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        let body = self.body.as_ref()?;
+        let boundary = self.headers.get("Content-Type")?;
+        let b = boundary.to_str().ok()?;
+        let boundary = multer::parse_boundary(b).ok()?;
+        let data = futures_util::stream::once(async move {
+            Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
+        });
+        Some(multer::Multipart::new(data, boundary))
     }
 }
 
@@ -375,8 +364,9 @@ async fn handle<'a>(
     let reader = BodyHandler { b: body };
     let body = reader.await;
     if let Some(Ok(b)) = body {
-        let b = b.into_data().unwrap();
-        post_data = Some(b);
+        if let Ok(b) = b.into_data() {
+            post_data = Some(b);
+        }
     }
 
     let post_data = PostContent::new(post_data, rparts.headers.to_owned());
@@ -396,11 +386,13 @@ async fn handle<'a>(
     let cks_ga = hdrs.get_all("cookie");
     let mut cookiemap = HashMap::new();
     for c in cks_ga.into_iter() {
-        let cookies = c.to_str().unwrap().split(';');
-        for ck in cookies {
-            let cookie = Cookie::parse(ck).unwrap();
-            let (c1, c2) = cookie.name_value();
-            cookiemap.insert(c1.to_owned(), c2.to_owned());
+        if let Ok(c) = c.to_str() {
+            for ck in c.split(';') {
+                if let Ok(cookie) = Cookie::parse(ck) {
+                    let (c1, c2) = cookie.name_value();
+                    cookiemap.insert(c1.to_owned(), c2.to_owned());
+                }
+            }
         }
     }
 
@@ -424,14 +416,22 @@ async fn handle<'a>(
     let ssls = hdrs.get_all("ssl_client_cert");
     for ssl in ssls {
         use der::DecodePem;
-        let ssl = url_escape::decode(std::str::from_utf8(ssl.as_bytes()).unwrap());
-        let x509 = x509_cert::Certificate::from_pem(ssl.as_bytes()).unwrap();
-        user_certs.inner.push(UserCert::ProxyCert(x509));
+        if let Ok(d) = std::str::from_utf8(ssl.as_bytes()) {
+            let ssl = url_escape::decode(d);
+            if let Ok(x509) = x509_cert::Certificate::from_pem(ssl.as_bytes()) {
+                user_certs.inner.push(UserCert::ProxyCert(x509));
+            }
+        }
     }
 
-    let mysql = context.pool.as_ref().map(|f| f.get_conn().unwrap());
+    let mysql = context.pool.as_ref().map(|f| f.get_conn().ok()).flatten();
     service::log::debug!("URI IS \"{}\" \"{}\"", rparts.method, rparts.uri);
-    let domain = hdrs.get("host").unwrap().to_str().unwrap().to_string();
+    let domain = hdrs
+        .get("host")
+        .map(|h| h.to_str().ok())
+        .flatten()
+        .unwrap_or_default()
+        .to_string();
     service::log::debug!("Domain host is \"{}\"", domain);
     let domain2 = if let Some((a, _b)) = domain.as_str().split_once(':') {
         a.to_string()
@@ -454,7 +454,7 @@ async fn handle<'a>(
         delivery: context.delivery,
         https: ec.https,
         domain,
-        page: <std::path::PathBuf as std::str::FromStr>::from_str(fixed_path).unwrap(),
+        page: <std::path::PathBuf as std::str::FromStr>::from_str(fixed_path).unwrap_or_default(),
         post: post_data,
         get: get_map,
         proxy: proxy.clone(),
@@ -487,20 +487,20 @@ async fn handle<'a>(
             Ok(c) => {
                 service::log::debug!("File {} loaded", sys_path.display());
                 if let Some(ext) = sys_path.extension() {
-                    match ext.to_str().unwrap() {
-                        "css" => {
+                    match ext.to_str() {
+                        Some("css") => {
                             response.headers.append(
                                 "Content-Type",
                                 hyper::header::HeaderValue::from_static("text/css"),
                             );
                         }
-                        "js" => {
+                        Some("js") => {
                             response.headers.append(
                                 "Content-Type",
                                 hyper::header::HeaderValue::from_static("text/javascript"),
                             );
                         }
-                        "wasm" => {
+                        Some("wasm") => {
                             response.headers.append(
                                 "Content-Type",
                                 hyper::header::HeaderValue::from_static("application/wasm"),
@@ -547,10 +547,9 @@ async fn handle<'a>(
         }
     };
 
-    response.headers.append(
-        "Set-Cookie",
-        hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()).unwrap(),
-    );
+    if let Ok(h) = hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()) {
+        response.headers.append("Set-Cookie", h);
+    }
     Ok(body.response)
 }
 
@@ -854,9 +853,9 @@ pub async fn https_webserver(
                 let certs = cert.map(|cder| {
                     let certs: Vec<x509_cert::certificate::Certificate> = cder
                         .iter()
-                        .map(|c| {
+                        .filter_map(|c| {
                             use der::Decode;
-                            x509_cert::Certificate::from_der(c).unwrap()
+                            x509_cert::Certificate::from_der(c).ok()
                         })
                         .collect();
                     certs

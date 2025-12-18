@@ -260,8 +260,8 @@ fn receive_string(
         let total_len = u32::from_le_bytes(asdf);
         if total_len != 0 {
             let mut m: Vec<u8> = vec![0; total_len as usize];
-            stream.read_exact(&mut m).unwrap();
-            Some(String::from_utf8(m).unwrap())
+            stream.read_exact(&mut m).ok()?;
+            String::from_utf8(m).ok()
         } else {
             None
         }

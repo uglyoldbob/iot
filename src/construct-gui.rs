@@ -48,12 +48,19 @@ impl AppCommon {
 
 fn main() {
     let mut event_loop = egui_multiwin::winit::event_loop::EventLoopBuilder::with_user_event();
-    let event_loop = event_loop.build().unwrap();
+    let event_loop = match event_loop.build() {
+        Ok(e) => e,
+        Err(e) => {
+            panic!("Failed to build event loop: {}", e);
+        }
+    };
     let mut multi_window: MultiWindow = MultiWindow::new();
     let root_window = root::RootWindow::request();
 
     let mut ac = AppCommon {};
 
     let _e = multi_window.add(root_window, &mut ac, &event_loop);
-    multi_window.run(event_loop, ac).unwrap();
+    if let Err(e) = multi_window.run(event_loop, ac) {
+        panic!("Error running gui: {}", e);
+    }
 }

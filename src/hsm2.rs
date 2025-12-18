@@ -776,21 +776,21 @@ impl Hsm {
         }
         let so_slot = slots[slot_num];
 
-        let session = pkcs11
-            .open_rw_session(so_slot)
-            .map(|s| {
-                s.login(
-                    cryptoki::session::UserType::User,
-                    Some(&cryptoki::types::AuthPin::new(user_pin.as_str().into())),
-                )
-                .unwrap();
-                s
-            })
-            .expect("Failed to get user session");
+        let session = pkcs11.open_rw_session(so_slot);
+        if let Ok(s) = &session {
+            if s.login(
+                cryptoki::session::UserType::User,
+                Some(&cryptoki::types::AuthPin::new(user_pin.as_str().into())),
+            )
+            .is_err()
+            {
+                return None;
+            };
+        }
 
         Some(Self {
             inner: Arc::new(HsmInner {
-                session: Arc::new(Mutex::new(session)),
+                session: Arc::new(Mutex::new(session.ok()?)),
             }),
         })
     }
