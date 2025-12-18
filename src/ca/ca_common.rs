@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_sqlite::rusqlite::ToSql;
@@ -17,7 +18,9 @@ use der::asn1::UtcTime;
 use der::Decode;
 use ocsp::response::RevokedInfo;
 use rcgen::RemoteKeyPair;
+use rustls_pki_types::pem::PemObject;
 use serde::Serialize;
+use tokio_rustls::rustls::pki_types;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
@@ -161,6 +164,11 @@ pub enum CertificateTypeAnswers {
         #[PromptComment = "The password to protect the soft administrator certificate"]
         password: userprompt::Password2,
     },
+    #[PromptComment = "The certificate is stored by an external device"]
+    External {
+        #[PromptComment = "The csr for the admin certificate in pem format"]
+        csr: String,
+    },
     #[cfg(feature = "smartcard")]
     #[PromptComment = "The certificate is kept on a smart card, a smart card reader and smart card are required for this to function."]
     /// A certificate stored in a smart card, protected by a pin
@@ -183,6 +191,8 @@ impl Default for CertificateTypeAnswers {
 pub enum CertificateType {
     /// A certificate represented by a regular protected p12 document, secured by a password
     Soft(String),
+    /// The certificate private key is held by an external device
+    External { csr: String },
     #[cfg(feature = "smartcard")]
     /// A certificate stored in a smart card, protected by a pin
     SmartCard(String),
@@ -192,6 +202,7 @@ impl From<CertificateTypeAnswers> for CertificateType {
     fn from(value: CertificateTypeAnswers) -> Self {
         match value {
             CertificateTypeAnswers::Soft { password } => Self::Soft(password.to_string()),
+            CertificateTypeAnswers::External { csr } => Self::External { csr },
             #[cfg(feature = "smartcard")]
             CertificateTypeAnswers::SmartCard { pin } => Self::SmartCard(pin.0),
         }
@@ -2825,6 +2836,8 @@ pub enum CaLoadError {
     FailedToSaveToMedium(CertificateSaveError),
     /// General settings missing
     GeneralSettingsMissing,
+    /// Failed to create admin certificate using external provider
+    AdminCreationExternalFailed,
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -3860,6 +3873,43 @@ impl Ca {
                     days_valid: ca.config.days,
                 };
                 let admin_cert = match ca.config.admin_cert.clone() {
+                    CertificateType::External { csr } => {
+                        let (_, csr2) = der::Document::from_pem(&csr)
+                            .map_err(|_| CaLoadError::AdminCreationExternalFailed)?;
+                        use der::Encode;
+                        let der = csr2.to_der().unwrap();
+                        let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
+                        let admin_csr = rcgen::CertificateSigningRequestParams::from_der(&csr_der)
+                            .map_err(|_| CaLoadError::AdminCreationExternalFailed)?;
+                        let serial = CaCertificateToBeSigned::calc_sn().0.to_vec();
+                        let cert_to_sign = CaCertificateToBeSigned {
+                            algorithm: m,
+                            medium: ca.medium.clone(),
+                            csr: admin_csr,
+                            keypair: None,
+                            name: "".into(),
+                            serial,
+                        };
+                        let mut admin_cert = ca
+                            .root_cert
+                            .as_ref()
+                            .unwrap()
+                            .sign_csr(
+                                cert_to_sign,
+                                &ca,
+                                CaCertificateToBeSigned::calc_sn().0.to_vec(),
+                                time::Duration::days(ca.config.days as i64),
+                            )
+                            .unwrap();
+                        admin_cert.medium = ca.medium.clone();
+                        service::log::debug!("Saving admin cert to medium");
+                        let p = "whatever"; // it won't matter because there is only public data in the certificate
+                        admin_cert
+                            .save_to_medium(&mut ca, p)
+                            .await
+                            .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
+                        admin_cert
+                    }
                     CertificateType::Soft(p) => {
                         let admin_csr = options.generate_request();
                         let mut admin_cert = ca
@@ -4744,6 +4794,19 @@ impl Ca {
                 service::log::debug!("Trying to load ocsp cert");
                 ca.load_ocsp_cert(hsm.clone()).await?;
                 match &settings.admin_cert {
+                    CertificateType::External { csr } => {
+                        service::log::debug!("Trying to load admin cert");
+                        ca.load_admin_cert(hsm.clone(), "whatever")
+                            .await
+                            .map_err(|e| {
+                                service::log::debug!(
+                                    "There was a problem loading the admin certificate {:?}",
+                                    e
+                                );
+                                CaLoadError::CertificateLoadingError(e.to_owned())
+                            })?;
+                        service::log::debug!("Success load admin cert");
+                    }
                     CertificateType::Soft(p) => {
                         service::log::debug!("Trying to load admin cert");
                         ca.load_admin_cert(hsm.clone(), p).await.map_err(|e| {

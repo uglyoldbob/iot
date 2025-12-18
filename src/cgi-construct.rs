@@ -60,6 +60,11 @@ enum BuildStep {
     ApplySshSigningMethod,
     GetCertStoragePath,
     ApplyCertStoragePath,
+    GetAdminType,
+    GetExternalAdminCsr,
+    ApplyExternalAdminCsr,
+    GetSoftAdminCsr,
+    ApplySoftAdminCsr,
     GetRemainingOptions,
     ApplyRemainingOptions,
     Finalize,
@@ -409,6 +414,8 @@ async fn main() {
                                 .value(format!("{}", BuildStep::ApplyPublicNames as usize))
                         });
                         f.text("Public Names of CA (like example.com/asdf)");
+                        f.line_break(|a| a);
+                        f.text("CSR for the admin certificate - PEM format");
                         f.line_break(|a| a);
                         f.text_area(|i| i.name("names"));
                         f.line_break(|a| a);
@@ -964,6 +971,182 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("step")
+                                    .value(format!("{}", BuildStep::GetAdminType as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetAdminType => {
+                html.body(|b| {
+                    b.text("Configure the admin certificate type");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::GetExternalAdminCsr as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.type_("submit").text("External"))
+                    });
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::GetSoftAdminCsr as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.button(|b| b.type_("submit").text("Soft Internal"))
+                    });
+                    b
+                });
+            }
+            BuildStep::GetExternalAdminCsr => {
+                html.body(|b| {
+                    b.text("Configure the external admin certificate");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplyExternalAdminCsr as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text_area(|ta| ta.name("csr"));
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplyExternalAdminCsr => {
+                let Some(csr) = post_map.get("csr") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.admin_access_password =
+                        userprompt::Password2::new("fhuieahvehuioqerg".to_string());
+                    config.admin_cert = CertificateTypeAnswers::External {
+                        csr: csr.to_owned(),
+                    };
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("Applied external admin certificate settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
+                                    .value(format!("{}", BuildStep::GetRemainingOptions as usize))
+                            });
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("object")
+                                    .value(build_toml_string(&toml))
+                            });
+                            f.button(|b| b.type_("submit").text("Next"))
+                        });
+                        b.line_break(|lb| lb);
+                        b
+                    });
+                }
+            }
+            BuildStep::GetSoftAdminCsr => {
+                html.body(|b| {
+                    b.text("Configure the admin certificate options");
+                    b.line_break(|lb| lb);
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", BuildStep::ApplySoftAdminCsr as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("object")
+                                .value(build_toml_string(&toml))
+                        });
+                        f.text("Admin access password - used to access the admin certificate");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_access_password").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin access password again");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_access_password2").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin password");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_password").type_("password"));
+                        f.line_break(|a| a);
+                        f.text("Admin password again");
+                        f.line_break(|a| a);
+                        f.input(|i| i.name("admin_password2").type_("password"));
+                        f.line_break(|a| a);
+                        f.button(|b| b.type_("submit").text("Next"))
+                    });
+                    b.line_break(|lb| lb);
+                    b
+                });
+            }
+            BuildStep::ApplySoftAdminCsr => {
+                let Some(admin_access_password) = post_map.get("admin_access_password") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_access_password2) = post_map.get("admin_access_password2") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_password) = post_map.get("admin_password") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                let Some(admin_password2) = post_map.get("admin_password2") else {
+                    return cgi::html_response(500, "Missing argument");
+                };
+                if admin_access_password != admin_access_password2 {
+                    return cgi::html_response(500, "Admin access passwords do not match");
+                }
+                if admin_password != admin_password2 {
+                    return cgi::html_response(500, "Admin passwords do not match");
+                }
+                if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
+                    config.admin_access_password =
+                        userprompt::Password2::new(admin_access_password.clone());
+                    config.admin_cert = CertificateTypeAnswers::Soft {
+                        password: userprompt::Password2::new(admin_password.clone()),
+                    };
+                    html.body(|b: &mut html::root::builders::BodyBuilder| {
+                        b.text("Applied soft admin certificate settings");
+                        b.line_break(|lb| lb);
+                        b.form(|f| {
+                            f.method("POST");
+                            f.input(|i| {
+                                i.type_("hidden")
+                                    .name("step")
                                     .value(format!("{}", BuildStep::GetRemainingOptions as usize))
                             });
                             f.input(|i| {
@@ -1050,28 +1233,10 @@ async fn main() {
                 let Ok(max_chain_length) = max_chain_length.parse::<u8>() else {
                     return cgi::html_response(500, "Invalid maximum chain length");
                 };
-                let Some(admin_access_password) = post_map.get("admin_access_password") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
-                let Some(admin_access_password2) = post_map.get("admin_access_password2") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
-                let Some(admin_password) = post_map.get("admin_password") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
-                let Some(admin_password2) = post_map.get("admin_password2") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
                 let ocsp_signature = post_map
                     .get("ocsp_signature")
                     .map(|a| a.to_string())
                     .unwrap_or("off".to_string());
-                if admin_access_password != admin_access_password2 {
-                    return cgi::html_response(500, "Admin access passwords do not match");
-                }
-                if admin_password != admin_password2 {
-                    return cgi::html_response(500, "Admin passwords do not match");
-                }
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
                     config.common_name = common_name.clone();
                     config.days = length_days;
@@ -1079,11 +1244,6 @@ async fn main() {
                     config.ocsp_signature = match ocsp_signature.as_str() {
                         "on" => true,
                         _ => false,
-                    };
-                    config.admin_access_password =
-                        userprompt::Password2::new(admin_access_password.clone());
-                    config.admin_cert = CertificateTypeAnswers::Soft {
-                        password: userprompt::Password2::new(admin_password.clone()),
                     };
                     html.body(|b: &mut html::root::builders::BodyBuilder| {
                         b.text("Applied remaining settings");
