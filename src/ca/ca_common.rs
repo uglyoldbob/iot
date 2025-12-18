@@ -169,13 +169,6 @@ pub enum CertificateTypeAnswers {
         #[PromptComment = "The csr for the admin certificate in pem format"]
         csr: String,
     },
-    #[cfg(feature = "smartcard")]
-    #[PromptComment = "The certificate is kept on a smart card, a smart card reader and smart card are required for this to function."]
-    /// A certificate stored in a smart card, protected by a pin
-    SmartCard {
-        #[PromptComment = "The pin that will be used for the smartcard"]
-        pin: SmartCardPin2,
-    },
 }
 
 impl Default for CertificateTypeAnswers {
@@ -193,9 +186,6 @@ pub enum CertificateType {
     Soft(String),
     /// The certificate private key is held by an external device
     External { csr: String },
-    #[cfg(feature = "smartcard")]
-    /// A certificate stored in a smart card, protected by a pin
-    SmartCard(String),
 }
 
 impl From<CertificateTypeAnswers> for CertificateType {
@@ -203,8 +193,6 @@ impl From<CertificateTypeAnswers> for CertificateType {
         match value {
             CertificateTypeAnswers::Soft { password } => Self::Soft(password.to_string()),
             CertificateTypeAnswers::External { csr } => Self::External { csr },
-            #[cfg(feature = "smartcard")]
-            CertificateTypeAnswers::SmartCard { pin } => Self::SmartCard(pin.0),
         }
     }
 }
@@ -3931,36 +3919,6 @@ impl Ca {
                             .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
                         admin_cert
                     }
-                    #[cfg(feature = "smartcard")]
-                    CertificateType::SmartCard(p) => {
-                        let label = format!("{}-admin", ca.config.common_name);
-                        let keypair = card::KeyPair::generate_with_smartcard_async(
-                            p.as_bytes().to_vec(),
-                            &label,
-                            true,
-                        )
-                        .await
-                        .ok_or(CaLoadError::FailedToCreateKeypair("admin".to_string()))?;
-                        options.smartcard = Some(keypair);
-                        let admin_csr = options.generate_request();
-                        let mut admin_cert = ca
-                            .root_cert
-                            .as_ref()
-                            .unwrap()
-                            .sign_csr(
-                                admin_csr,
-                                &ca,
-                                CaCertificateToBeSigned::calc_sn().0.to_vec(),
-                                time::Duration::days(ca.config.days as i64),
-                            )
-                            .unwrap();
-                        admin_cert.medium = ca.medium.clone();
-                        admin_cert
-                            .save_to_medium(&mut ca, &p)
-                            .await
-                            .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
-                        admin_cert
-                    }
                 };
                 ca.admin = Ok(admin_cert);
             }
@@ -4817,12 +4775,6 @@ impl Ca {
                             CaLoadError::CertificateLoadingError(e.to_owned())
                         })?;
                         service::log::debug!("Success load admin cert");
-                    }
-                    #[cfg(feature = "smartcard")]
-                    CertificateType::SmartCard(_p) => {
-                        ca.load_admin_smartcard(hsm.clone())
-                            .await
-                            .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
                     }
                 }
                 service::log::debug!("Trying to load root cert");

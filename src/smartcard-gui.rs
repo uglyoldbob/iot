@@ -99,11 +99,10 @@ async fn handle_card_stuff(
             smartcard_root::Message::WriteCertificate(s) => {
                 let cert_saved = ::card::with_current_valid_piv_card_async(|card| {
                     let mut cw = card.to_writer();
-                    if let Ok(thing) = pem::parse(s) {
-                        let thing2 = thing.into_contents();
-                        service::log::info!("The der? is {:x?}", thing2);
-                        cw.store_x509_cert(::card::MANAGEMENT_KEY_DEFAULT, thing2.as_slice(), 0x9A)
-                    }
+                    let thing = pem::parse(s).map_err(|_|::card::Error::ExpectedDataMissing)?;
+                    let thing2 = thing.into_contents();
+                    service::log::info!("The der? is {:x?}", thing2);
+                    cw.store_x509_cert(::card::MANAGEMENT_KEY_DEFAULT, thing2.as_slice(), 0x9A)
                 })
                 .await;
                 send.send(smartcard_root::Response::CertificateStored(cert_saved))
@@ -186,7 +185,7 @@ async fn handle_card_stuff(
                                 let serial = h.get("serial");
                                 if let Some(serial) = serial {
                                     if let Some(serial) = serial.first() {
-                                        if let Some(serial) = crate::utility::decode_hex(serial) {
+                                        if let Ok(serial) = crate::utility::decode_hex(serial) {
                                             service::log::info!("The serial is {:02x?}", serial);
                                             send.send(smartcard_root::Response::CsrSubmitStatus(
                                                 Some(serial),

@@ -410,7 +410,7 @@ impl TrackedWindow for RootWindow {
                                 if let Some(s) = &self.csr_status {
                                     match s {
                                         CsrStatus::Invalid => {
-                                            ui.label("The csr was invalid for some reasion");
+                                            ui.label("The csr was invalid for some reason");
                                         }
                                         CsrStatus::WaitingForCertificate => {
                                             ui.label("Waiting for certificate");
