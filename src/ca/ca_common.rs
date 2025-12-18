@@ -1381,10 +1381,6 @@ impl CaCertificateStorage {
         let cert_der = &cert
             .contents()
             .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
-        #[cfg(feature = "smartcard")]
-        if let Some(card) = cert.smartcard() {
-            let _ = card.save_cert_to_card(cert_der);
-        }
         ca.save_user_cert(
             id,
             cert_der,
@@ -1546,24 +1542,11 @@ impl CaCertificateStorage {
 pub enum Keypair {
     /// A keypair contained in the hsm
     Hsm(crate::hsm2::KeyPair),
-    #[cfg(feature = "smartcard")]
-    /// A keypair contained in a smartcard
-    SmartCard(card::KeyPair),
     /// A keypair not contained in the hsm
     NotHsm(Zeroizing<Vec<u8>>),
 }
 
 impl Keypair {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        if let Keypair::SmartCard(sc) = self {
-            Some(sc)
-        } else {
-            None
-        }
-    }
-
     /// Get the private key if possible
     pub fn private(&self) -> Option<&Zeroizing<Vec<u8>>> {
         if let Keypair::NotHsm(a) = self {
@@ -1576,8 +1559,6 @@ impl Keypair {
     /// Erase the private key of the certificate
     pub fn erase_private(&mut self) {
         match self {
-            #[cfg(feature = "smartcard")]
-            Self::SmartCard(_) => {}
             Self::Hsm(_) => {}
             Self::NotHsm(k) => {
                 *k = Zeroizing::new(Vec::new());
@@ -1589,8 +1570,6 @@ impl Keypair {
     pub fn hsm_keypair(&self) -> Option<&crate::hsm2::KeyPair> {
         match self {
             Keypair::Hsm(k) => Some(k),
-            #[cfg(feature = "smartcard")]
-            Keypair::SmartCard(_) => None,
             Keypair::NotHsm(_) => None,
         }
     }
@@ -1599,8 +1578,6 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
-            #[cfg(feature = "smartcard")]
-            Keypair::SmartCard(k) => k.sign_with_pin(data).ok(),
             Keypair::NotHsm(_k) => {
                 todo!();
             }
@@ -1622,11 +1599,6 @@ pub struct HttpsCertificate {
 }
 
 impl CertificateDataTrait for HttpsCertificate {
-    #[cfg(feature = "smartcard")]
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        self.keypair.as_ref().and_then(|kp| kp.smartcard())
-    }
-
     fn hsm_label(&self) -> Option<String> {
         self.keypair.as_ref().and_then(|kp| {
             let keypair = kp.hsm_keypair();
@@ -1634,11 +1606,6 @@ impl CertificateDataTrait for HttpsCertificate {
                 use crate::hsm2::KeyPairTrait;
                 kp.label()
             });
-            #[cfg(feature = "smartcard")]
-            let kps = kp.smartcard();
-            #[cfg(feature = "smartcard")]
-            let label2 = kps.map(|a| a.label());
-            #[cfg(not(feature = "smartcard"))]
             let label2 = None;
             let kp2 = kp.private();
             let label3 = if kp2.is_some() {
@@ -1809,11 +1776,6 @@ pub struct SshCertificate {
 }
 
 impl CertificateDataTrait for SshCertificate {
-    #[cfg(feature = "smartcard")]
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        todo!()
-    }
-
     fn hsm_label(&self) -> Option<String> {
         todo!()
     }
@@ -1922,9 +1884,6 @@ impl Signature {
 /// The trait commmon to all certificate data
 #[enum_dispatch::enum_dispatch]
 pub trait CertificateDataTrait {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair>;
     /// Try to get the hsm handle for the certificate
     fn hsm_label(&self) -> Option<String>;
     /// Erase the private key from the certificate
@@ -1986,12 +1945,6 @@ pub struct CaCertificate {
 }
 
 impl CaCertificate {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        self.data.smartcard()
-    }
-
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         self.data.erase_private_key();
@@ -5541,23 +5494,6 @@ impl SigningRequestParams {
         let mut sn = [0; 20];
         for (i, b) in self.id.to_le_bytes().iter().enumerate() {
             sn[i] = *b;
-        }
-        #[cfg(feature = "smartcard")]
-        if let Some(keypair) = &self.smartcard {
-            let csr = params.serialize_request(&keypair.rcgen()).unwrap();
-            let csr_der = csr.der();
-            let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-            let snr = rcgen::SerialNumber::from_slice(&sn);
-            csr.params.serial_number = Some(snr);
-
-            return CaCertificateToBeSigned {
-                algorithm: self.t,
-                medium: CaCertificateStorage::Nowhere,
-                csr,
-                keypair: Some(Keypair::SmartCard(keypair.clone())),
-                name: self.name.clone(),
-                serial: sn.to_vec(),
-            };
         }
         if let Some(hsm) = &self.hsm {
             let keypair = hsm
