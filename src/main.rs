@@ -198,8 +198,12 @@ async fn smain() {
 
     settings.pki.set_log_level();
 
-    let hsm: Arc<hsm2::SecurityModule> =
-        settings.pki.init_hsm(&config_path, &name, &settings).await;
+    let admin_csr = std::env::var("ADMIN_CSR").ok();
+
+    let hsm: Arc<hsm2::SecurityModule> = settings
+        .pki
+        .init_hsm(&config_path, &name, &settings, admin_csr.as_ref())
+        .await;
 
     hsm.list_certificates();
 

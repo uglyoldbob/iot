@@ -43,9 +43,21 @@ async fn main() {
         if true {
             service::log::info!("Config is {:#?}<br />\n", settings);
         }
+
+        let post_data = request.body().clone();
+        let post_data = hyper::body::Bytes::from(post_data);
+        let mut headers = hyper::HeaderMap::new();
+        for a in request.headers().iter() {
+            headers.insert(a.0, a.1.clone());
+        }
+        let post_data = PostContent::new(Some(post_data), headers);
+        let admin_csr = post_data
+            .form()
+            .map(|f| f.get_first("csr").map(|a| a.to_string()))
+            .flatten();
         let hsm: Arc<hsm2::SecurityModule> = settings
             .pki
-            .init_hsm(&"./".into(), "default", &settings)
+            .init_hsm(&"./".into(), "default", &settings, admin_csr.as_ref())
             .await;
         let Ok(pki) = ca::PkiInstance::load(hsm.clone(), &settings).await else {
             return cgi::html_response(500, "Failed to load pki");
@@ -68,14 +80,6 @@ async fn main() {
             }
             get_map
         };
-
-        let post_data = request.body().clone();
-        let post_data = hyper::body::Bytes::from(post_data);
-        let mut headers = hyper::HeaderMap::new();
-        for a in request.headers().iter() {
-            headers.insert(a.0, a.1.clone());
-        }
-        let post_data = PostContent::new(Some(post_data), headers);
 
         let post_map = {
             let mut get_map = HashMap::new();

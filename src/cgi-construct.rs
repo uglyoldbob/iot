@@ -1037,7 +1037,6 @@ async fn main() {
                                 .name("object")
                                 .value(build_toml_string(&toml))
                         });
-                        f.text_area(|ta| ta.name("csr"));
                         f.button(|b| b.type_("submit").text("Next"))
                     });
                     b.line_break(|lb| lb);
@@ -1045,15 +1044,10 @@ async fn main() {
                 });
             }
             BuildStep::ApplyExternalAdminCsr => {
-                let Some(csr) = post_map.get("csr") else {
-                    return cgi::html_response(500, "Missing argument");
-                };
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
                     config.admin_access_password =
                         userprompt::Password2::new("fhuieahvehuioqerg".to_string());
-                    config.admin_cert = CertificateTypeAnswers::External {
-                        csr: csr.to_owned(),
-                    };
+                    config.admin_cert = CertificateTypeAnswers::External;
                     html.body(|b: &mut html::root::builders::BodyBuilder| {
                         b.text("Applied external admin certificate settings");
                         b.line_break(|lb| lb);

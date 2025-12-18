@@ -27,6 +27,10 @@ services.msc can be used to manage the services for the system in general. The s
 
 Helpful openssl commands see [openssl](openssl.md)
 
+**Smartcard simulation**
+
+* https://github.com/OpenSC/OpenSC/wiki/Smart-Card-Simulation
+
 **Running on docker to get a lower glibc requirement**
 
 * docker build -t rustbuild .

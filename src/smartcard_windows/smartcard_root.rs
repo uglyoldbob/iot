@@ -29,7 +29,7 @@ pub enum Message {
         /// The csr in pem format
         csr: String,
         /// The server to submit to
-        server: String,
+        server: crate::ServerConfig,
         /// The name for contact regarding the csr
         name: String,
         /// The email for the contact regarding the csr
@@ -40,7 +40,7 @@ pub enum Message {
     /// Check on a status of a submitted csr, includes server url where to check
     CheckCsrStatus {
         /// The url to query
-        server: String,
+        server: crate::ServerConfig,
         /// The serial of the certificate
         serial: Vec<u8>,
     },
@@ -67,7 +67,7 @@ enum EraseStatus {
 }
 
 /// Potential status for a submitted csr
-enum CsrStatus {
+pub enum CsrStatus {
     /// The csr is invalid
     Invalid,
     /// Waiting for signed certificate
@@ -148,6 +148,8 @@ pub struct RootWindow {
     csr_serial: Option<Vec<u8>>,
     /// The csr status
     csr_status: Option<CsrStatus>,
+    /// The full csr in pem format
+    csr: Option<String>,
 }
 
 impl RootWindow {
@@ -166,6 +168,7 @@ impl RootWindow {
                 csr_submitted: Status::Idle,
                 csr_serial: None,
                 csr_status: None,
+                csr: None,
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -287,7 +290,7 @@ impl TrackedWindow for RootWindow {
         c: &mut AppCommon,
         egui: &mut EguiGlow,
         _window: &egui_multiwin::winit::window::Window,
-        _clipboard: &mut egui_multiwin::arboard::Clipboard,
+        clipboard: &mut egui_multiwin::arboard::Clipboard,
     ) -> RedrawResponse {
         let mut quit = false;
 
@@ -344,15 +347,19 @@ impl TrackedWindow for RootWindow {
                         egui_multiwin::egui::ComboBox::from_label(
                             "Select a server to register with",
                         )
-                        .selected_text(format!("{:?}", c.config.ca_urls[self.selected_ca_index]))
+                        .selected_text(format!("{:?}", c.config.servers[self.selected_ca_index]))
                         .show_ui(ui, |ui| {
-                            for (i, e) in c.config.ca_urls.iter().enumerate() {
-                                ui.selectable_value(&mut self.selected_ca_index, i, e);
+                            for (i, e) in c.config.servers.iter().enumerate() {
+                                ui.selectable_value(
+                                    &mut self.selected_ca_index,
+                                    i,
+                                    format!("{:?}", e),
+                                );
                             }
                         });
                     }
-                    let server_url = &c.config.ca_urls[self.selected_ca_index];
-                    ui.label(server_url);
+                    let server_url = &c.config.servers[self.selected_ca_index];
+                    ui.label(format!("{:?}", server_url));
                     match &self.simulator {
                         Some(sim) => {
                             if ui.button("End simulator").clicked() {
@@ -440,7 +447,7 @@ impl TrackedWindow for RootWindow {
                                 if let Some(serial) = &self.csr_serial {
                                     if ui.button("Check CSR status").clicked() {
                                         c.send.blocking_send(Message::CheckCsrStatus {
-                                            server: c.config.ca_urls[self.selected_ca_index]
+                                            server: c.config.servers[self.selected_ca_index]
                                                 .clone(),
                                             serial: serial.clone(),
                                         });
@@ -480,7 +487,47 @@ impl TrackedWindow for RootWindow {
                                         "Client identification",
                                     );
                                     ui.checkbox(&mut self.csr_data.code_usage, "Code signing");
-                                    if ui.button("Generate CSR for cardholder").clicked() {
+                                    if let Some(csr) = &self.csr {
+                                        ui.label(csr);
+                                    }
+                                    if ui.button("Only generate CSR").clicked() {
+                                        let mut csrp = rcgen::CertificateParams::new(vec![self
+                                            .csr_data
+                                            .name
+                                            .clone()]);
+                                        if let Ok(mut csrp) = csrp {
+                                            self.build_params(&mut csrp);
+                                            let pem = csrp.serialize_request(kp);
+                                            if let Ok(pem) = pem {
+                                                match pem.pem() {
+                                                    Ok(pem) => {
+                                                        clipboard.set_text(&pem);
+                                                        self.csr = Some(pem);
+                                                    }
+                                                    Err(e) => {
+                                                        self.notes.push(format!(
+                                                            "Failed to build csr pem: {:?}",
+                                                            e
+                                                        ));
+                                                    }
+                                                }
+                                            } else {
+                                                self.notes.push(format!(
+                                                    "Failed to build csr: {:?}",
+                                                    pem.err()
+                                                ));
+                                            }
+                                        } else {
+                                            self.notes.push(format!(
+                                                "Failed to build csr params: {:?}",
+                                                csrp.err()
+                                            ));
+                                        }
+                                    }
+                                    if ui
+                                        .button("Generate and submit CSR for cardholder")
+                                        .clicked()
+                                    {
                                         let mut csrp = rcgen::CertificateParams::new(vec![self
                                             .csr_data
                                             .name
@@ -493,7 +540,7 @@ impl TrackedWindow for RootWindow {
                                                     Ok(pem) => {
                                                         c.send.blocking_send(Message::SubmitCsr {
                                                             csr: pem,
-                                                            server: c.config.ca_urls
+                                                            server: c.config.servers
                                                                 [self.selected_ca_index]
                                                                 .clone(),
                                                             name: self.csr_data.name.clone(),

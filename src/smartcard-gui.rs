@@ -7,6 +7,8 @@
 
 mod main_config;
 
+use std::io::Write;
+
 pub use main_config::MainConfiguration;
 
 #[path = "ca/ca_common.rs"]
@@ -46,11 +48,26 @@ pub struct AppCommon {
     pub config: SmartCardGuiConfig,
 }
 
+/// The types of servers that can exist
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub enum ServerConfig {
+    /// A dedicated pki server
+    DedicatedServer {
+        /// The url
+        url: String,
+    },
+    /// A server using cgi scripts
+    Cgi {
+        /// The url
+        url: String,
+    },
+}
+
 /// The configuration file contents for the gui
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct SmartCardGuiConfig {
     /// The list of urls to use for smartcart certificate registration
-    ca_urls: Vec<String>,
+    servers: Vec<ServerConfig>,
     /// The list of valid server certificates, all in pem format
     ca_certs: Vec<String>,
 }
@@ -99,7 +116,7 @@ async fn handle_card_stuff(
             smartcard_root::Message::WriteCertificate(s) => {
                 let cert_saved = ::card::with_current_valid_piv_card_async(|card| {
                     let mut cw = card.to_writer();
-                    let thing = pem::parse(s).map_err(|_|::card::Error::ExpectedDataMissing)?;
+                    let thing = pem::parse(s).map_err(|_| ::card::Error::ExpectedDataMissing)?;
                     let thing2 = thing.into_contents();
                     service::log::info!("The der? is {:x?}", thing2);
                     cw.store_x509_cert(::card::MANAGEMENT_KEY_DEFAULT, thing2.as_slice(), 0x9A)
@@ -128,7 +145,14 @@ async fn handle_card_stuff(
                         ("smartcard", "1"),
                         ("type", "pem"),
                     ]);
-                    let url = format!("{}/ca/get_cert.rs?{}", server, url_get);
+                    let url = match server {
+                        ServerConfig::DedicatedServer { url } => {
+                            format!("{}/ca/get_cert.rs?{}", url, url_get)
+                        }
+                        ServerConfig::Cgi { url } => {
+                            format!("{}/rust-iot.cgi?action=do_stuff&{}", url, url_get)
+                        }
+                    };
                     let res = client.get(url).send().await;
                     if let Ok(r) = res {
                         if let Ok(data) = r.bytes().await {
@@ -170,7 +194,14 @@ async fn handle_card_stuff(
                     .use_rustls_tls()
                     .build()
                 {
-                    let url = format!("{}/ca/submit_request.rs", server);
+                    let url = match server {
+                        ServerConfig::DedicatedServer { url } => {
+                            format!("{}/ca/submit_request.rs", url)
+                        }
+                        ServerConfig::Cgi { url } => {
+                            format!("{}/rust-iot.cgi?action=do_stuff", url)
+                        }
+                    };
                     let mut form = std::collections::HashMap::new();
                     form.insert("csr", csr);
                     form.insert("name", name);
@@ -243,10 +274,19 @@ fn main() {
         service::log::debug!("Opening {}", pb);
         let mut f = match std::fs::File::open(pb) {
             Ok(e) => e,
-            Err(e) => panic!(
-                "Failed to open configuration file smartcard-gui.toml: {}",
-                e
-            ),
+            Err(e) => {
+                let mut ec = SmartCardGuiConfig::default();
+                ec.servers.push(ServerConfig::DedicatedServer {
+                    url: "example.com".to_string(),
+                });
+                ec.servers.push(ServerConfig::Cgi {
+                    url: "example.com".to_string(),
+                });
+                let t = toml::to_string(&ec).unwrap();
+                let mut f = std::fs::File::create_new(pb).unwrap();
+                f.write_all(t.as_bytes());
+                panic!("Unable to open config file - created a sample config for you");
+            }
         };
         if f.read_to_end(&mut settings_con).is_err() {
             panic!("Failed to read contents of smartcard-gui.toml");
@@ -264,7 +304,7 @@ fn main() {
 
     service::log::info!(
         "The urls for smartcard registering are {:?}",
-        config.ca_urls
+        config.servers
     );
 
     let mut ac = AppCommon {

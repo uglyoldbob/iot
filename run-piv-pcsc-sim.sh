@@ -9,7 +9,7 @@ set -e
 
 # Paths (adjust as needed for your environment)
 JCARDSIM_JAR="jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar"
-PIVAPPLET_CLASSES="PivApplet/classes"
+PIVAPPLET_CLASSES="PivApplet/bin"
 JC_API_JAR="javacard-sdk/jc305u3_kit/lib/api_classic.jar"
 JCARDSIM_CFG="jcardsim.cfg"
 

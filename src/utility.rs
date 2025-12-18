@@ -91,7 +91,7 @@ pub fn run_smartcard_sim() -> Option<DroppingProcess> {
     let mut p = std::process::Command::new("java");
     let a = p.args([
         "-classpath", 
-        "jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar:javacard-sdk/jc305u3_kit/lib/api_classic.jar:PivApplet/classes", 
+        "jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar:javacard-sdk/jc305u3_kit/lib/api_classic.jar:PivApplet/bin", 
         "com.licel.jcardsim.remote.VSmartCard", 
         "jcardsim.cfg"]).spawn();
     if let Ok(a) = a {
