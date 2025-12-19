@@ -145,12 +145,6 @@ async fn main() {
         match step {
             BuildStep::Beginning => {
                 html.body(|b| {
-                    b.text(format!("{:#?}<br />\n", request));
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
-                    b.text(format!("GET IS {:#?}<br />\n", get_map));
-                    b.text(format!("POST IS {:#?}<br />\n", post_map));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -183,8 +177,6 @@ async fn main() {
                 };
 
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the security module type");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -223,8 +215,6 @@ async fn main() {
             }
             BuildStep::GetSoftwareSecurityOptions => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the security module options");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -252,8 +242,6 @@ async fn main() {
             }
             BuildStep::GetHardwareSecurityOptions => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the security module options");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -400,12 +388,6 @@ async fn main() {
             }
             BuildStep::GetPublicNames => {
                 html.body(|b| {
-                    b.text(format!("{:#?}<br />\n", request));
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
-                    b.text(format!("GET IS {:#?}<br />\n", get_map));
-                    b.text(format!("POST IS {:#?}<br />\n", post_map));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -469,12 +451,6 @@ async fn main() {
             }
             BuildStep::GetDatabaseConfig => {
                 html.body(|b| {
-                    b.text(format!("{:#?}<br />\n", request));
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
-                    b.text(format!("GET IS {:#?}<br />\n", get_map));
-                    b.text(format!("POST IS {:#?}<br />\n", post_map));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -553,12 +529,6 @@ async fn main() {
             }
             BuildStep::GetProxyConfig => {
                 html.body(|b| {
-                    b.text(format!("{:#?}<br />\n", request));
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
-                    b.text(format!("GET IS {:#?}<br />\n", get_map));
-                    b.text(format!("POST IS {:#?}<br />\n", post_map));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -661,12 +631,6 @@ async fn main() {
             }
             BuildStep::GetTpm2Config => {
                 html.body(|b| {
-                    b.text(format!("{:#?}<br />\n", request));
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
-                    b.text(format!("TOML EXAMPLE {:#?}<br />\n", example));
-                    b.text(format!("GET IS {:#?}<br />\n", get_map));
-                    b.text(format!("POST IS {:#?}<br />\n", post_map));
                     b.form(|f| {
                         f.method("POST");
                         f.input(|i| {
@@ -729,8 +693,6 @@ async fn main() {
             }
             BuildStep::GetSigningMethod => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the signing method");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -767,8 +729,6 @@ async fn main() {
             }
             BuildStep::GetHttpsSigning => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the HTTPS signing method");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -847,8 +807,6 @@ async fn main() {
             }
             BuildStep::GetSshSigning => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the SSH signing method");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -927,8 +885,6 @@ async fn main() {
             }
             BuildStep::GetCertStoragePath => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Select the path for certificates");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -1153,8 +1109,6 @@ async fn main() {
             }
             BuildStep::GetRemainingOptions => {
                 html.body(|b| {
-                    b.text(format!("TOML PLAIN {:#?}<br />\n", toml_plain));
-                    b.text(format!("TOML CONFIG {:#?}<br />\n", toml));
                     b.text("Configure the authority");
                     b.line_break(|lb| lb);
                     b.form(|f| {
@@ -1188,14 +1142,6 @@ async fn main() {
                         f.text("Admin access password again");
                         f.line_break(|a| a);
                         f.input(|i| i.name("admin_access_password2").type_("password"));
-                        f.line_break(|a| a);
-                        f.text("Admin password");
-                        f.line_break(|a| a);
-                        f.input(|i| i.name("admin_password").type_("password"));
-                        f.line_break(|a| a);
-                        f.text("Admin password again");
-                        f.line_break(|a| a);
-                        f.input(|i| i.name("admin_password2").type_("password"));
                         f.line_break(|a| a);
                         f.text("OCSP signature required?");
                         f.line_break(|a| a);

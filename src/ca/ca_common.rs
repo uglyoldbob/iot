@@ -2453,8 +2453,8 @@ impl PkiConfigurationEnum {
                     ) {
                         hsm_t
                     } else {
-                        service::log::error!("Failed to open the hardware security module");
-                        panic!("Failed to open the hardware security module");
+                        service::log::error!("Failed to create the hardware security module");
+                        return Err(PkiLoadError::HsmInitFailed("HSM ERROR 1".to_string()));
                     };
 
                     hsm2.list_certificates();
@@ -2483,7 +2483,7 @@ impl PkiConfigurationEnum {
                         hsm_t
                     } else {
                         service::log::error!("Failed to open the hardware security module");
-                        panic!("Failed to open the hardware security module");
+                        return Err(PkiLoadError::HsmInitFailed("HSM ERROR 2".to_string()));
                     };
 
                     Ok(Arc::new(hsm2::SecurityModule::Hardware(hsm2)))
@@ -2789,6 +2789,8 @@ pub enum PkiLoadError {
     FailedToLoadCa(String, CaLoadError),
     /// A ca cannot be superior to itself
     CannotBeOwnSuperior(String),
+    /// Failed to initialize the hsm
+    HsmInitFailed(String),
 }
 
 /// Potential errors when loading a specific ca object

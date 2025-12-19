@@ -27,9 +27,7 @@ use crate::webserver::{PostContent, UserCert};
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("off"))
-            .target(env_logger::Target::Stdout)
-            .init();
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error")).init();
         let Ok(mut config) = std::fs::File::open("./config.bin") else {
             return cgi::html_response(500, "Invalid configuration 1");
         };
