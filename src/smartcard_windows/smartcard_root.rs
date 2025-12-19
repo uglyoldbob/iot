@@ -1,5 +1,5 @@
 use std::{
-    io::Read,
+    io::{Read, Write},
     sync::{Arc, Mutex},
 };
 
@@ -46,6 +46,13 @@ pub enum Message {
     },
     /// Write certificate to smartcard
     WriteCertificate(String),
+    /// Get the admin certificate to store on the smart card
+    GetAdminCert {
+        /// The server to submit to
+        server: crate::ServerConfig,
+        /// password
+        password: zeroize::Zeroizing<String>,
+    },
 }
 
 /// A multi-state status for an element
@@ -150,6 +157,8 @@ pub struct RootWindow {
     csr_status: Option<CsrStatus>,
     /// The full csr in pem format
     csr: Option<String>,
+    /// The admin access password
+    admin_access: userprompt::Password,
 }
 
 impl RootWindow {
@@ -169,6 +178,7 @@ impl RootWindow {
                 csr_serial: None,
                 csr_status: None,
                 csr: None,
+                admin_access: userprompt::Password::default(),
             }),
             egui_multiwin::winit::window::WindowBuilder::new()
                 .with_resizable(true)
@@ -290,7 +300,7 @@ impl TrackedWindow for RootWindow {
         c: &mut AppCommon,
         egui: &mut EguiGlow,
         _window: &egui_multiwin::winit::window::Window,
-        clipboard: &mut egui_multiwin::arboard::Clipboard,
+        _clipboard: &mut egui_multiwin::arboard::Clipboard,
     ) -> RedrawResponse {
         let mut quit = false;
 
@@ -322,14 +332,19 @@ impl TrackedWindow for RootWindow {
                             self.csr_status = Some(s);
                         }
                         Response::CertificateCreated(cert) => {
+                            service::log::info!("Storing certificate to card");
                             c.send.blocking_send(Message::WriteCertificate(cert));
                             self.expecting_response = true;
                         }
-                        Response::CertificateStored(s) => {
-                            if s.is_ok() {
+                        Response::CertificateStored(s) => match s {
+                            Ok(_) => {
                                 self.notes.push("Certificate saved to card".to_string());
                             }
-                        }
+                            Err(e) => {
+                                self.notes
+                                    .push(format!("ERROR Saving Certificate to card: {:?}", e));
+                            }
+                        },
                         Response::Done => {
                             quit = true;
                         }
@@ -489,6 +504,21 @@ impl TrackedWindow for RootWindow {
                                     ui.checkbox(&mut self.csr_data.code_usage, "Code signing");
                                     if let Some(csr) = &self.csr {
                                         ui.label(csr);
+                                        self.admin_access.build_gui(
+                                            ui,
+                                            None,
+                                            Some("Admin access password"),
+                                        );
+                                        if ui.button("Get admin certificate").clicked() {
+                                            c.send.blocking_send(Message::GetAdminCert {
+                                                server: c.config.servers[self.selected_ca_index]
+                                                    .clone(),
+                                                password: zeroize::Zeroizing::new(
+                                                    self.admin_access.to_string(),
+                                                ),
+                                            });
+                                            self.expecting_response = true;
+                                        }
                                     }
                                     if ui.button("Only generate CSR").clicked() {
                                         let mut csrp = rcgen::CertificateParams::new(vec![self
@@ -501,7 +531,11 @@ impl TrackedWindow for RootWindow {
                                             if let Ok(pem) = pem {
                                                 match pem.pem() {
                                                     Ok(pem) => {
-                                                        clipboard.set_text(&pem);
+                                                        if let Ok(mut f) =
+                                                            std::fs::File::create("./cert.csr")
+                                                        {
+                                                            f.write_all(pem.as_bytes());
+                                                        }
                                                         self.csr = Some(pem);
                                                     }
                                                     Err(e) => {

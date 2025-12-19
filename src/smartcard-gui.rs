@@ -7,8 +7,9 @@
 
 mod main_config;
 
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
+use der::EncodePem;
 pub use main_config::MainConfiguration;
 
 #[path = "ca/ca_common.rs"]
@@ -86,6 +87,55 @@ async fn handle_card_stuff(
 ) -> Result<(), ()> {
     while let Some(m) = recv.recv().await {
         match m {
+            smartcard_root::Message::GetAdminCert { server, password } => {
+                let mut client = reqwest::ClientBuilder::new();
+                for s in &ca_certs {
+                    service::log::info!("Trying to register server cert: -{}-", s);
+                    if let Ok(cert) = reqwest::Certificate::from_pem(s.as_bytes()) {
+                        service::log::info!("CERT IS {:?}", cert);
+                        client = client.add_root_certificate(cert);
+                    }
+                }
+                if let Ok(client) = client
+                    .danger_accept_invalid_hostnames(true)
+                    .use_rustls_tls()
+                    .build()
+                {
+                    let url = match server {
+                        ServerConfig::DedicatedServer { url } => {
+                            format!("{}/ca/get_admin.rs", url)
+                        }
+                        ServerConfig::Cgi { url } => {
+                            format!("{}/rust-iot.cgi?action=admin", url)
+                        }
+                    };
+                    let mut form = HashMap::new();
+                    form.insert("token", password.to_string());
+                    let res = client.post(url).form(&form).send().await;
+                    service::log::info!("Response to get admin cert is {:#?}", res);
+                    if let Ok(r) = res {
+                        if let Ok(data) = r.bytes().await {
+                            let data = data.to_vec();
+                            service::log::info!("The cert is {:x?}", data);
+                            use der::Decode;
+                            let cert = x509_cert::Certificate::from_der(&data);
+                            service::log::info!("The cert is {:x?}", cert);
+                            if let Ok(derc) = cert {
+                                let cert = derc.to_pem(pkcs8::LineEnding::CRLF).unwrap();
+                                service::log::info!("The cert in pem is {}", cert);
+                                let asdf = send
+                                    .send(smartcard_root::Response::CertificateCreated(cert))
+                                    .await
+                                    .map_err(|_| ());
+                                service::log::info!(
+                                    "Result sending certificate created: {:?}",
+                                    asdf
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             smartcard_root::Message::Exit => {
                 let _ = send.send(smartcard_root::Response::Done).await;
                 break;
@@ -240,7 +290,6 @@ async fn handle_card_stuff(
                     }
                 }
             }
-            _ => {}
         }
     }
     Ok(())
