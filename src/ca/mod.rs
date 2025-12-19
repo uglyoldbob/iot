@@ -2171,17 +2171,32 @@ async fn handle_ca_get_admin(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         if let Some(token) = p.get_first("token") {
             if token == ca.admin_access.as_str() {
                 if let Ok(c) = ca.get_admin_cert().await {
-                    if let CertificateType::Soft(p) = &ca.config.admin_cert {
-                        cert = c.try_p12(p);
-                        if cert.is_some() {
-                            response.headers.append(
-                                "Content-Type",
-                                HeaderValue::from_static("application/x-pkcs12"),
-                            );
-                            response.headers.append(
-                                "Content-Disposition",
-                                HeaderValue::from_static("attachment; filename=admin.p12"),
-                            );
+                    match &ca.config.admin_cert {
+                        CertificateType::Soft(p) => {
+                            cert = c.try_p12(p);
+                            if cert.is_some() {
+                                response.headers.append(
+                                    "Content-Type",
+                                    HeaderValue::from_static("application/x-pkcs12"),
+                                );
+                                response.headers.append(
+                                    "Content-Disposition",
+                                    HeaderValue::from_static("attachment; filename=admin.p12"),
+                                );
+                            }
+                        }
+                        CertificateType::External => {
+                            cert = c.contents().ok();
+                            if cert.is_some() {
+                                response.headers.append(
+                                    "Content-Type",
+                                    HeaderValue::from_static("application/x-x509-user-cert"),
+                                );
+                                response.headers.append(
+                                    "Content-Disposition",
+                                    HeaderValue::from_static("attachment; filename=admin.der"),
+                                );
+                            }
                         }
                     }
                 }

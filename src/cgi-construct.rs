@@ -1043,8 +1043,6 @@ async fn main() {
             }
             BuildStep::ApplyExternalAdminCsr => {
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
-                    config.admin_access_password =
-                        userprompt::Password2::new("fhuieahvehuioqerg".to_string());
                     config.admin_cert = CertificateTypeAnswers::External;
                     html.body(|b: &mut html::root::builders::BodyBuilder| {
                         b.text("Applied external admin certificate settings");

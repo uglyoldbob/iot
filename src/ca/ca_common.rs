@@ -1437,23 +1437,6 @@ impl CaCertificateStorage {
         Ok(())
     }
 
-    /// Load an external certificate from the storage medium
-    /// This will only be the public key, because the private key is held by the external device
-    pub async fn load_external_cert(
-        &self,
-        name: &str,
-    ) -> Result<CaCertificate, CertificateLoadingError> {
-        match self {
-            CaCertificateStorage::Nowhere => {
-                service::log::debug!("Tried to load {} certificate from nowhere", name);
-                Err(CertificateLoadingError::DoesNotExist(name.to_string()))
-            }
-            CaCertificateStorage::Sqlite(p) => {
-                todo!()
-            }
-        }
-    }
-
     /// Load a certificate from the storage medium
     pub async fn load_hsm_from_medium(
         &self,
@@ -4771,8 +4754,6 @@ impl Ca {
                 };
                 Ok(cert)
             }
-        } else if let Ok(cert) = self.medium.load_external_cert(&hsm_name).await {
-            Ok(cert)
         } else {
             service::log::debug!("{} does not exist 2", name);
             Err(CertificateLoadingError::DoesNotExist(name.to_string()))
@@ -4849,24 +4830,23 @@ impl Ca {
 
     /// Get the protected admin certificate, only useful for soft admin tokens
     pub async fn get_admin_cert(&self) -> Result<CaCertificate, CertificateLoadingError> {
-        if let CertificateType::Soft(p) = &self.config.admin_cert {
-            if let Ok(rc) = self
-                .medium
-                .load_p12_from_medium(&format!("{}-admin", self.config.common_name))
-                .await
-            {
-                Ok(
-                    cert_common::pkcs12::Pkcs12::load_from_data(&rc.contents, p.as_bytes(), rc.id)
-                        .try_into()
-                        .map_err(|_| CertificateLoadingError::InvalidCert("admin".to_string()))?,
-                )
-            } else {
-                service::log::debug!("Failed to load p12 from medium");
-                Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
+        let cname = format!("{}-admin", self.config.common_name);
+        match &self.config.admin_cert {
+            CertificateType::Soft(p) => {
+                if let Ok(rc) = self.medium.load_p12_from_medium(&cname).await {
+                    Ok(cert_common::pkcs12::Pkcs12::load_from_data(
+                        &rc.contents,
+                        p.as_bytes(),
+                        rc.id,
+                    )
+                    .try_into()
+                    .map_err(|_| CertificateLoadingError::InvalidCert("admin".to_string()))?)
+                } else {
+                    service::log::debug!("Failed to load p12 from medium");
+                    Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
+                }
             }
-        } else {
-            service::log::debug!("Not a soft admin certificate");
-            Err(CertificateLoadingError::DoesNotExist("admin".to_string()))
+            CertificateType::External => self.admin.clone(),
         }
     }
 
