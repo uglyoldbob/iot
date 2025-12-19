@@ -1483,7 +1483,7 @@ impl CaCertificateStorage {
                         CertificateLoadingError::DoesNotExist(name.to_string())
                     })?;
                 let serial2 = serial.clone();
-                let cert = p
+                let cert: Vec<u8> = p
                     .conn(move |conn| {
                         let mut stmt = conn.prepare("SELECT der FROM certs LEFT JOIN serials on certs.id=serials.id WHERE serials.serial=?1")?;
                         stmt.query_row([serial.clone()],
@@ -1495,19 +1495,40 @@ impl CaCertificateStorage {
                         service::log::debug!("Cannot load cert {}", name);
                         CertificateLoadingError::DoesNotExist(name.to_string())
                     })?;
-                let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
-                let kp = hsm_cert
-                    .as_ref()
-                    .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()))?;
-                let alg = kp
-                    .https_algorithm()
-                    .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()))?;
-                let hsm_cert = hsm_cert.map(Keypair::Hsm);
+                let (alg, kp) = {
+                    let hsm_cert = crate::hsm2::KeyPair::load_with_label(hsm, &name);
+                    let kp = hsm_cert
+                        .as_ref()
+                        .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()));
+                    if let Ok(kp) = kp {
+                        let alg = kp
+                            .https_algorithm()
+                            .ok_or(CertificateLoadingError::NoAlgorithm(name.to_string()))?;
+                        let hsm_cert = hsm_cert.map(Keypair::Hsm);
+                        (alg, hsm_cert)
+                    } else {
+                        use der::Decode;
+                        let cert: Result<x509_cert::certificate::CertificateInner, der::Error> =
+                            x509_cert::Certificate::from_der(&cert);
+                        let cert = cert.unwrap();
+                        let alg = cert.signature_algorithm;
+                        let cid = const_oid::ObjectIdentifier::from_bytes(alg.oid.as_bytes())
+                            .map_err(|e| CertificateLoadingError::NoAlgorithm(e.to_string()))?;
+                        let alg_b = cert_common::oid::Oid::from_const(cid);
+                        let alg = if alg_b == *cert_common::oid::OID_PKCS1_SHA256_RSA_ENCRYPTION {
+                            HttpsSigningMethod::RsaSha256
+                        } else {
+                            eprintln!("The unknown signing algorithm is {:?}", alg_b);
+                            panic!("Unknown signing algorithm : {:?}", alg_b);
+                        };
+                        (alg, None)
+                    }
+                };
                 //TODO dynamically pick the correct certificate type here
                 let hcert = HttpsCertificate {
                     algorithm: alg,
                     cert,
-                    keypair: hsm_cert,
+                    keypair: kp,
                     attributes: Vec::new(),
                 };
                 let cert = CaCertificate {
