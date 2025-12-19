@@ -415,8 +415,6 @@ async fn main() {
                         });
                         f.text("Public Names of CA (like example.com/asdf)");
                         f.line_break(|a| a);
-                        f.text("CSR for the admin certificate - PEM format");
-                        f.line_break(|a| a);
                         f.text_area(|i| i.name("names"));
                         f.line_break(|a| a);
                         f.input(|i| {

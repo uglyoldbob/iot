@@ -166,13 +166,6 @@ pub enum CertificateTypeAnswers {
     },
     #[PromptComment = "The certificate is stored by an external device"]
     External,
-    #[cfg(feature = "smartcard")]
-    #[PromptComment = "The certificate is kept on a smart card, a smart card reader and smart card are required for this to function."]
-    /// A certificate stored in a smart card, protected by a pin
-    SmartCard {
-        #[PromptComment = "The pin that will be used for the smartcard"]
-        pin: SmartCardPin2,
-    },
 }
 
 impl Default for CertificateTypeAnswers {
@@ -190,9 +183,6 @@ pub enum CertificateType {
     Soft(String),
     /// The certificate private key is held by an external device
     External,
-    #[cfg(feature = "smartcard")]
-    /// A certificate stored in a smart card, protected by a pin
-    SmartCard(String),
 }
 
 impl From<CertificateTypeAnswers> for CertificateType {
@@ -200,8 +190,6 @@ impl From<CertificateTypeAnswers> for CertificateType {
         match value {
             CertificateTypeAnswers::Soft { password } => Self::Soft(password.to_string()),
             CertificateTypeAnswers::External => Self::External,
-            #[cfg(feature = "smartcard")]
-            CertificateTypeAnswers::SmartCard { pin } => Self::SmartCard(pin.0),
         }
     }
 }
@@ -1380,20 +1368,29 @@ impl CaCertificateStorage {
         cert: CaCertificate,
         password: &str,
     ) -> Result<(), CertificateSaveError> {
+        let hsm_label = if let Some(a) = cert.data.hsm_label() {
+            if a.is_empty() {
+                Some(cert.name.clone())
+            } else {
+                Some(a)
+            }
+        } else {
+            Some(cert.name.clone())
+        };
         service::log::debug!(
             "Save {:02x?} {} to medium {:?}",
             cert.serial,
             cert.name,
-            cert.data.hsm_label()
+            hsm_label
+        );
+        eprintln!(
+            "Save {:02x?} {} to medium {:?}",
+            cert.serial, cert.name, hsm_label
         );
         let id = ca.get_new_request_id().await.unwrap();
         let cert_der = &cert
             .contents()
             .map_err(|_| CertificateSaveError::FailedToParseCertificate)?;
-        #[cfg(feature = "smartcard")]
-        if let Some(card) = cert.smartcard() {
-            let _ = card.save_cert_to_card(cert_der);
-        }
         ca.save_user_cert(
             id,
             cert_der,
@@ -1404,7 +1401,8 @@ impl CaCertificateStorage {
             ),
         )
         .await;
-        if let Some(label) = cert.data.hsm_label() {
+        if let Some(label) = hsm_label {
+            eprintln!("Saving cert with label {}", label);
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
@@ -1439,12 +1437,30 @@ impl CaCertificateStorage {
         Ok(())
     }
 
+    /// Load an external certificate from the storage medium
+    /// This will only be the public key, because the private key is held by the external device
+    pub async fn load_external_cert(
+        &self,
+        name: &str,
+    ) -> Result<CaCertificate, CertificateLoadingError> {
+        match self {
+            CaCertificateStorage::Nowhere => {
+                service::log::debug!("Tried to load {} certificate from nowhere", name);
+                Err(CertificateLoadingError::DoesNotExist(name.to_string()))
+            }
+            CaCertificateStorage::Sqlite(p) => {
+                todo!()
+            }
+        }
+    }
+
     /// Load a certificate from the storage medium
     pub async fn load_hsm_from_medium(
         &self,
         hsm: Arc<crate::hsm2::SecurityModule>,
         name: &str,
     ) -> Result<CaCertificate, CertificateLoadingError> {
+        eprintln!("Loading {} from hsm", name);
         match self {
             CaCertificateStorage::Nowhere => {
                 service::log::debug!("Tried to load {} certificate from nowhere", name);
@@ -1555,24 +1571,11 @@ impl CaCertificateStorage {
 pub enum Keypair {
     /// A keypair contained in the hsm
     Hsm(crate::hsm2::KeyPair),
-    #[cfg(feature = "smartcard")]
-    /// A keypair contained in a smartcard
-    SmartCard(card::KeyPair),
     /// A keypair not contained in the hsm
     NotHsm(Zeroizing<Vec<u8>>),
 }
 
 impl Keypair {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        if let Keypair::SmartCard(sc) = self {
-            Some(sc)
-        } else {
-            None
-        }
-    }
-
     /// Get the private key if possible
     pub fn private(&self) -> Option<&Zeroizing<Vec<u8>>> {
         if let Keypair::NotHsm(a) = self {
@@ -1585,8 +1588,6 @@ impl Keypair {
     /// Erase the private key of the certificate
     pub fn erase_private(&mut self) {
         match self {
-            #[cfg(feature = "smartcard")]
-            Self::SmartCard(_) => {}
             Self::Hsm(_) => {}
             Self::NotHsm(k) => {
                 *k = Zeroizing::new(Vec::new());
@@ -1598,8 +1599,6 @@ impl Keypair {
     pub fn hsm_keypair(&self) -> Option<&crate::hsm2::KeyPair> {
         match self {
             Keypair::Hsm(k) => Some(k),
-            #[cfg(feature = "smartcard")]
-            Keypair::SmartCard(_) => None,
             Keypair::NotHsm(_) => None,
         }
     }
@@ -1608,8 +1607,6 @@ impl Keypair {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         match self {
             Keypair::Hsm(k) => k.sign(data).ok(),
-            #[cfg(feature = "smartcard")]
-            Keypair::SmartCard(k) => k.sign_with_pin(data).ok(),
             Keypair::NotHsm(_k) => {
                 todo!();
             }
@@ -1631,11 +1628,6 @@ pub struct HttpsCertificate {
 }
 
 impl CertificateDataTrait for HttpsCertificate {
-    #[cfg(feature = "smartcard")]
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        self.keypair.as_ref().and_then(|kp| kp.smartcard())
-    }
-
     fn hsm_label(&self) -> Option<String> {
         self.keypair.as_ref().and_then(|kp| {
             let keypair = kp.hsm_keypair();
@@ -1643,12 +1635,6 @@ impl CertificateDataTrait for HttpsCertificate {
                 use crate::hsm2::KeyPairTrait;
                 kp.label()
             });
-            #[cfg(feature = "smartcard")]
-            let kps = kp.smartcard();
-            #[cfg(feature = "smartcard")]
-            let label2 = kps.map(|a| a.label());
-            #[cfg(not(feature = "smartcard"))]
-            let label2 = None;
             let kp2 = kp.private();
             let label3 = if kp2.is_some() {
                 let mut r = None;
@@ -1662,7 +1648,7 @@ impl CertificateDataTrait for HttpsCertificate {
             } else {
                 None
             };
-            label.or(label2.or(label3))
+            label.or(label3)
         })
     }
 
@@ -1818,11 +1804,6 @@ pub struct SshCertificate {
 }
 
 impl CertificateDataTrait for SshCertificate {
-    #[cfg(feature = "smartcard")]
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        todo!()
-    }
-
     fn hsm_label(&self) -> Option<String> {
         todo!()
     }
@@ -1931,9 +1912,6 @@ impl Signature {
 /// The trait commmon to all certificate data
 #[enum_dispatch::enum_dispatch]
 pub trait CertificateDataTrait {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair>;
     /// Try to get the hsm handle for the certificate
     fn hsm_label(&self) -> Option<String>;
     /// Erase the private key from the certificate
@@ -1995,12 +1973,6 @@ pub struct CaCertificate {
 }
 
 impl CaCertificate {
-    #[cfg(feature = "smartcard")]
-    /// Get the contents of the cert if it is stored in a smart card
-    fn smartcard(&self) -> Option<&card::KeyPair> {
-        self.data.smartcard()
-    }
-
     /// Erase the private key from the certificate
     pub fn erase_private_key(&mut self) {
         self.data.erase_private_key();
@@ -2461,7 +2433,7 @@ impl PkiConfigurationEnum {
         name: &str,
         settings: &MainConfiguration,
         admin_csr: Option<&String>,
-    ) -> Arc<crate::hsm2::SecurityModule> {
+    ) -> Result<Arc<crate::hsm2::SecurityModule>, PkiLoadError> {
         use crate::hsm2;
         let security_config = match self {
             PkiConfigurationEnum::Pki(c) => c.security_module.clone(),
@@ -2499,13 +2471,12 @@ impl PkiConfigurationEnum {
                         &settings,
                         admin_csr,
                     )
-                    .await
-                    .unwrap();
+                    .await?;
                     let mut f = tokio::fs::File::create(&n).await.unwrap();
                     f.write_all("".as_bytes())
                         .await
                         .expect("Failed to initialization file update");
-                    hsm
+                    Ok(hsm)
                 } else {
                     let hsm2 = if let Some(hsm_t) = hsm2::Hsm::open(
                         hsm_slot.unwrap_or(0),
@@ -2518,10 +2489,11 @@ impl PkiConfigurationEnum {
                         panic!("Failed to open the hardware security module");
                     };
 
-                    Arc::new(hsm2::SecurityModule::Hardware(hsm2))
+                    Ok(Arc::new(hsm2::SecurityModule::Hardware(hsm2)))
                 }
             }
             SecurityModuleConfiguration::Software(p) => {
+                eprintln!("Init hsm 2");
                 let n = config_path.join(format!("{}-initialized", name));
                 let ssm = Arc::new(hsm2::SecurityModule::Software(Ssm { path: p.clone() }));
                 service::log::info!("Checking for {} existing", n.display());
@@ -2539,13 +2511,15 @@ impl PkiConfigurationEnum {
                         admin_csr,
                     )
                     .await
-                    .unwrap();
+                    .inspect_err(|_| {
+                        let _ = std::fs::remove_dir_all(&p);
+                    })?;
                     let mut f = tokio::fs::File::create(&n).await.unwrap();
                     f.write_all("".as_bytes())
                         .await
                         .expect("Failed to initialization file update");
                 }
-                ssm
+                Ok(ssm)
             }
         }
     }
@@ -2843,7 +2817,7 @@ pub enum CaLoadError {
     /// General settings missing
     GeneralSettingsMissing,
     /// Failed to create admin certificate using external provider
-    AdminCreationExternalFailed,
+    AdminCreationExternalFailed(String),
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -3213,6 +3187,7 @@ impl PkiInstance {
         main_config: &crate::main_config::MainConfiguration,
         admin_csr: Option<&String>,
     ) -> Result<Self, PkiLoadError> {
+        eprintln!("Init pki 1");
         match settings {
             PkiConfigurationEnum::AddedCa(ca) => {
                 todo!();
@@ -3632,8 +3607,6 @@ impl Ca {
                 if let CertificateSigningMethod::Https(m) = algorithm {
                     let https_options = SigningRequestParams {
                         hsm: None, //TODO put in the hsm object when support is there for using an https certificate with external private key
-                        #[cfg(feature = "smartcard")]
-                        smartcard: None,
                         t: m,
                         name: "https".to_string(),
                         common_name: "HTTPS Server".to_string(),
@@ -3676,15 +3649,25 @@ impl Ca {
                 StorageBuilderError::AlreadyExists,
             ));
         }
-        let mut medium = settings
+        let medium = settings
             .path
             .build()
             .await
-            .map_err(|e| CaLoadError::StorageError(e))?;
-        medium
-            .init(settings)
-            .await
-            .map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
+            .map_err(|e| CaLoadError::StorageError(e));
+        let mut medium = match medium {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("Failed to build storage mediium");
+                settings.destroy_backend().await;
+                return Err(e);
+            }
+        };
+        let a = medium.init(settings).await;
+        if a.is_err() {
+            eprintln!("Failed to init storage mediium");
+            settings.destroy_backend().await;
+        }
+        a.map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
         Ok(Self {
             public_names: settings.public_names.clone(),
             database: settings.database.clone(),
@@ -3720,6 +3703,7 @@ impl Ca {
         superior: Option<&mut LocalOrRemoteCa>,
         admin_csr: Option<&String>,
     ) -> Result<Self, CaLoadError> {
+        eprintln!("Init pki 2");
         service::log::info!("Attempting init for {}", settings.common_name);
         // Unable to to gnerate an intermediate instance without the superior ca reference
         if settings.inferior_to.is_some() && superior.is_none() {
@@ -3727,10 +3711,11 @@ impl Ca {
         }
 
         let mut ca = Self::init_from_config(settings).await?;
-
+        eprintln!("Init pki 3");
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
                 {
+                    eprintln!("Init pki 4");
                     service::log::info!("Generating a root certificate for ca operations");
 
                     let key_pair = hsm
@@ -3775,8 +3760,6 @@ impl Ca {
                         .unwrap()];
                         let root_options = SigningRequestParams {
                             hsm: Some(hsm.clone()),
-                            #[cfg(feature = "smartcard")]
-                            smartcard: None,
                             t: m,
                             name: format!("{}-root", ca.config.common_name),
                             common_name: ca.config.common_name.clone(),
@@ -3832,8 +3815,6 @@ impl Ca {
                 let id = ca.get_new_request_id().await.unwrap();
                 let ocsp_options = SigningRequestParams {
                     hsm: Some(hsm.clone()),
-                    #[cfg(feature = "smartcard")]
-                    smartcard: None,
                     t: m,
                     name: format!("{}-ocsp", ca.config.common_name),
                     common_name: "OCSP Responder".to_string(),
@@ -3872,8 +3853,6 @@ impl Ca {
                 let id = ca.get_new_request_id().await.unwrap();
                 let mut options = SigningRequestParams {
                     hsm: None,
-                    #[cfg(feature = "smartcard")]
-                    smartcard: None,
                     t: m,
                     name: format!("{}-admin", ca.config.common_name),
                     common_name: format!("{} Administrator", settings.common_name),
@@ -3884,14 +3863,27 @@ impl Ca {
                 };
                 let admin_cert = match ca.config.admin_cert.clone() {
                     CertificateType::External => {
-                        let csr = admin_csr.unwrap();
-                        let (_, csr2) = der::Document::from_pem(csr)
-                            .map_err(|_| CaLoadError::AdminCreationExternalFailed)?;
+                        let Some(csr) = admin_csr else {
+                            return Err(CaLoadError::AdminCreationExternalFailed(
+                                "No csr present".to_string(),
+                            ));
+                        };
+                        let (_, csr2) = der::Document::from_pem(csr).map_err(|e| {
+                            CaLoadError::AdminCreationExternalFailed(format!(
+                                "Invalid csr document 2 {} - {}",
+                                e, csr
+                            ))
+                        })?;
                         use der::Encode;
                         let der = csr2.to_der().unwrap();
                         let csr_der = rustls_pki_types::CertificateSigningRequestDer::from(der);
                         let admin_csr = rcgen::CertificateSigningRequestParams::from_der(&csr_der)
-                            .map_err(|_| CaLoadError::AdminCreationExternalFailed)?;
+                            .map_err(|e| {
+                                CaLoadError::AdminCreationExternalFailed(format!(
+                                    "Cannot parse csr {}",
+                                    e
+                                ))
+                            })?;
                         let serial = CaCertificateToBeSigned::calc_sn().0.to_vec();
                         let cert_to_sign = CaCertificateToBeSigned {
                             algorithm: m,
@@ -3913,7 +3905,9 @@ impl Ca {
                             )
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
+                        admin_cert.name = format!("{}-admin", ca.config.common_name);
                         service::log::debug!("Saving admin cert to medium");
+                        eprintln!("Saving admin cert {}", admin_cert.name);
                         let p = "whatever"; // it won't matter because there is only public data in the certificate
                         admin_cert
                             .save_to_medium(&mut ca, p)
@@ -3936,36 +3930,6 @@ impl Ca {
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
                         service::log::debug!("Saving admin cert to medium");
-                        admin_cert
-                            .save_to_medium(&mut ca, &p)
-                            .await
-                            .map_err(|e| CaLoadError::FailedToSaveToMedium(e))?;
-                        admin_cert
-                    }
-                    #[cfg(feature = "smartcard")]
-                    CertificateType::SmartCard(p) => {
-                        let label = format!("{}-admin", ca.config.common_name);
-                        let keypair = card::KeyPair::generate_with_smartcard_async(
-                            p.as_bytes().to_vec(),
-                            &label,
-                            true,
-                        )
-                        .await
-                        .ok_or(CaLoadError::FailedToCreateKeypair("admin".to_string()))?;
-                        options.smartcard = Some(keypair);
-                        let admin_csr = options.generate_request();
-                        let mut admin_cert = ca
-                            .root_cert
-                            .as_ref()
-                            .unwrap()
-                            .sign_csr(
-                                admin_csr,
-                                &ca,
-                                CaCertificateToBeSigned::calc_sn().0.to_vec(),
-                                time::Duration::days(ca.config.days as i64),
-                            )
-                            .unwrap();
-                        admin_cert.medium = ca.medium.clone();
                         admin_cert
                             .save_to_medium(&mut ca, &p)
                             .await
@@ -4018,6 +3982,7 @@ impl Ca {
                 }
             }
         }
+        eprintln!("Init pki ca done");
         Ok(ca)
     }
 
@@ -4752,7 +4717,7 @@ impl Ca {
         }
     }
 
-    /// Attempt to load a certificate by name, first from hsm, then from p12
+    /// Attempt to load a certificate by name, first from hsm, from external, then from p12
     async fn load_cert(
         &self,
         hsm: Arc<crate::hsm2::SecurityModule>,
@@ -4785,6 +4750,8 @@ impl Ca {
                 };
                 Ok(cert)
             }
+        } else if let Ok(cert) = self.medium.load_external_cert(&hsm_name).await {
+            Ok(cert)
         } else {
             service::log::debug!("{} does not exist 2", name);
             Err(CertificateLoadingError::DoesNotExist(name.to_string()))
@@ -4828,12 +4795,6 @@ impl Ca {
                             CaLoadError::CertificateLoadingError(e.to_owned())
                         })?;
                         service::log::debug!("Success load admin cert");
-                    }
-                    #[cfg(feature = "smartcard")]
-                    CertificateType::SmartCard(_p) => {
-                        ca.load_admin_smartcard(hsm.clone())
-                            .await
-                            .map_err(|e| CaLoadError::CertificateLoadingError(e.to_owned()))?;
                     }
                 }
                 service::log::debug!("Trying to load root cert");
@@ -5566,9 +5527,6 @@ impl InternalSignature {
 pub struct SigningRequestParams {
     /// The hsm to used when using the hsm to generate a certificate
     pub hsm: Option<Arc<crate::hsm2::SecurityModule>>,
-    #[cfg(feature = "smartcard")]
-    /// The smartcard keypair to use when using a certifcate for a smartcard
-    pub smartcard: Option<card::KeyPair>,
     /// The signing method
     pub t: HttpsSigningMethod,
     /// The name of the certificate
@@ -5600,23 +5558,6 @@ impl SigningRequestParams {
         let mut sn = [0; 20];
         for (i, b) in self.id.to_le_bytes().iter().enumerate() {
             sn[i] = *b;
-        }
-        #[cfg(feature = "smartcard")]
-        if let Some(keypair) = &self.smartcard {
-            let csr = params.serialize_request(&keypair.rcgen()).unwrap();
-            let csr_der = csr.der();
-            let mut csr = rcgen::CertificateSigningRequestParams::from_der(csr_der).unwrap();
-            let snr = rcgen::SerialNumber::from_slice(&sn);
-            csr.params.serial_number = Some(snr);
-
-            return CaCertificateToBeSigned {
-                algorithm: self.t,
-                medium: CaCertificateStorage::Nowhere,
-                csr,
-                keypair: Some(Keypair::SmartCard(keypair.clone())),
-                name: self.name.clone(),
-                serial: sn.to_vec(),
-            };
         }
         if let Some(hsm) = &self.hsm {
             let keypair = hsm

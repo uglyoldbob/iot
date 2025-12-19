@@ -203,7 +203,8 @@ async fn smain() {
     let hsm: Arc<hsm2::SecurityModule> = settings
         .pki
         .init_hsm(&config_path, &name, &settings, admin_csr.as_ref())
-        .await;
+        .await
+        .unwrap();
 
     hsm.list_certificates();
 

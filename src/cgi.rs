@@ -51,16 +51,39 @@ async fn main() {
             headers.insert(a.0, a.1.clone());
         }
         let post_data = PostContent::new(Some(post_data), headers);
-        let admin_csr = post_data
-            .form()
-            .map(|f| f.get_first("csr").map(|a| a.to_string()))
-            .flatten();
-        let hsm: Arc<hsm2::SecurityModule> = settings
+        let admin_csr = {
+            let f = std::fs::File::open("./admin.csr").ok();
+            if let Some(mut f) = f {
+                let mut s = String::new();
+                let Ok(_a) = f.read_to_string(&mut s) else {
+                    return cgi::html_response(500, "FAILED to read admin csr contents");
+                };
+                Some(s)
+            } else {
+                return cgi::html_response(
+                    500,
+                    format!(
+                        "FAILED to read open csr contents {}",
+                        std::env::current_dir().unwrap().display()
+                    ),
+                );
+            }
+        };
+        eprintln!("Init hsm");
+        let hsm = match settings
             .pki
             .init_hsm(&"./".into(), "default", &settings, admin_csr.as_ref())
-            .await;
-        let Ok(pki) = ca::PkiInstance::load(hsm.clone(), &settings).await else {
-            return cgi::html_response(500, "Failed to load pki");
+            .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                return cgi::html_response(500, format!("FAILED to init hsm {:?}", e));
+            }
+        };
+        eprintln!("Loading pki instance");
+        let pki = match ca::PkiInstance::load(hsm.clone(), &settings).await {
+            Ok(e) => e,
+            Err(e) => return cgi::html_response(500, format!("Failed to load pki - {:?}", e)),
         };
         let pki = Arc::new(futures_util::lock::Mutex::new(pki));
 
