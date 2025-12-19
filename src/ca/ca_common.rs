@@ -3202,12 +3202,14 @@ impl PkiInstance {
             }
             PkiConfigurationEnum::Ca(ca_config) => {
                 let ca = ca_config.get_ca(main_config);
-                let mut ca = crate::ca::Ca::init(hsm.clone(), &ca, None, admin_csr)
-                    .await
-                    .map_err(|e| {
+                let mut ca = match crate::ca::Ca::init(hsm.clone(), &ca, None, admin_csr).await {
+                    Ok(a) => a,
+                    Err(e) => {
                         service::log::error!("Failed to load ca 9 {:?}", e);
-                        PkiLoadError::FailedToLoadCa("ca".to_string(), e)
-                    })?; //TODO Use the proper ca superior object instead of None
+                        ca_config.get_ca(main_config).destroy_backend().await;
+                        return Err(PkiLoadError::FailedToLoadCa("ca".to_string(), e));
+                    }
+                }; //TODO Use the proper ca superior object instead of None
                 if let Some(service) = &ca_config.service {
                     if service.https.is_some() {
                         ca.check_https_create(hsm.clone(), main_config)

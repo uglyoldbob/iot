@@ -60,13 +60,7 @@ async fn main() {
                 };
                 Some(s)
             } else {
-                return cgi::html_response(
-                    500,
-                    format!(
-                        "FAILED to read open csr contents {}",
-                        std::env::current_dir().unwrap().display()
-                    ),
-                );
+                None
             }
         };
         eprintln!("Init hsm");
