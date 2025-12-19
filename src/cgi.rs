@@ -63,7 +63,6 @@ async fn main() {
                 None
             }
         };
-        eprintln!("Init hsm");
         let hsm = match settings
             .pki
             .init_hsm(&"./".into(), "default", &settings, admin_csr.as_ref())
@@ -74,7 +73,6 @@ async fn main() {
                 return cgi::html_response(500, format!("FAILED to init hsm {:?}", e));
             }
         };
-        eprintln!("Loading pki instance");
         let pki = match ca::PkiInstance::load(hsm.clone(), &settings).await {
             Ok(e) => e,
             Err(e) => return cgi::html_response(500, format!("Failed to load pki - {:?}", e)),

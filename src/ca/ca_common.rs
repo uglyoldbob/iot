@@ -1383,10 +1383,6 @@ impl CaCertificateStorage {
             cert.name,
             hsm_label
         );
-        eprintln!(
-            "Save {:02x?} {} to medium {:?}",
-            cert.serial, cert.name, hsm_label
-        );
         let id = ca.get_new_request_id().await.unwrap();
         let cert_der = &cert
             .contents()
@@ -1402,7 +1398,6 @@ impl CaCertificateStorage {
         )
         .await;
         if let Some(label) = hsm_label {
-            eprintln!("Saving cert with label {}", label);
             match self {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
@@ -1443,7 +1438,6 @@ impl CaCertificateStorage {
         hsm: Arc<crate::hsm2::SecurityModule>,
         name: &str,
     ) -> Result<CaCertificate, CertificateLoadingError> {
-        eprintln!("Loading {} from hsm", name);
         match self {
             CaCertificateStorage::Nowhere => {
                 service::log::debug!("Tried to load {} certificate from nowhere", name);
@@ -1501,7 +1495,6 @@ impl CaCertificateStorage {
                         let alg = if alg_b == *cert_common::oid::OID_PKCS1_SHA256_RSA_ENCRYPTION {
                             HttpsSigningMethod::RsaSha256
                         } else {
-                            eprintln!("The unknown signing algorithm is {:?}", alg_b);
                             panic!("Unknown signing algorithm : {:?}", alg_b);
                         };
                         (alg, None)
@@ -2497,7 +2490,6 @@ impl PkiConfigurationEnum {
                 }
             }
             SecurityModuleConfiguration::Software(p) => {
-                eprintln!("Init hsm 2");
                 let n = config_path.join(format!("{}-initialized", name));
                 let ssm = Arc::new(hsm2::SecurityModule::Software(Ssm { path: p.clone() }));
                 service::log::info!("Checking for {} existing", n.display());
@@ -3191,7 +3183,6 @@ impl PkiInstance {
         main_config: &crate::main_config::MainConfiguration,
         admin_csr: Option<&String>,
     ) -> Result<Self, PkiLoadError> {
-        eprintln!("Init pki 1");
         match settings {
             PkiConfigurationEnum::AddedCa(ca) => {
                 todo!();
@@ -3663,14 +3654,12 @@ impl Ca {
         let mut medium = match medium {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("Failed to build storage mediium");
                 settings.destroy_backend().await;
                 return Err(e);
             }
         };
         let a = medium.init(settings).await;
         if a.is_err() {
-            eprintln!("Failed to init storage mediium");
             settings.destroy_backend().await;
         }
         a.map_err(|_| CaLoadError::StorageError(StorageBuilderError::FailedToInitStorage))?;
@@ -3709,7 +3698,6 @@ impl Ca {
         superior: Option<&mut LocalOrRemoteCa>,
         admin_csr: Option<&String>,
     ) -> Result<Self, CaLoadError> {
-        eprintln!("Init pki 2");
         service::log::info!("Attempting init for {}", settings.common_name);
         // Unable to to gnerate an intermediate instance without the superior ca reference
         if settings.inferior_to.is_some() && superior.is_none() {
@@ -3717,11 +3705,9 @@ impl Ca {
         }
 
         let mut ca = Self::init_from_config(settings).await?;
-        eprintln!("Init pki 3");
         match settings.sign_method {
             CertificateSigningMethod::Https(m) => {
                 {
-                    eprintln!("Init pki 4");
                     service::log::info!("Generating a root certificate for ca operations");
 
                     let key_pair = hsm
@@ -3912,8 +3898,6 @@ impl Ca {
                             .unwrap();
                         admin_cert.medium = ca.medium.clone();
                         admin_cert.name = format!("{}-admin", ca.config.common_name);
-                        service::log::debug!("Saving admin cert to medium");
-                        eprintln!("Saving admin cert {}", admin_cert.name);
                         let p = "whatever"; // it won't matter because there is only public data in the certificate
                         admin_cert
                             .save_to_medium(&mut ca, p)
@@ -3988,7 +3972,6 @@ impl Ca {
                 }
             }
         }
-        eprintln!("Init pki ca done");
         Ok(ca)
     }
 
