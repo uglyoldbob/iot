@@ -17,6 +17,9 @@ pub use main_config::MainConfiguration;
 #[path = "../src/utility.rs"]
 mod utility;
 
+#[path = "../src/tpm2.rs"]
+mod tpm2;
+
 async fn start_smartcard_sim() -> Result<std::process::Child, Box<dyn std::error::Error>> {
     let a = tokio::task::spawn_blocking(|| {
         let mut p = std::process::Command::new("./run-piv-pcsc-sim.sh");
@@ -48,9 +51,8 @@ async fn test1() {
         .await
         .expect("Failed to start smartcard simulator");
     let card_keypair =
-        card::KeyPair::generate_with_smartcard(b"123456".to_vec(), "test card", false)
+        card::KeyPair::generate_with_smartcard_async(b"123456".to_vec(), "test card", false)
             .await
             .expect("Failed to generate keypair for smartcard");
-    let keypair = ca::Keypair::SmartCard(card_keypair);
     simulator.kill().expect("Failed to kill simulator");
 }

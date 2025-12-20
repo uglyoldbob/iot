@@ -21,8 +21,12 @@ mod hsm2;
 #[path = "../src/utility.rs"]
 mod utility;
 
+#[path = "../src/tpm2.rs"]
+mod tpm2;
+
 use std::{io::Write, sync::Arc};
 
+use crate::hsm2::SecurityModuleTrait;
 use der::{Decode, Encode};
 use rcgen::RemoteKeyPair;
 use ring::signature::EcdsaSigningAlgorithm;
@@ -221,7 +225,9 @@ fn ecdsa_with_hsm() {
     let config_path = std::path::PathBuf::from(config_path.path());
 
     // Set SoftHSM2 configuration file environment variable
-    std::env::set_var("SOFTHSM2_CONF", config_path.join("softhsm2.conf"));
+    unsafe {
+        std::env::set_var("SOFTHSM2_CONF", config_path.join("softhsm2.conf"));
+    }
 
     // Configure SoftHSM2 with temporary token storage
     {
@@ -288,7 +294,7 @@ library.reset_on_fork = false
     println!("The signature is also {:02X?}", sig2);
 
     // Extract public key for verification
-    let peer_public_key_bytes = kp.public_key().as_ref();
+    let peer_public_key_bytes = kp.public_key();
     println!(
         "The public key is {} {:02X?}",
         peer_public_key_bytes.len(),

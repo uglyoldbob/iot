@@ -36,7 +36,7 @@ pem = "3.0.4"
 pin-project-lite = "0.2.13"
 pkcs5 = "0.7.1"
 rand = "0.8.5"
-reqwest = { version = "0.12.22", default-features = false, features = ["rustls-tls", "blocking"] }
+reqwest = { version = "0.12.26", default-features = false, features = ["rustls-tls", "blocking", "native-tls", "default-tls"] }
 ring = "0.17.14"
 rpassword = "7.3.1"
 rsa = "0.9.6"
@@ -133,7 +133,7 @@ version = "0.2.0"
 features = ["async", "serde", "prompt", "egui-prompt"]
 
 [dependencies.ssh-key]
-version = "0.6.6"
+version = "0.6.7"
 features = [ "rsa", "ed25519" ]
 
 [dependencies.strum]
@@ -167,7 +167,10 @@ windows-acl = "0.3.0"
 assert_cmd = "2.0"
 async-trait = "0.1"
 hex = "0.4"
+openssl = "0.10.75"
 predicates = "3.1"
+russh = "0.55.0"
+russh-keys = "0.49.2"
 serial_test = "3.0"
 
 [features]

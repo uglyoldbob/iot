@@ -254,7 +254,7 @@ impl StandaloneCaConfiguration {
             proxy_config: value.proxy_config.clone(),
             debug_level: Some(value.debug_level.clone()),
             service: value.service.clone().map(|a| a.into()),
-            security_module: value.hsm_config.clone(),
+            security_module: value.security_module.clone(),
             sign_method: value.sign_method,
             path: value.path.clone().into(),
             inferior_to: value.inferior_to.clone(),
@@ -355,9 +355,6 @@ pub struct StandaloneCaConfigurationAnswers {
     /// The settings specified to run the ca service
     #[PromptComment = "Settings for the service"]
     pub service: Option<crate::main_config::ServerConfigurationAnswers>,
-    #[PromptComment = "The security module configuration"]
-    /// The configuration for the security module
-    pub hsm_config: SecurityModuleConfiguration,
     #[PromptComment = "Settings for the database"]
     /// Optional settings for the mysql database
     pub database: Option<DatabaseSettings>,
@@ -426,7 +423,6 @@ impl StandaloneCaConfigurationAnswers {
             security_module: SecurityModuleConfiguration::default(),
             client_certs: None,
             database: None,
-            hsm_config: Default::default(),
             public_names: Vec::new(),
             proxy_config: None,
             debug_level: service::LogLevel::Warning,

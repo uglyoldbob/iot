@@ -284,7 +284,7 @@ async fn main() {
                 if let ca::PkiConfigurationEnumAnswers::Ca { pki_name, config } = &mut toml.pki {
                     let h =
                         SecurityModuleConfiguration::Software(std::path::PathBuf::from(hsm_path));
-                    config.hsm_config = h;
+                    config.security_module = h;
                     html.body(|b| {
                         b.text("Applied software security module settings");
                         b.line_break(|lb| lb);
@@ -362,7 +362,7 @@ async fn main() {
                             hsm_pin2: hsm_pin2.clone(),
                             hsm_slot,
                         };
-                        config.hsm_config = h;
+                        config.security_module = h;
                         html.body(|b| {
                             b.text("Applied hardware security module settings");
                             b.line_break(|lb| lb);

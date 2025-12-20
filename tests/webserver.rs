@@ -34,6 +34,9 @@ mod utility;
 #[path = "../src/webserver/mod.rs"]
 mod webserver;
 
+#[path = "../src/tpm2.rs"]
+mod tpm2;
+
 /// Test web handler function that generates dynamic HTML content
 ///
 /// This function demonstrates:
