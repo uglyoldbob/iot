@@ -47,7 +47,7 @@ use der::DecodePem;
 pub use main_config::MainConfiguration;
 use main_config::{HttpSettings, HttpsSettingsAnswers, MainConfigurationAnswers};
 use predicates::prelude::predicate;
-use russh::keys::PublicKeyBase64;
+use russh::keys::{HashAlg, PublicKeyBase64};
 use service::LogLevel;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -341,15 +341,15 @@ async fn ssh_genkey() {
                 .unwrap_or(&public_key_openssh);
 
             // Try to parse the generated keys with russh
-            let russh_public_result = russh_keys::parse_public_key_base64(public_key_base64);
-            let russh_private_result = russh_keys::decode_secret_key(&private_key_openssh, None);
+            let russh_public_result = russh::keys::PublicKey::from_openssh(&public_key_openssh);
+            let russh_private_result = russh::keys::PrivateKey::from_openssh(private_key_openssh.as_bytes());
 
             match (&russh_public_result, &russh_private_result) {
                 (Ok(_), Ok(_)) => {
                     println!("✓ Successfully converted {:?} keys to russh format", method);
                 }
                 (Err(pub_err), _) => {
-                    panic!("⚠ Failed to parse public key: {:?}", pub_err);
+                    panic!("⚠ Failed to parse public key: {:?} - {}", pub_err, public_key_openssh);
                 }
                 (_, Err(priv_err)) => {
                     panic!("⚠ Failed to parse private key: {:?}", priv_err);
@@ -359,6 +359,8 @@ async fn ssh_genkey() {
             if let (Ok(russh_public_key), Ok(russh_private_key)) =
                 (russh_public_result, russh_private_result)
             {
+                let russh_private_key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(russh_private_key), Some(HashAlg::Sha256));
+
                 // Start SSH server on high port
                 let listener = TcpListener::bind("127.0.0.1:12345").await.unwrap();
                 let server_handler = TestServer::new();
@@ -372,7 +374,8 @@ async fn ssh_genkey() {
                     .generate_keypair(4096)
                     .unwrap();
                 let server_private_openssh = server_kp.to_openssh(ssh_key::LineEnding::LF).unwrap();
-                let server_russh_key =
+                let server_russh_key = russh::keys::PrivateKey::from_openssh(server_private_openssh.as_bytes()).expect("Failed to convert ssh server key");
+                //let server_russh_key = russh::keys::key::PrivateKeyWithHashAlg::new(Arc::new(server_russh_key), Some(HashAlg::Sha256));
                     russh_keys::decode_secret_key(&server_private_openssh, None).unwrap();
                 println!("✓ SSH server key generated and converted successfully");
 
@@ -422,7 +425,7 @@ async fn ssh_genkey() {
 
                 // Authenticate with the generated keypair from SshSigningMethod::generate_keypair
                 let auth_result = session
-                    .authenticate_publickey("testuser", Arc::new(russh_private_key))
+                    .authenticate_publickey("testuser", russh_private_key)
                     .await;
 
                 // Verify authentication succeeded
@@ -1287,7 +1290,9 @@ impl TheServer {
 impl Drop for TheServer {
     fn drop(&mut self) {
         service::log::info!("Shutting down the server");
-        self.process.as_mut().unwrap().kill().unwrap();
+        if let Some(p) = self.process.as_mut() {
+            p.kill().unwrap();
+        }
 
         let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
         kill.arg(format!("--config={}", self.configpath.path().display()))
