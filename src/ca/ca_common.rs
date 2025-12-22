@@ -2326,9 +2326,11 @@ impl PkiConfigurationEnumAnswers {
         match self {
             PkiConfigurationEnumAnswers::Pki(config) => config.service.username.clone(),
             PkiConfigurationEnumAnswers::AddedCa(config) => None,
-            PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
-                config.service.as_ref().map(|s| s.username.clone()).flatten()
-            }
+            PkiConfigurationEnumAnswers::Ca { pki_name, config } => config
+                .service
+                .as_ref()
+                .map(|s| s.username.clone())
+                .flatten(),
         }
     }
 

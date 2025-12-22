@@ -134,7 +134,18 @@ impl rcgen::RemoteKeyPair for SsmEcdsaSha256Keypair {
     }
 
     fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, rcgen::Error> {
-        todo!()
+        use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use p256::pkcs8::DecodePrivateKey;
+
+        // Parse the private key from PKCS#8 DER format
+        let signing_key =
+            SigningKey::from_pkcs8_der(&self.cert).map_err(|_| rcgen::Error::RemoteKeyError)?;
+
+        // Sign the message
+        let signature: Signature = signing_key.sign(msg);
+
+        // Return the signature in DER format
+        Ok(signature.to_der().as_bytes().to_vec())
     }
 
     fn algorithm(&self) -> &'static rcgen::SignatureAlgorithm {

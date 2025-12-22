@@ -2810,7 +2810,7 @@ impl PkiInstance {
     ) {
         let (http, https) = {
             let s = this.lock().await;
-            let s : &PkiInstance = &s;
+            let s: &PkiInstance = &s;
             match s {
                 PkiInstance::Pki(pki) => (pki.http.clone(), pki.https.clone()),
                 PkiInstance::Ca(ca) => (ca.http.clone(), ca.https.clone()),
