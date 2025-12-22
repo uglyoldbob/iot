@@ -2441,7 +2441,7 @@ impl PkiConfigurationEnum {
                 hsm_slot,
             } => {
                 let n = config_path.join(format!("{}-initialized", name));
-                if n.exists() && n.metadata().unwrap().len() > 2 {
+                if !n.exists() {
                     let hsm2 = if let Some(hsm_t) = hsm2::Hsm::create(
                         hsm_path_override.as_ref().map(|a| a.to_path_buf()),
                         Zeroizing::new(hsm_pin.clone()),
@@ -2493,7 +2493,7 @@ impl PkiConfigurationEnum {
                 if !p.exists() {
                     std::fs::create_dir_all(&p).unwrap();
                 }
-                if n.exists() && n.metadata().unwrap().len() > 2 {
+                if !n.exists() {
                     service::log::info!("Creating ssm");
                     use tokio::io::AsyncWriteExt;
                     let _ca_instance = crate::ca::PkiInstance::init(

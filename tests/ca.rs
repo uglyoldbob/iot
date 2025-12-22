@@ -1378,9 +1378,14 @@ where
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 let c = reqwest::Client::new();
                 let d = c.get("http://127.0.0.1:3000").send().await;
-                if let Ok(t) = d {
-                    let t2 = t.text().await.expect("No text?");
-                    break;
+                match d {
+                    Ok(t) => {
+                        let t2 = t.text().await.expect("No text?");
+                        break;
+                    }
+                    Err(e) => {
+                        panic!("Error polling the service: {}", e);
+                    }
                 }
             }
             //now run all the checks

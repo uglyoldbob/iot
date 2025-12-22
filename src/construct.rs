@@ -224,19 +224,6 @@ pub async fn main() {
         }
     }
 
-    {
-        let n = config_path.join(format!("{}-initialized", name));
-        let mut f = tokio::fs::File::create(&n)
-            .await
-            .expect("Failed to create initialization file");
-        f.write_all("false".as_bytes())
-            .await
-            .expect("Failed to write initialization file");
-        if let Some(options) = &options {
-            options.set_owner(&n, 0o700);
-        }
-    }
-
     if let Some(proxy) = config.pki.reverse_proxy(&config) {
         let proxy_name = PathBuf::from(format!("./reverse-proxy-{}.txt", &name));
         service::log::info!(

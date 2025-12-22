@@ -73,7 +73,7 @@ async fn main() {
         }
     }
 
-    println!("The path for the iot instance config is {:?}", config_path);
+    println!("The path for the iot instance config is {}", config_path.display());
     tokio::fs::create_dir_all(&config_path).await.unwrap();
 
     let config_file = config_path.join(format!("{}-config.toml", name));
