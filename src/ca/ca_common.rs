@@ -2493,7 +2493,7 @@ impl PkiConfigurationEnum {
                 if !p.exists() {
                     std::fs::create_dir_all(&p).unwrap();
                 }
-                if !n.exists() {
+                if n.exists() && n.metadata().unwrap().len() > 2 {
                     service::log::info!("Creating ssm");
                     use tokio::io::AsyncWriteExt;
                     let _ca_instance = crate::ca::PkiInstance::init(
