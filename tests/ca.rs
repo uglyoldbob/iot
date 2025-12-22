@@ -1210,7 +1210,7 @@ fn build_answers(
         security_module: main_config::SecurityModuleConfiguration::Software("./ssm".into()),
         public_names: vec![ComplexName::from_str("127.0.0.1").unwrap()],
         service: Some(crate::main_config::ServerConfigurationAnswers {
-            username: whoami::username(),
+            username: Some(whoami::username()),
             http: Some(HttpSettings { port: 3000 }),
             https: Some(HttpsSettingsAnswers {
                 port: 3001,

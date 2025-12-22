@@ -2322,10 +2322,10 @@ impl PkiConfigurationEnumAnswers {
 
     pub fn get_username(&self) -> Option<String> {
         match self {
-            PkiConfigurationEnumAnswers::Pki(config) => Some(config.service.username.clone()),
+            PkiConfigurationEnumAnswers::Pki(config) => config.service.username.clone(),
             PkiConfigurationEnumAnswers::AddedCa(config) => None,
             PkiConfigurationEnumAnswers::Ca { pki_name, config } => {
-                config.service.as_ref().map(|s| s.username.clone())
+                config.service.as_ref().map(|s| s.username.clone()).flatten()
             }
         }
     }
@@ -2367,7 +2367,11 @@ impl PkiConfigurationEnumAnswers {
     /// Build an owner options struct
     pub fn build_owner_options(&self) -> Option<crate::ca::OwnerOptions> {
         let username = self.get_username();
+        service::log::error!("Checking user {:?}", username);
         username.map(|u| {
+            if u.is_empty() {
+                panic!("Invalid empty user specified");
+            }
             #[cfg(target_family = "unix")]
             let user_obj = nix::unistd::User::from_name(&u).unwrap().unwrap();
             #[cfg(target_family = "unix")]

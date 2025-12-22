@@ -499,7 +499,7 @@ pub struct ServerConfiguration {
 pub struct ServerConfigurationAnswers {
     #[PromptComment = "What username to run the service as"]
     /// The username to run the service as
-    pub username: String,
+    pub username: Option<String>,
     #[PromptComment = "The optional password for the user that the service will run as"]
     /// The password for the user
     pub password: Option<userprompt::Password2>,
