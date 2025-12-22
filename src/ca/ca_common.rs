@@ -698,7 +698,7 @@ impl LocalCaConfiguration {
             database: None,
             http: None,
             https: None,
-            general: None,
+            general: settings.pki.get_general_settings(),
             sign_method: self.sign_method,
             path: self.path.clone(),
             inferior_to: self.inferior_to.clone(),
@@ -2559,6 +2559,15 @@ impl PkiConfigurationEnum {
         }
     }
 
+    // Get the public names if applicable
+    pub fn get_public_names(&self) -> Vec<ComplexName> {
+        match self {
+            PkiConfigurationEnum::AddedCa(ca) => Vec::new(),
+            PkiConfigurationEnum::Pki(pki) => pki.public_names.clone(),
+            PkiConfigurationEnum::Ca(config) => config.public_names.clone(),
+        }
+    }
+
     // Get the general settings if applicable
     pub fn get_general_settings(&self) -> Option<crate::main_config::GeneralSettings> {
         match self {
@@ -2854,19 +2863,35 @@ impl Pki {
             match ca {
                 Ok(mut ca) => {
                     if let Some(ca_name) = &ca_name {
+                        service::log::debug!(
+                            "Checking if CA '{}' matches HTTPS CA name '{}'",
+                            name,
+                            ca_name
+                        );
                         if ca_name == name {
-                            ca.check_https_create(hsm.clone(), main_config)
-                                .await
-                                .map_err(|_| {
-                                    service::log::error!(
-                                        "Failed to load ca due to https certificate creation"
-                                    );
-                                    PkiLoadError::FailedToLoadCa(
-                                        name.to_owned(),
-                                        CaLoadError::FailedToInitHttps,
-                                    )
-                                })?;
+                            service::log::info!("Creating HTTPS certificate for CA '{}'", name);
+                            // Pass the service HTTPS config and public names to the CA for certificate creation
+                            let service_https = service.and_then(|s| s.https.as_ref());
+                            let public_names = main_config.pki.get_public_names();
+                            ca.check_https_create_with_config(
+                                hsm.clone(),
+                                main_config,
+                                service_https,
+                                public_names,
+                            )
+                            .await
+                            .map_err(|_| {
+                                service::log::error!(
+                                    "Failed to load ca due to https certificate creation"
+                                );
+                                PkiLoadError::FailedToLoadCa(
+                                    name.to_owned(),
+                                    CaLoadError::FailedToInitHttps,
+                                )
+                            })?;
                         }
+                    } else {
+                        service::log::debug!("No HTTPS CA name configured for service");
                     }
                     hm.insert(name.to_owned(), LocalOrRemoteCa::Local(ca));
                 }
@@ -3208,16 +3233,22 @@ impl PkiInstance {
                     }
                 }; //TODO Use the proper ca superior object instead of None
                 if let Some(service) = &ca_config.service {
-                    if service.https.is_some() {
-                        ca.check_https_create(hsm.clone(), main_config)
-                            .await
-                            .map_err(|_| {
-                                service::log::error!("Failed to init https cert");
-                                PkiLoadError::FailedToLoadCa(
-                                    "ca".to_string(),
-                                    CaLoadError::FailedToInitHttps,
-                                )
-                            })?;
+                    if let Some(service_https) = service.https.as_ref() {
+                        let public_names = main_config.pki.get_public_names();
+                        ca.check_https_create_with_config(
+                            hsm.clone(),
+                            main_config,
+                            Some(service_https),
+                            public_names,
+                        )
+                        .await
+                        .map_err(|_| {
+                            service::log::error!("Failed to init https cert");
+                            PkiLoadError::FailedToLoadCa(
+                                "ca".to_string(),
+                                CaLoadError::FailedToInitHttps,
+                            )
+                        })?;
                     }
                 }
                 Ok(Self::Ca(ca))
@@ -3575,9 +3606,42 @@ impl Ca {
         hsm: Arc<crate::hsm2::SecurityModule>,
         main_config: &crate::main_config::MainConfiguration,
     ) -> Result<(), ()> {
+        service::log::debug!(
+            "check_https_create called with {} public names",
+            self.public_names.len()
+        );
         self.create_https_certificate(
             hsm.clone(),
             self.public_names.iter().map(|a| a.to_string()).collect(),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Check to see if the https certificate should be created, with optional service HTTPS config
+    pub async fn check_https_create_with_config(
+        &mut self,
+        hsm: Arc<crate::hsm2::SecurityModule>,
+        main_config: &crate::main_config::MainConfiguration,
+        service_https: Option<&crate::main_config::HttpsSettings>,
+        public_names: Vec<ComplexName>,
+    ) -> Result<(), ()> {
+        // Use provided public names if not empty, otherwise fall back to self.public_names
+        let names_to_use = if !public_names.is_empty() {
+            public_names
+        } else {
+            self.public_names.clone()
+        };
+        service::log::debug!(
+            "check_https_create_with_config called with {} public names, service_https: {:?}",
+            names_to_use.len(),
+            service_https.is_some()
+        );
+        self.create_https_certificate(
+            hsm.clone(),
+            names_to_use.iter().map(|a| a.to_string()).collect(),
+            service_https,
         )
         .await?;
         Ok(())
@@ -3588,10 +3652,20 @@ impl Ca {
         &mut self,
         _hsm: Arc<crate::hsm2::SecurityModule>,
         https_names: Vec<String>,
+        service_https: Option<&crate::main_config::HttpsSettings>,
     ) -> Result<(), ()> {
         let mut stuff = None;
-        if let Some(https) = &self.https {
+        service::log::debug!(
+            "create_https_certificate: checking HTTPS config, self.https={:?}, service_https={:?}",
+            self.https.is_some(),
+            service_https.is_some()
+        );
+        // Use service_https if provided (for PKI setups), otherwise use self.https (for standalone CA)
+        let https = service_https.or(self.https.as_ref());
+        if let Some(https) = https {
+            service::log::debug!("HTTPS config exists, checking for certificate path");
             if let Some(destination) = https.certificate.pathbuf() {
+                service::log::debug!("Certificate destination path: {:?}", destination);
                 let password = https.certificate.password().unwrap();
                 service::log::info!("Generating an https certificate for web operations");
                 let key_usage_oids = vec![OID_EXTENDED_KEY_USAGE_SERVER_AUTH.to_owned()];
@@ -3635,10 +3709,17 @@ impl Ca {
             }
         }
         if let Some((id, cert, snb, password, destination)) = stuff {
+            service::log::info!("Saving HTTPS certificate to {:?}", destination);
             self.save_user_cert(id, &cert.contents().map_err(|_| ())?, Some(&snb))
                 .await;
             let p12 = cert.try_p12(&password).unwrap();
-            tokio::fs::write(destination, p12).await.unwrap();
+            tokio::fs::write(&destination, p12).await.unwrap();
+            service::log::info!(
+                "HTTPS certificate successfully written to {:?}",
+                destination
+            );
+        } else {
+            service::log::debug!("No HTTPS certificate to create");
         }
         Ok(())
     }

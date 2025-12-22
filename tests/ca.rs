@@ -1453,11 +1453,39 @@ async fn build_pki() -> Result<(), Box<dyn std::error::Error>> {
         {
             let mut pc = PkiConfigurationAnswers::default();
             pc.pki_name = "pki/".to_string();
+
+            // Preserve the service configuration from the original CA config
+            if let Some(service) = sac.service.clone() {
+                service::log::debug!(
+                    "Preserving service config from CA: http={:?}, https={:?}",
+                    service.http,
+                    service.https
+                );
+                pc.service = service;
+            }
+
+            // Preserve the general settings from the original CA config
+            service::log::debug!(
+                "Preserving general settings: cookie={}, static_content={}",
+                sac.general.cookie,
+                sac.general.static_content
+            );
+            pc.general = sac.general.clone();
+
+            // Preserve other important settings from the standalone CA
+            pc.public_names = sac.public_names.clone();
+            pc.security_module = sac.security_module.clone();
+            pc.proxy_config = sac.proxy_config.clone();
+            pc.debug_level = Some(sac.debug_level.clone());
+
+            service::log::debug!("Converting CA to local CA config for PKI");
             pc.local_ca
                 .map_mut()
                 .insert("default".to_string(), sac.to_local());
+
             let pki = PkiConfigurationEnumAnswers::Pki(pc);
             config.pki = pki;
+            service::log::debug!("Transformed CA config to PKI config");
         }
         config
     })
