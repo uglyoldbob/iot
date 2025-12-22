@@ -2804,13 +2804,17 @@ pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
 impl PkiInstance {
     /// Start any appliable web services
     pub async fn start_web_services(
-        &mut self,
+        this: Arc<futures_util::lock::Mutex<Self>>,
         tasks: &mut tokio::task::JoinSet<Result<(), crate::webserver::ServiceError>>,
         hc: Arc<crate::webserver::HttpContext>,
     ) {
-        let (http, https) = match self {
-            PkiInstance::Pki(pki) => (&pki.http, &pki.https),
-            PkiInstance::Ca(ca) => (&ca.http, &ca.https),
+        let (http, https) = {
+            let s = this.lock().await;
+            let s : &PkiInstance = &s;
+            match s {
+                PkiInstance::Pki(pki) => (pki.http.clone(), pki.https.clone()),
+                PkiInstance::Ca(ca) => (ca.http.clone(), ca.https.clone()),
+            }
         };
         if let Some(http) = &http {
             service::log::info!("Listening http on port {}", http.port);

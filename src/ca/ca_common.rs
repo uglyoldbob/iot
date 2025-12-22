@@ -1490,6 +1490,8 @@ impl CaCertificateStorage {
                         let alg_b = cert_common::oid::Oid::from_const(cid);
                         let alg = if alg_b == *cert_common::oid::OID_PKCS1_SHA256_RSA_ENCRYPTION {
                             HttpsSigningMethod::RsaSha256
+                        } else if alg_b == *cert_common::oid::OID_ECDSA_P256_SHA256_SIGNING {
+                            HttpsSigningMethod::EcdsaSha256
                         } else {
                             panic!("Unknown signing algorithm : {:?}", alg_b);
                         };

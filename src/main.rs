@@ -282,9 +282,7 @@ async fn smain() {
         tokio::task::JoinSet::new();
 
     if !args.test {
-        let mut pki = pki.lock().await;
-        pki.start_web_services(&mut tasks, hc.clone()).await;
-
+        crate::ca::PkiInstance::start_web_services(pki, &mut tasks, hc.clone()).await;
         tokio::select! {
             r = tasks.join_next() => {
                 service::log::error!("A task exited {:?}, closing server in 5 seconds", r);

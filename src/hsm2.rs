@@ -11,6 +11,7 @@ use cert_common::{
 };
 use cryptoki::object::Attribute;
 use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey};
+use rustls_pki_types::{PrivatePkcs8KeyDer, pem::PemObject};
 use zeroize::Zeroizing;
 
 /// The trait that security module implements
@@ -113,7 +114,9 @@ pub struct SsmEcdsaSha256Keypair {
 
 impl KeyPairTrait for SsmEcdsaSha256Keypair {
     fn keypair(&self) -> rcgen::KeyPair {
-        todo!()
+        let alg = rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components()).unwrap();
+        let p = rustls_pki_types::PrivatePkcs8KeyDer::from(self.cert.clone());
+        rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&p, alg).unwrap()
     }
 
     fn label(&self) -> String {

@@ -1398,6 +1398,7 @@ where
                     }
                     Ok(Err(e)) => {}
                     Err(e) => {
+                        service::log::error!("Timeout polling the service: {}", e);
                         panic!("Timeout polling the service: {}", e);
                     }
                 }
