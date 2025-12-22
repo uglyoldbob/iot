@@ -346,7 +346,7 @@ library.reset_on_fork = false
                 config_file.display()
             );
         }
-        let mut f = tokio::fs::File::create(config_file).await.unwrap();
+        let mut f: tokio::fs::File = tokio::fs::File::create(config_file).await.unwrap();
         let password: String;
         #[cfg(feature = "tpm2")]
         {
@@ -390,7 +390,7 @@ library.reset_on_fork = false
                     main_config::do_encryption_without_tpm2(config_data, &name).await;
                 let p = config_path.join(format!("{}-credentials.bin", name));
                 if p.exists() {
-                    panic!("Credendials file already exists");
+                    panic!("Credentials file already exists");
                 }
                 let mut fpw = tokio::fs::File::create(&p).await.unwrap();
                 fpw.write_all(&pw)
@@ -415,7 +415,7 @@ library.reset_on_fork = false
             password = pw.clone();
             let p = config_path.join(format!("{}-credentials.bin", name));
             if p.exists() {
-                panic!("Credendials file already exists");
+                panic!("Credentials file already exists");
             }
             let mut fpw = tokio::fs::File::create(&p).await.unwrap();
             fpw.write_all(pw.as_bytes())
@@ -426,6 +426,9 @@ library.reset_on_fork = false
                     .set_owner(&p, 0o400)
                     .expect("Failed to set file owner and permissions");
             }
+            f.write_all(&config_encrypted)
+                .await
+                .expect("Failed to write encrypted configuration file");
         }
 
         if let Some(config) = answers.make_extended_config() {

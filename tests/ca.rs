@@ -1322,6 +1322,7 @@ where
     for method in methods {
         let configpath = tempfile::TempDir::new().unwrap();
         let base = std::path::PathBuf::from(configpath.path());
+        service::log::error!("Path test is {}", base.display());
         let args = build_answers(&configpath, method);
         let args = m(args).await;
 
@@ -1541,19 +1542,26 @@ async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Failed to write answers file");
 
+    #[cfg(feature = "tpm2")]
     let pb3 = base.join("default-password.bin");
+    #[cfg(not(feature = "tpm2"))]
+    let pb3 = base.join("default-credentials.bin");
     let mut f = tokio::fs::File::create(&pb3).await.unwrap();
     f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
 
     let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
-    construct
+    let a = construct
         .arg(format!("--answers={}", pb.display()))
         .arg(format!("--save-answers={}", pb2.display()))
         .arg("--test")
         .arg(format!("--config={}", configpath.path().display()))
         .assert()
         .failure()
-        .code(predicate::eq(101))
-        .stderr(predicate::str::contains("Password file aready exists"));
+        .code(predicate::eq(101));
+
+    #[cfg(feature = "tpm2")]
+    a.stderr(predicate::str::contains("Password file aready exists"));
+    #[cfg(not(feature = "tpm2"))]
+    a.stderr(predicate::str::contains("Credentials file aready exists"));
     Ok(())
 }
