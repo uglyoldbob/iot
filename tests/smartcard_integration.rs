@@ -46,10 +46,10 @@ public class PivTest {
     // Compile the Java test
     let jcardsim_jar = "jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar";
     let jc_api_jar = "javacard-sdk/jc305u3_kit/lib/api_classic.jar";
-    let pivapplet_classes = "PivApplet/classes";
+    let pivapplet_classes = "PivApplet/bin";
     let bouncy_castle_jar = format!(
         "{}/.m2/repository/org/bouncycastle/bcprov-jdk14/1.71/bcprov-jdk14-1.71.jar",
-        std::env::var("HOME").unwrap_or_else(|_| "/home/thomas".to_string())
+        std::env::var("HOME").unwrap()
     );
     let classpath = format!(
         "{}:{}:{}:{}",
