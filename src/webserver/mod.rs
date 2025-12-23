@@ -261,15 +261,15 @@ impl std::io::Read for PostContent {
 }
 
 /// Represents the information required to handle web requests
-struct WebService<F, R, C> {
+pub struct WebService<F, R, C> {
     /// The context of the web service
     context: Arc<C>,
     /// The address that is being listened on
-    addr: SocketAddr,
+    pub addr: SocketAddr,
     /// True when https is involved
     https: bool,
     /// The user certificates for the request
-    user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
+    pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
     /// The async function called to service web requests
     f: F,
     /// Required to make it work
@@ -286,7 +286,7 @@ where
     /// * context - The context for the web service
     /// * addr - The address the service is listening on
     /// * f - The async function used to handle web requests
-    fn new(context: Arc<C>, https: bool, addr: SocketAddr, f: F) -> Self {
+    pub fn new(context: Arc<C>, https: bool, addr: SocketAddr, f: F) -> Self {
         Self {
             context,
             addr,
@@ -336,9 +336,9 @@ where
 }
 
 /// Used to receive the full contents of a body and convert it into a `hyper::body::Frame<hyper::body::Bytes>`
-struct BodyHandler {
+pub struct BodyHandler {
     /// The body being handled
-    b: hyper::body::Incoming,
+    pub b: hyper::body::Incoming,
 }
 
 impl Future for BodyHandler {
@@ -555,7 +555,7 @@ async fn handle<'a>(
 
 pin_project_lite::pin_project! {
     #[derive(Debug)]
-    struct TokioIo<T> {
+    pub struct TokioIo<T> {
         #[pin]
         inner: T,
     }

@@ -59,7 +59,7 @@ pub fn rsa_sha256(hash: &[u8]) -> Vec<u8> {
     der_hash
 }
 
-/// apply pkcs1.5 padding to pkcs1 hash, suitable for signing. 
+/// apply pkcs1.5 padding to pkcs1 hash, suitable for signing.
 /// # Arguments
 /// * total_size - Size in bits
 /// * hash - The hash needs to be in der format.

@@ -3,7 +3,7 @@
 
 //! Test code for the CGI (common gateway interface) portion of the code
 
-use std::{net::SocketAddr, panic::AssertUnwindSafe, pin::Pin, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, panic::AssertUnwindSafe, pin::Pin, sync::Arc};
 
 #[path = "../src/hsm2.rs"]
 mod hsm2;
@@ -14,12 +14,15 @@ mod ca;
 #[path = "../src/main_config.rs"]
 mod main_config;
 use cert_common::CertificateSigningMethod;
+use cookie::Cookie;
 use futures::{stream::FuturesUnordered, FutureExt};
+use hyper::{Response, Request};
 use main_config::MainConfiguration;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use std::convert::Infallible;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig, server::WebPkiClientVerifier};
 
-use crate::{ca::CaCertificate, webserver::{ExtraContext, UserCerts}};
+use crate::{ca::CaCertificate, main_config::HttpsSettings, webserver::{ExtraContext, UserCert, UserCerts, WebResponse}};
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -41,7 +44,7 @@ async fn handle<'a>(
 
     let mut post_data: Option<hyper::body::Bytes> = None;
 
-    let reader = BodyHandler { b: body };
+    let reader = webserver::BodyHandler { b: body };
     let body = reader.await;
     if let Some(Ok(b)) = body {
         if let Ok(b) = b.into_data() {
@@ -49,7 +52,7 @@ async fn handle<'a>(
         }
     }
 
-    let post_data = PostContent::new(post_data, rparts.headers.to_owned());
+    let post_data = webserver::PostContent::new(post_data, rparts.headers.to_owned());
 
     let mut get_map = HashMap::new();
     let get_data = rparts.uri.query().unwrap_or("");
@@ -79,13 +82,6 @@ async fn handle<'a>(
     let response = Response::new("dummy");
     let (mut response, _dummybody) = response.into_parts();
 
-    let ourcookie = if cookiemap.contains_key(&context.cookiename) {
-        let value = &cookiemap[&context.cookiename];
-        Some(value.to_owned())
-    } else {
-        None
-    };
-
     let mut user_certs = UserCerts::new();
     if let Some(uc) = ec.user_certs.as_ref() {
         for c in uc {
@@ -104,7 +100,6 @@ async fn handle<'a>(
         }
     }
 
-    let mysql = context.pool.as_ref().map(|f| f.get_conn().ok()).flatten();
     service::log::debug!("URI IS \"{}\" \"{}\"", rparts.method, rparts.uri);
     let domain = hdrs
         .get("host")
@@ -119,34 +114,14 @@ async fn handle<'a>(
         domain.clone()
     };
     let path = rparts.uri.path();
-    let proxy = if let Some(p) = context.proxy.get(&domain2) {
-        p.to_owned()
-    } else {
-        String::new()
-    };
     let fixed_path = path;
 
-    let cookiename = format!("{}{}", proxy, context.cookiename);
+    service::log::info!("Lookup {} on {}", fixed_path, domain2);
 
-    service::log::info!("Lookup {} on {}{}", fixed_path, domain2, proxy);
-
-    let body = if let Some(fun) = context.dirmap.r.get(fixed_path) {
-        fun.call(p).await
-    } else {
+    let body = {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
-        // lookup the fixed path, if it exists use it, otherwise use the path from the static map
-        // This means that the static map is a fallback
-        let fixed_path = if let Some(a) = context.static_map.get(fixed_path) {
-            if std::path::PathBuf::from(context.root.to_owned() + fixed_path).exists() {
-                fixed_path.to_string()
-            } else {
-                a.to_owned()
-            }
-        } else {
-            fixed_path.to_string()
-        };
-        let sys_path = std::path::PathBuf::from(context.root.to_owned() + &fixed_path);
+        let sys_path = std::path::PathBuf::from(&format!("./{}", fixed_path));
         let file = tokio::fs::read(sys_path.clone()).await;
         let body = match file {
             Ok(c) => {
@@ -179,7 +154,7 @@ async fn handle<'a>(
             }
             Err(_e) => {
                 service::log::debug!("File {} missing", sys_path.display());
-                response.status = StatusCode::NOT_FOUND;
+                response.status = hyper::StatusCode::NOT_FOUND;
                 http_body_util::Full::new(hyper::body::Bytes::from("missing"))
             }
         };
@@ -188,40 +163,17 @@ async fn handle<'a>(
 
         WebResponse {
             response,
-            cookie: p.logincookie,
+            cookie: None,
         }
     };
 
-    //this section expires the cookie if it needs to be deleted
-    //and makes the contents empty
-    let sent_cookie = match body.cookie {
-        Some(ref x) => {
-            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&cookiename, x))
-                .http_only(true)
-                .path(proxy)
-                .same_site(cookie::SameSite::Strict);
-            testcookie
-        }
-        None => {
-            let testcookie: cookie::CookieBuilder = cookie::Cookie::build((&cookiename, ""))
-                .http_only(true)
-                .path(proxy)
-                .expires(time::OffsetDateTime::UNIX_EPOCH)
-                .same_site(cookie::SameSite::Strict);
-            testcookie
-        }
-    };
-
-    if let Ok(h) = hyper::http::header::HeaderValue::from_str(&sent_cookie.to_string()) {
-        response.headers.append("Set-Cookie", h);
-    }
     Ok(body.response)
 }
 
 async fn load_certificate(
     https: &ca::HttpsCertificate,
     rcs: Option<RootCertStore>,
-    certs: Vec<CaCertificate>,
+    listcerts: Vec<CaCertificate>,
     require_cert: bool,
 ) -> Result<Arc<tokio_rustls::rustls::ServerConfig>, Box<dyn std::error::Error + 'static>> {
     tokio_rustls::rustls::crypto::ring::default_provider()
@@ -248,7 +200,7 @@ async fn load_certificate(
     };
 
     if rcs.is_none() {
-        for cert in certs {
+        for cert in listcerts {
             let cert_der = cert.contents().unwrap(); //TODO remove this unwrap
             rcs2.add(cert_der.into()).unwrap();
         }
@@ -374,4 +326,14 @@ async fn start_webserver(
 }
 
 #[tokio::test]
-async fn cgi_test1() {}
+async fn cgi_test1() {
+    let port = 3000;
+    let https = HttpsSettings {
+        certificate: main_config::HttpsCertificateLocation::New { path: "./https.cert".into(), ca_name: "TESTING".to_string(), password: "idontcare".to_string() },
+        port,
+        require_certificate: false,
+    };
+    let https_cert = CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256);
+    let mut tasks = tokio::task::JoinSet::new();
+    start_webserver(https, https_cert, port, &mut tasks).await.expect("Failed to start webserver");
+}
