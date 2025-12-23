@@ -64,7 +64,7 @@ static CA_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 /// Generate a test hash for cryptographic signature testing
 ///
-/// Creates random data, hashes it with SHA-256, and formats it for RSA signature testing
+/// Creates random data, hashes it with SHA-256, and formats it for RSA signature testing. The output is in der format.
 fn hash_setup1() -> Vec<u8> {
     use rand::Rng;
     use sha2::Digest;
@@ -84,7 +84,8 @@ fn rsa_sha256() {
     yasna::parse_der(&t, |reader| {
         reader.read_sequence(|r| {
             r.next().read_sequence(|r| {
-                r.next().read_oid()?;
+                let a = r.next().read_oid()?;
+                assert_eq!(cert_common::oid::Oid::from_yasna(a), *cert_common::oid::OID_SHA256);
                 r.next().read_null()
             })?;
             r.next().read_bytes()
