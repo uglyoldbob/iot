@@ -19,6 +19,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y pkgconf libpcsclite-dev
+        cargo install wasm-pack
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
