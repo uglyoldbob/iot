@@ -3,7 +3,7 @@
 
 //! Test code for the CGI (common gateway interface) portion of the code
 
-use std::{collections::HashMap, net::SocketAddr, panic::AssertUnwindSafe, pin::Pin, sync::Arc};
+use std::{collections::HashMap, io::Write, net::SocketAddr, panic::AssertUnwindSafe, pin::Pin, sync::Arc};
 
 #[path = "../src/hsm2.rs"]
 mod hsm2;
@@ -225,6 +225,7 @@ async fn load_certificate(
 /// Start the webserver, this is mostly a duplicate of the https_webserver function from the webserver module
 async fn start_webserver(
     https: crate::main_config::HttpsSettings,
+    ca_cert: CaCertificate,
     https_cert: cert_common::CertificateSigningMethod,
     port: u16,
     tasks: &mut tokio::task::JoinSet<Result<(), webserver::ServiceError>>,
@@ -234,7 +235,7 @@ async fn start_webserver(
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = load_certificate(&https_cert, None, vec![], false).await.map_err(|e| {
+    let cert = load_certificate(&https_cert, None, vec![ca_cert], false).await.map_err(|e| {
         service::log::error!("Error loading https certificate {}", e);
         webserver::ServiceError::Other(e.to_string())
     })?;
@@ -328,12 +329,44 @@ async fn start_webserver(
 #[tokio::test]
 async fn cgi_test1() {
     let port = 3000;
+
+    let (key_pair, pkey) = cert_common::HttpsSigningMethod::RsaSha256.generate_keypair(4096).unwrap();
+    let mut certparams = rcgen::CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
+    certparams.distinguished_name = rcgen::DistinguishedName::new();
+    certparams
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "127.0.0.1");
+    certparams.not_before = time::OffsetDateTime::now_utc();
+    certparams.not_after =
+        certparams.not_before + time::Duration::days(5i64);
+    let basic_constraints = rcgen::BasicConstraints::Constrained(2);
+        certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
+    use crate::hsm2::KeyPairTrait;
+    let cert = certparams.self_signed(&key_pair).unwrap();
+    let cert_der = cert.der().to_owned();
+    
+    let cert = CaCertificate::from_existing_https(
+        cert_common::HttpsSigningMethod::RsaSha256,
+        ca::CaCertificateStorage::Nowhere,
+        &cert_der,
+        ca::Keypair::NotHsm(pkey),
+        "https".to_string(),
+        0,
+    );
+    let password = "whocares";
+    let certpath = std::path::PathBuf::from("./https.p12");
+    let p12 = cert.try_p12(password).expect("Failed to build https p12 cert");
+    {
+        let mut f = std::fs::File::create(&certpath).unwrap();
+        f.write_all(&p12);
+    }
+
     let https = HttpsSettings {
-        certificate: main_config::HttpsCertificateLocation::New { path: "./https.cert".into(), ca_name: "TESTING".to_string(), password: "idontcare".to_string() },
+        certificate: main_config::HttpsCertificateLocation::Existing { path: certpath, password: password.to_string()  },
         port,
         require_certificate: false,
     };
     let https_cert = CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256);
     let mut tasks = tokio::task::JoinSet::new();
-    start_webserver(https, https_cert, port, &mut tasks).await.expect("Failed to start webserver");
+    start_webserver(https, cert, https_cert, port, &mut tasks).await.expect("Failed to start webserver");
 }
