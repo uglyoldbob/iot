@@ -85,7 +85,10 @@ fn rsa_sha256() {
         reader.read_sequence(|r| {
             r.next().read_sequence(|r| {
                 let a = r.next().read_oid()?;
-                assert_eq!(cert_common::oid::Oid::from_yasna(a), *cert_common::oid::OID_SHA256);
+                assert_eq!(
+                    cert_common::oid::Oid::from_yasna(a),
+                    *cert_common::oid::OID_SHA256
+                );
                 r.next().read_null()
             })?;
             r.next().read_bytes()
@@ -1257,7 +1260,7 @@ impl TheServer {
         pki_name: String,
         ca_name: String,
     ) -> Self {
-        let mut construct = std::process::Command::cargo_bin("rust-iot-construct").unwrap();
+        let mut construct = assert_cmd::cargo::cargo_bin_cmd!("rust-iot-construct");
         construct
             .arg(format!("--answers={}", pb.display()))
             .arg(format!("--save-answers={}", pb2.display()))
@@ -1277,8 +1280,8 @@ impl TheServer {
     fn run_with_shutdown(&mut self, sd: bool) {
         service::log::info!("Running the server shutdown {}", sd);
         if sd {
-            let mut run =
-                std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+            let run = assert_cmd::cargo::cargo_bin!("rust-iot");
+            let mut run = std::process::Command::new(run);
             let a = run
                 .arg("--shutdown")
                 .arg(format!("--config={}", self.configpath.path().display()))
@@ -1286,8 +1289,7 @@ impl TheServer {
                 .ok();
             self.process = a;
         } else {
-            let mut run =
-                std::process::Command::cargo_bin("rust-iot").expect("Failed to get rust-iot");
+            let mut run = assert_cmd::cargo::cargo_bin_cmd!("rust-iot");
             run.arg("--test")
                 .arg(format!("--config={}", self.configpath.path().display()))
                 .assert()
@@ -1304,7 +1306,7 @@ impl Drop for TheServer {
             p.kill().unwrap();
         }
 
-        let mut kill = std::process::Command::cargo_bin("rust-iot-destroy").expect("Failed to get");
+        let mut kill = assert_cmd::cargo::cargo_bin_cmd!("rust-iot-destroy");
         kill.arg(format!("--config={}", self.configpath.path().display()))
             .arg("--name=default")
             .arg("--delete")
@@ -1518,7 +1520,7 @@ async fn existing_answers() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("Failed to write answers file");
 
-    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    let mut construct = assert_cmd::cargo::cargo_bin_cmd!("rust-iot-construct");
     construct
         .arg(format!("--answers={}", pb.display()))
         .arg(format!("--save-answers={}", pb2.display()))
@@ -1556,7 +1558,7 @@ async fn existing_config() -> Result<(), Box<dyn std::error::Error>> {
     let mut f = tokio::fs::File::create(&pb3).await.unwrap();
     f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
 
-    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    let mut construct = assert_cmd::cargo::cargo_bin_cmd!("rust-iot-construct");
     construct
         .arg(format!("--answers={}", pb.display()))
         .arg(format!("--save-answers={}", pb2.display()))
@@ -1598,7 +1600,7 @@ async fn existing_password() -> Result<(), Box<dyn std::error::Error>> {
     let mut f = tokio::fs::File::create(&pb3).await.unwrap();
     f.write_all("DOESNT MATTER".as_bytes()).await.unwrap();
 
-    let mut construct = std::process::Command::cargo_bin("rust-iot-construct")?;
+    let mut construct = assert_cmd::cargo::cargo_bin_cmd!("rust-iot-construct");
     let a = construct
         .arg(format!("--answers={}", pb.display()))
         .arg(format!("--save-answers={}", pb2.display()))
