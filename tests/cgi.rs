@@ -22,7 +22,7 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::convert::Infallible;
 use tokio_rustls::rustls::{RootCertStore, ServerConfig, server::WebPkiClientVerifier};
 
-use crate::{ca::CaCertificate, main_config::HttpsSettings, webserver::{ExtraContext, UserCert, UserCerts, WebResponse}};
+use crate::{ca::CaCertificate, main_config::HttpsSettings, webserver::{ExtraContext, UserCert, UserCerts, WebRouter, WebResponse}};
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -33,9 +33,15 @@ mod tpm2;
 #[path = "../src/webserver/mod.rs"]
 mod webserver;
 
+/// The context necessary to respond to a web request.
+struct HttpContext {
+    /// The map that is used to route requests to the proper async function.
+    pub dirmap: WebRouter,
+}
+
 /// Handle a web request
 async fn handle<'a>(
-    context: Arc<usize>,
+    context: Arc<HttpContext>,
     ec: ExtraContext,
     _addr: SocketAddr,
     req: Request<hyper::body::Incoming>,
@@ -229,6 +235,7 @@ async fn start_webserver(
     https_cert: cert_common::CertificateSigningMethod,
     port: u16,
     tasks: &mut tokio::task::JoinSet<Result<(), webserver::ServiceError>>,
+    hc: HttpContext,
 ) -> Result<(), webserver::ServiceError> {
     let tls_cert = https.certificate.to_owned();
     let https_cert = tls_cert.get_usable();
@@ -245,7 +252,7 @@ async fn start_webserver(
         .await
         .map_err(|e| webserver::ServiceError::Other(e.to_string()))?;
 
-    let webservice = webserver::WebService::new(Arc::new(42), true, addr, handle);
+    let webservice = webserver::WebService::new(Arc::new(hc), true, addr, handle);
 
     tasks.spawn(async move {
         service::log::info!("Rust-iot https server is running");
@@ -372,6 +379,31 @@ async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigni
 
 #[tokio::test]
 async fn cgi_test1() {
+    let mut dirmap = WebRouter::new();
+    
+    dirmap.register("rust-iot.cgi", async |con| { 
+        WebResponse {
+            response: Response::new(http_body_util::Full::new(hyper::body::Bytes::new())),
+            cookie: None,
+        }
+     });
+    let hc = HttpContext {
+        dirmap,
+    };
     let (https, cert, https_cert, port, mut tasks) = build_https_server().await;
-    start_webserver(https, cert, https_cert, port, &mut tasks).await.expect("Failed to start webserver");
+    let c = cert.contents().unwrap();
+    let rcert = reqwest::Certificate::from_der(c.as_ref()).unwrap();
+    start_webserver(https, cert, https_cert, port, &mut tasks, hc).await.expect("Failed to start webserver");
+    let data = reqwest::Client::builder()
+        .add_root_certificate(rcert.clone())
+        .build()
+        .unwrap()
+        .get("https://127.0.0.1:3000/rust-iot.cgi")
+        .send()
+        .await
+        .expect("Failed to get main url")
+        .bytes()
+        .await
+        .expect("No content");
+    panic!("{}", data);
 }
