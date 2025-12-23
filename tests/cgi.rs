@@ -326,8 +326,7 @@ async fn start_webserver(
     Ok(())
 }
 
-#[tokio::test]
-async fn cgi_test1() {
+async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigningMethod, u16, tokio::task::JoinSet<Result<(), webserver::ServiceError>>) {
     let port = 3000;
 
     let (key_pair, pkey) = cert_common::HttpsSigningMethod::RsaSha256.generate_keypair(4096).unwrap();
@@ -368,5 +367,11 @@ async fn cgi_test1() {
     };
     let https_cert = CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::RsaSha256);
     let mut tasks = tokio::task::JoinSet::new();
+    (https, cert, https_cert, port, tasks)
+}
+
+#[tokio::test]
+async fn cgi_test1() {
+    let (https, cert, https_cert, port, mut tasks) = build_https_server().await;
     start_webserver(https, cert, https_cert, port, &mut tasks).await.expect("Failed to start webserver");
 }
