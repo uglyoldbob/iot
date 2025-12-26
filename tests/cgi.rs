@@ -550,7 +550,9 @@ async fn cgi_test1() {
     dirmap.direct_register(
         "/rust-iot.cgi",
         CgiCaller {
-            name: "./rust-iot.cgi".to_string(),
+            name: assert_cmd::cargo::cargo_bin!("rust-iot-cgi")
+                .display()
+                .to_string(),
         },
     );
     let hc = HttpContext { dirmap };
