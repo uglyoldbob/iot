@@ -3,7 +3,10 @@
 
 //! Test code for the CGI (common gateway interface) portion of the code
 
-use std::{collections::HashMap, io::Write, net::SocketAddr, panic::AssertUnwindSafe, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap, io::Write, net::SocketAddr, panic::AssertUnwindSafe, pin::Pin,
+    process::Stdio, sync::Arc,
+};
 
 #[path = "../src/hsm2.rs"]
 mod hsm2;
@@ -15,14 +18,20 @@ mod ca;
 mod main_config;
 use cert_common::CertificateSigningMethod;
 use cookie::Cookie;
+use futures::Future;
 use futures::{stream::FuturesUnordered, FutureExt};
-use hyper::{Response, Request};
+use hyper::{Request, Response};
 use main_config::MainConfiguration;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::convert::Infallible;
-use tokio_rustls::rustls::{RootCertStore, ServerConfig, server::WebPkiClientVerifier};
+use tokio::io::AsyncReadExt;
+use tokio_rustls::rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 
-use crate::{ca::CaCertificate, main_config::HttpsSettings, webserver::{ExtraContext, UserCert, UserCerts, WebRouter, WebResponse}};
+use crate::{
+    ca::CaCertificate,
+    main_config::HttpsSettings,
+    webserver::{ExtraContext, UserCert, UserCerts, WebHandlerTrait, WebResponse, WebRouter},
+};
 
 #[path = "../src/utility.rs"]
 mod utility;
@@ -36,7 +45,111 @@ mod webserver;
 /// The context necessary to respond to a web request.
 struct HttpContext {
     /// The map that is used to route requests to the proper async function.
-    pub dirmap: WebRouter<usize>,
+    pub dirmap: WebRouter<WebRequest>,
+}
+
+struct WebRequest {
+    data: hyper::body::Bytes,
+}
+
+struct CgiCaller {
+    name: String,
+}
+
+impl CgiCaller {
+    fn get_cmd(&self, req: WebRequest) -> tokio::process::Command {
+        let mut p = tokio::process::Command::new(&self.name);
+        p.stderr(Stdio::piped());
+        p.stdin(Stdio::piped());
+        p.stdout(Stdio::piped());
+        p.env("SERVER_NAME", "127.0.0.1")
+            .env("GATEWAY_INTERFACE", "CGI/1.1")
+            .env("SERVER_PROTOCOL", "HTTP/1.1")
+            .env("SERVER_PORT", "3000")
+            .env("REQUEST_METHOD", "GET")
+            .env("SCRIPT_NAME", &self.name)
+            .env("QUERY_STRING", &self.name)
+            .env("REMOTE_ADDR", "11.11.11.11")
+            .env("AUTH_TYPE", "")
+            .env("REMOTE_USER", "")
+            .env("CONTENT_TYPE", "text")
+            .env("HTTP_CONTENT_ENCODING", "unknown")
+            .env("CONTENT_LENGTH", "0");
+        p
+    }
+}
+
+impl WebHandlerTrait<WebRequest> for CgiCaller {
+    fn call(&self, req: WebRequest) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>> {
+        let data = req.data.clone();
+        let mut cmd = self.get_cmd(req);
+
+        Box::pin(async move {
+            match cmd.spawn() {
+                Ok(mut c) => {
+                    let Some(mut stdin) = c.stdin.as_mut() else {
+                        return WebResponse {
+                            response: Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from("no stdin"),
+                            )),
+                            cookie: None,
+                        };
+                    };
+                    let Some(mut stdout) = c.stdout.as_mut() else {
+                        return WebResponse {
+                            response: Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from("no stdout"),
+                            )),
+                            cookie: None,
+                        };
+                    };
+                    let Some(mut stderr) = c.stderr.as_mut() else {
+                        return WebResponse {
+                            response: Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from("no stderr"),
+                            )),
+                            cookie: None,
+                        };
+                    };
+                    let mut req_body =
+                        tokio_util::io::StreamReader::new(tokio_stream::iter(vec![Ok::<
+                            hyper::body::Bytes,
+                            std::io::Error,
+                        >(
+                            data
+                        )]));
+
+                    let mut err_output = vec![];
+                    let mut std_output = vec![];
+                    let read_stderr = async { stderr.read_to_end(&mut err_output).await };
+                    let read_stdout = async { stdout.read_to_end(&mut std_output).await };
+                    let write_stdin = async { tokio::io::copy(&mut req_body, &mut stdin).await };
+
+                    if let Ok((_, _, _)) = tokio::try_join!(write_stdin, read_stderr, read_stdout) {
+                        return WebResponse {
+                            response: Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from(std_output),
+                            )),
+                            cookie: None,
+                        };
+                    } else {
+                        return WebResponse {
+                            response: Response::new(http_body_util::Full::new(
+                                hyper::body::Bytes::from("failed to read cgi output"),
+                            )),
+                            cookie: None,
+                        };
+                    }
+                }
+                Err(e) => WebResponse {
+                    response: Response::new(http_body_util::Full::new(hyper::body::Bytes::from(
+                        format!("unknown error 1: {}", e),
+                    ))),
+                    cookie: None,
+                },
+            }
+        })
+    }
 }
 
 /// Handle a web request
@@ -57,6 +170,7 @@ async fn handle<'a>(
             post_data = Some(b);
         }
     }
+    let webrequest_data = post_data.clone().unwrap_or_default();
 
     let post_data = webserver::PostContent::new(post_data, rparts.headers.to_owned());
 
@@ -125,7 +239,10 @@ async fn handle<'a>(
     service::log::info!("Lookup {} on {}", fixed_path, domain2);
 
     let body = if let Some(fun) = context.dirmap.r.get(fixed_path) {
-        fun.call(42).await
+        fun.call(WebRequest {
+            data: webrequest_data,
+        })
+        .await
     } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
@@ -244,10 +361,12 @@ async fn start_webserver(
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let cert = load_certificate(&https_cert, None, vec![ca_cert], false).await.map_err(|e| {
-        service::log::error!("Error loading https certificate {}", e);
-        webserver::ServiceError::Other(e.to_string())
-    })?;
+    let cert = load_certificate(&https_cert, None, vec![ca_cert], false)
+        .await
+        .map_err(|e| {
+            service::log::error!("Error loading https certificate {}", e);
+            webserver::ServiceError::Other(e.to_string())
+        })?;
 
     let acc: tokio_rustls::TlsAcceptor = cert.into();
     let listener = tokio::net::TcpListener::bind(addr)
@@ -335,24 +454,31 @@ async fn start_webserver(
     Ok(())
 }
 
-async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigningMethod, u16, tokio::task::JoinSet<Result<(), webserver::ServiceError>>) {
+async fn build_https_server() -> (
+    HttpsSettings,
+    CaCertificate,
+    CertificateSigningMethod,
+    u16,
+    tokio::task::JoinSet<Result<(), webserver::ServiceError>>,
+) {
     let port = 3000;
 
-    let (key_pair, pkey) = cert_common::HttpsSigningMethod::RsaSha256.generate_keypair(4096).unwrap();
+    let (key_pair, pkey) = cert_common::HttpsSigningMethod::RsaSha256
+        .generate_keypair(4096)
+        .unwrap();
     let mut certparams = rcgen::CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
     certparams.distinguished_name = rcgen::DistinguishedName::new();
     certparams
         .distinguished_name
         .push(rcgen::DnType::CommonName, "127.0.0.1");
     certparams.not_before = time::OffsetDateTime::now_utc();
-    certparams.not_after =
-        certparams.not_before + time::Duration::days(5i64);
+    certparams.not_after = certparams.not_before + time::Duration::days(5i64);
     let basic_constraints = rcgen::BasicConstraints::Constrained(2);
-        certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
+    certparams.is_ca = rcgen::IsCa::Ca(basic_constraints);
     use crate::hsm2::KeyPairTrait;
     let cert = certparams.self_signed(&key_pair).unwrap();
     let cert_der = cert.der().to_owned();
-    
+
     let cert = CaCertificate::from_existing_https(
         cert_common::HttpsSigningMethod::RsaSha256,
         ca::CaCertificateStorage::Nowhere,
@@ -363,14 +489,19 @@ async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigni
     );
     let password = "whocares";
     let certpath = std::path::PathBuf::from("./https.p12");
-    let p12 = cert.try_p12(password).expect("Failed to build https p12 cert");
+    let p12 = cert
+        .try_p12(password)
+        .expect("Failed to build https p12 cert");
     {
         let mut f = std::fs::File::create(&certpath).unwrap();
         f.write_all(&p12);
     }
 
     let https = HttpsSettings {
-        certificate: main_config::HttpsCertificateLocation::Existing { path: certpath, password: password.to_string()  },
+        certificate: main_config::HttpsCertificateLocation::Existing {
+            path: certpath,
+            password: password.to_string(),
+        },
         port,
         require_certificate: false,
     };
@@ -382,20 +513,20 @@ async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigni
 #[tokio::test]
 async fn cgi_test1() {
     let mut dirmap = WebRouter::new();
-    
-    dirmap.register("/rust-iot.cgi", async |con| { 
-        WebResponse {
-            response: Response::new(http_body_util::Full::new(hyper::body::Bytes::new())),
-            cookie: None,
-        }
-     });
-    let hc = HttpContext {
-        dirmap,
-    };
+
+    dirmap.direct_register(
+        "/rust-iot.cgi",
+        CgiCaller {
+            name: "./rust-iot.cgi".to_string(),
+        },
+    );
+    let hc = HttpContext { dirmap };
     let (https, cert, https_cert, port, mut tasks) = build_https_server().await;
     let c = cert.contents().unwrap();
     let rcert = reqwest::Certificate::from_der(c.as_ref()).unwrap();
-    start_webserver(https, cert, https_cert, port, &mut tasks, hc).await.expect("Failed to start webserver");
+    start_webserver(https, cert, https_cert, port, &mut tasks, hc)
+        .await
+        .expect("Failed to start webserver");
     let data = reqwest::Client::builder()
         .add_root_certificate(rcert.clone())
         .build()

@@ -36,6 +36,15 @@ impl<T> WebRouter<T> {
     pub fn new() -> Self {
         WebRouter { r: HashMap::new() }
     }
+
+    /// Register an implementor of the WebHandlerTrait to handle the given path
+    /// # Arguments
+    /// * path - The exact path to handle
+    /// * f - The object implementing WebHandlerTrait that handles the specified path
+    pub fn direct_register<F: WebHandlerTrait<T>>(&mut self, path: &str, f: F) {
+        self.r.insert(path.to_string(), Box::new((f)));
+    }
+
     /// Register an async function to handle the given path
     /// # Arguments
     /// * path - The exact path to handle
@@ -56,8 +65,7 @@ type HashMapCallback<T> = Box<dyn WebHandlerTrait<T>>;
 /// Used to stored async functions in a hashmap.
 pub trait WebHandlerTrait<T>: Send + Sync + 'static {
     /// Call the contained async function
-    fn call(&self, req: T)
-        -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>>;
+    fn call(&self, req: T) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>>;
 }
 
 impl<T, F: Send + Sync + 'static, R> WebHandlerTrait<T> for F
@@ -65,10 +73,7 @@ where
     F: Fn(T) -> R + Send + Sync,
     R: Future<Output = WebResponse> + Send + Sync + 'static,
 {
-    fn call(
-        &self,
-        req: T,
-    ) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>> {
+    fn call(&self, req: T) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>> {
         Box::pin(self(req))
     }
 }
