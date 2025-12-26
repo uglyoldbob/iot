@@ -36,7 +36,7 @@ mod webserver;
 /// The context necessary to respond to a web request.
 struct HttpContext {
     /// The map that is used to route requests to the proper async function.
-    pub dirmap: WebRouter,
+    pub dirmap: WebRouter<usize>,
 }
 
 /// Handle a web request
@@ -124,7 +124,9 @@ async fn handle<'a>(
 
     service::log::info!("Lookup {} on {}", fixed_path, domain2);
 
-    let body = {
+    let body = if let Some(fun) = context.dirmap.r.get(fixed_path) {
+        fun.call(42).await
+    } else {
         let response = hyper::Response::new("dummy");
         let (mut response, _) = response.into_parts();
         let sys_path = std::path::PathBuf::from(&format!("./{}", fixed_path));
@@ -381,7 +383,7 @@ async fn build_https_server() -> (HttpsSettings, CaCertificate, CertificateSigni
 async fn cgi_test1() {
     let mut dirmap = WebRouter::new();
     
-    dirmap.register("rust-iot.cgi", async |con| { 
+    dirmap.register("/rust-iot.cgi", async |con| { 
         WebResponse {
             response: Response::new(http_body_util::Full::new(hyper::body::Bytes::new())),
             cookie: None,
@@ -405,5 +407,6 @@ async fn cgi_test1() {
         .bytes()
         .await
         .expect("No content");
-    panic!("{}", data);
+    println!("Webserver is ready");
+    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
 }

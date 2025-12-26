@@ -2733,7 +2733,7 @@ pub fn ca_register_files(
 }
 
 /// Register a test handler that can terminate the server early
-pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter) {
+pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter<WebPageContext>) {
     match pki {
         PkiInstance::Pki(pki) => {
             for (name, ca) in &pki.all_ca {
@@ -2749,8 +2749,8 @@ pub fn ca_register_test(pki: &PkiInstance, router: &mut WebRouter) {
 }
 
 /// Register handlers into the specified webrouter.
-pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter) {
-    let register = |router: &mut WebRouter, name: &str, ca: &Ca| {
+pub fn ca_register(pki: &PkiInstance, router: &mut WebRouter<WebPageContext>) {
+    let register = |router: &mut WebRouter<WebPageContext>, name: &str, ca: &Ca| {
         router.register(&format!("{}/ca", name), ca_main_page);
         router.register(&format!("{}/ca/", name), ca_main_page2);
         router.register(&format!("{}/ca/get_ca.rs", name), ca_get_cert);

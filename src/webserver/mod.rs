@@ -26,12 +26,12 @@ pub struct WebResponse {
 }
 
 /// Routes web requests to an async function
-pub struct WebRouter {
+pub struct WebRouter<T> {
     /// The map used by the router
-    r: HashMap<String, HashMapCallback>,
+    pub r: HashMap<String, HashMapCallback<T>>,
 }
 
-impl WebRouter {
+impl<T> WebRouter<T> {
     /// Create a blank web router.
     pub fn new() -> Self {
         WebRouter { r: HashMap::new() }
@@ -42,32 +42,32 @@ impl WebRouter {
     /// * f - The async function that handles the specified path
     pub fn register<F, R>(&mut self, path: &str, f: F)
     where
-        F: Fn(WebPageContext) -> R + Send + Sync + 'static,
+        F: Fn(T) -> R + Send + Sync + 'static,
         R: Future<Output = WebResponse> + Send + Sync + 'static,
     {
-        let h = move |a: WebPageContext| Box::pin(f(a));
+        let h = move |a: T| Box::pin(f(a));
         self.r.insert(path.to_string(), Box::new(h));
     }
 }
 
 /// The type to store in a hasmap when asyn fn are needed in a hashmap
-type HashMapCallback = Box<dyn WebHandlerTrait>;
+type HashMapCallback<T> = Box<dyn WebHandlerTrait<T>>;
 
 /// Used to stored async functions in a hashmap.
-trait WebHandlerTrait: Send + Sync + 'static {
+pub trait WebHandlerTrait<T>: Send + Sync + 'static {
     /// Call the contained async function
-    fn call(&self, req: WebPageContext)
+    fn call(&self, req: T)
         -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>>;
 }
 
-impl<F: Send + Sync + 'static, R> WebHandlerTrait for F
+impl<T, F: Send + Sync + 'static, R> WebHandlerTrait<T> for F
 where
-    F: Fn(WebPageContext) -> R + Send + Sync,
+    F: Fn(T) -> R + Send + Sync,
     R: Future<Output = WebResponse> + Send + Sync + 'static,
 {
     fn call(
         &self,
-        req: WebPageContext,
+        req: T,
     ) -> Pin<Box<dyn Future<Output = WebResponse> + Send + Sync>> {
         Box::pin(self(req))
     }
@@ -80,7 +80,7 @@ pub struct HttpContext {
     /// The map for static content, mapping urls to static content files
     pub static_map: HashMap<String, String>,
     /// The map that is used to route requests to the proper async function.
-    pub dirmap: WebRouter,
+    pub dirmap: WebRouter<WebPageContext>,
     /// The root path for static files
     pub root: String,
     /// The name of the login cookie
