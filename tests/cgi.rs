@@ -24,7 +24,7 @@ use hyper::{Request, Response};
 use main_config::MainConfiguration;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::convert::Infallible;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio_rustls::rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 
 use crate::{
@@ -95,7 +95,7 @@ impl WebHandlerTrait<WebRequest> for CgiCaller {
                             cookie: None,
                         };
                     };
-                    let Some(mut stdout) = c.stdout.as_mut() else {
+                    let Some(stdout) = c.stdout.as_mut() else {
                         return WebResponse {
                             response: Response::new(http_body_util::Full::new(
                                 hyper::body::Bytes::from("no stdout"),
@@ -119,16 +119,49 @@ impl WebHandlerTrait<WebRequest> for CgiCaller {
                             data
                         )]));
 
+                    let mut stdout = BufReader::new(stdout);
                     let mut err_output = vec![];
-                    let mut std_output = vec![];
                     let read_stderr = async { stderr.read_to_end(&mut err_output).await };
-                    let read_stdout = async { stdout.read_to_end(&mut std_output).await };
+                    let read_stdout = async {
+                        use std::str::FromStr;
+                        use tokio::io::AsyncBufReadExt;
+                        let mut response = Response::builder();
+                        let mut data = vec![];
+                        let mut line = String::new();
+                        while stdout.read_line(&mut line).await.unwrap_or(0) > 0 {
+                            line = line
+                                .trim_end_matches("\n")
+                                .trim_end_matches("\r")
+                                .to_owned();
+
+                            let l: Vec<&str> = line.splitn(2, ": ").collect();
+                            if l.len() < 2 {
+                                break;
+                            }
+                            if l[0] == "Status" {
+                                response = response.status(
+                                    hyper::StatusCode::from_u16(
+                                        u16::from_str(l[1].split(" ").next().unwrap_or("500"))
+                                            .unwrap_or(500),
+                                    )
+                                    .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR),
+                                );
+                            } else {
+                                response = response.header(l[0], l[1]);
+                            }
+                            line = String::new();
+                        }
+                        stdout.read_to_end(&mut data).await?;
+                        response.body(data).map_err(|a| {
+                            std::io::Error::new(std::io::ErrorKind::Other, a.to_string())
+                        })
+                    };
                     let write_stdin = async { tokio::io::copy(&mut req_body, &mut stdin).await };
 
-                    if let Ok((_, _, _)) = tokio::try_join!(write_stdin, read_stderr, read_stdout) {
+                    if let Ok((_, _, a)) = tokio::try_join!(write_stdin, read_stderr, read_stdout) {
                         return WebResponse {
                             response: Response::new(http_body_util::Full::new(
-                                hyper::body::Bytes::from(std_output),
+                                hyper::body::Bytes::from(a.body().to_vec()),
                             )),
                             cookie: None,
                         };
