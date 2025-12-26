@@ -11,7 +11,7 @@ use cert_common::{
 };
 use cryptoki::object::Attribute;
 use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey};
-use rustls_pki_types::{PrivatePkcs8KeyDer, pem::PemObject};
+use rustls_pki_types::{pem::PemObject, PrivatePkcs8KeyDer};
 use zeroize::Zeroizing;
 
 /// The trait that security module implements
@@ -114,7 +114,8 @@ pub struct SsmEcdsaSha256Keypair {
 
 impl KeyPairTrait for SsmEcdsaSha256Keypair {
     fn keypair(&self) -> rcgen::KeyPair {
-        let alg = rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components()).unwrap();
+        let alg = rcgen::SignatureAlgorithm::from_oid(&OID_ECDSA_P256_SHA256_SIGNING.components())
+            .unwrap();
         let p = rustls_pki_types::PrivatePkcs8KeyDer::from(self.cert.clone());
         rcgen::KeyPair::from_pkcs8_der_and_sign_algo(&p, alg).unwrap()
     }
@@ -716,8 +717,11 @@ impl Hsm {
             .unwrap();
         match cryptoki::context::Pkcs11::new(path) {
             Ok(p) => {
-                p.initialize(cryptoki::context::CInitializeArgs::OsThreads)
-                    .map_err(|_| ())?;
+                p.initialize(cryptoki::context::CInitializeArgs::new(
+                    cryptoki::context::CInitializeFlags::OS_LOCKING_OK
+                        | cryptoki::context::CInitializeFlags::LIBRARY_CANT_CREATE_OS_THREADS,
+                ))
+                .map_err(|_| ())?;
                 Ok(())
             }
             Err(_) => Err(()),
@@ -735,8 +739,11 @@ impl Hsm {
             .unwrap();
         let pkcs11 = cryptoki::context::Pkcs11::new(path).ok()?;
         pkcs11
-            .initialize(cryptoki::context::CInitializeArgs::OsThreads)
-            .unwrap();
+            .initialize(cryptoki::context::CInitializeArgs::new(
+                cryptoki::context::CInitializeFlags::OS_LOCKING_OK
+                    | cryptoki::context::CInitializeFlags::LIBRARY_CANT_CREATE_OS_THREADS,
+            ))
+            .expect("Failed to initialize pkcs11");
         let so_slot = pkcs11.get_slots_with_token().unwrap().remove(0);
         let so_pin = cryptoki::types::AuthPin::new(admin_pin.as_str().into());
         pkcs11.init_token(so_slot, &so_pin, "InitialToken").unwrap();
@@ -747,9 +754,8 @@ impl Hsm {
             session
                 .login(cryptoki::session::UserType::So, Some(&so_pin))
                 .unwrap();
-            session
-                .init_pin(&cryptoki::types::AuthPin::new(user_pin.to_string()))
-                .unwrap();
+            let p: cryptoki::types::AuthPin = user_pin.as_str().into();
+            session.init_pin(&p).unwrap();
         }
 
         let session = pkcs11
@@ -757,7 +763,7 @@ impl Hsm {
             .map(|s| {
                 s.login(
                     cryptoki::session::UserType::User,
-                    Some(&cryptoki::types::AuthPin::new(user_pin.as_str().into())),
+                    Some(&user_pin.as_str().into()),
                 )
                 .unwrap();
                 s
@@ -782,7 +788,10 @@ impl Hsm {
             .unwrap();
         let pkcs11 = cryptoki::context::Pkcs11::new(path).ok()?;
         pkcs11
-            .initialize(cryptoki::context::CInitializeArgs::OsThreads)
+            .initialize(cryptoki::context::CInitializeArgs::new(
+                cryptoki::context::CInitializeFlags::OS_LOCKING_OK
+                    | cryptoki::context::CInitializeFlags::LIBRARY_CANT_CREATE_OS_THREADS,
+            ))
             .unwrap();
         let slots = pkcs11.get_slots_with_token().unwrap();
         if slots.len() < slot_num {
