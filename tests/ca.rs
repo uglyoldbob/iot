@@ -142,8 +142,6 @@ fn from_certificate_type_answers() {
 /// Test HTTPS certificate signing methods (RSA-SHA256 and ECDSA-SHA256)
 #[test]
 fn https_signing() {
-    let s = service::Service::new("Testing".to_string());
-    s.new_log(LogLevel::Trace);
     let ai = x509_cert::spki::AlgorithmIdentifier::<()> {
         oid: x509_cert::spki::ObjectIdentifier::new("2.16.840.1.101.3.4.1.42").unwrap(),
         parameters: None,
@@ -1427,8 +1425,6 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
     ];
 
-    simple_logger::SimpleLogger::new().init();
-    service::log::set_max_level(service::LogLevel::Debug.level_filter());
 
     run_ca(methods, |config| async { config }).await.unwrap();
 

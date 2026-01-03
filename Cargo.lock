@@ -5190,6 +5190,8 @@ dependencies = [
  "tls-listener",
  "tokio",
  "tokio-rustls 0.26.4",
+ "tokio-stream",
+ "tokio-util",
  "toml",
  "tss-esapi",
  "untrusted 0.9.0",
