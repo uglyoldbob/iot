@@ -24,20 +24,28 @@ jobs:
         submodules: recursive
     - name: Setup jcardsim
       run: |
+        export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
+        export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
         cd jcardsim
         mvn initialize
         mvn clean install
     - name: Setup virtualsmartcard
       run: |
+        export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
+        export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
         cd vsmartcard/virtualsmartcard
         autoreconf -vis
         ./configure
         sudo make install
     - name: Setup pivapplet
       run: |
+        export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
+        export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
         javac -classpath jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar PivApplet/src/net/cooperi/pivapplet/*.java
     - name: Build pivapplet
       run: |
+        export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
+        export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
         cd PivApplet
         ant
     - name: Install system dependencies2
