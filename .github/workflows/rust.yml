@@ -22,6 +22,12 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
+    - name: Set up Java 8
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '8'
+        cache: 'maven'
     - name: Setup jcardsim
       run: |
         export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
