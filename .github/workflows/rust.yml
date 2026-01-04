@@ -54,6 +54,9 @@ jobs:
         export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
         cd PivApplet
         ant
+    - name: Restart pcscd
+      run: |
+        .github/restart-pcscd.sh
     - name: Install system dependencies2
       run: |
         cargo install wasm-pack

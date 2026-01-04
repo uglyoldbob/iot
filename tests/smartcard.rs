@@ -20,6 +20,7 @@ mod utility;
 #[path = "../src/tpm2.rs"]
 mod tpm2;
 
+#[cfg(feature = "smartcard")]
 async fn start_smartcard_sim() -> Result<std::process::Child, Box<dyn std::error::Error>> {
     let a = tokio::task::spawn_blocking(|| {
         let mut p = std::process::Command::new("./run-piv-pcsc-sim.sh");
@@ -43,6 +44,7 @@ async fn start_smartcard_sim() -> Result<std::process::Child, Box<dyn std::error
     Ok(a)
 }
 
+#[cfg(feature = "smartcard")]
 #[tokio::test]
 async fn test1() {
     let s = service::Service::new("Smartcard Testing".to_string());
@@ -56,3 +58,5 @@ async fn test1() {
             .expect("Failed to generate keypair for smartcard");
     simulator.kill().expect("Failed to kill simulator");
 }
+
+
