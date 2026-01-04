@@ -18,7 +18,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc
+        sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc pcscd
     - uses: actions/checkout@v4
       with:
         submodules: recursive
