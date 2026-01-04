@@ -20,13 +20,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc
     - name: Setup jcardsim
-      working-directory: jcardsim
       run: |
+        cd jcardsim
         mvn initialize
         mvn clean install
     - name: Setup virtualsmartcard
-      working-directory: vsmartcard/virtualsmartcard
       run: |
+        cd vsmartcard/virtualsmartcard
         autoreconf -vis
         ./configure
         sudo make install
@@ -34,8 +34,8 @@ jobs:
       run: |
         javac -classpath jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar PivApplet/src/net/cooperi/pivapplet/*.java
     - name: Build pivapplet
-      working-directory: PivApplet
       run: |
+        cd PivApplet
         ant
     - name: Install system dependencies2
       run: |
