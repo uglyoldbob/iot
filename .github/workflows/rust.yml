@@ -19,6 +19,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc
+    - uses: actions/checkout@v4
     - name: Setup jcardsim
       run: |
         cd jcardsim
@@ -40,7 +41,6 @@ jobs:
     - name: Install system dependencies2
       run: |
         cargo install wasm-pack
-    - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
     - name: Run tests
