@@ -18,8 +18,27 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2
+        sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc
         cargo install wasm-pack
+    - name: Setup jcardsim
+      working-directory: ./jcardsim
+      run: |
+        mvn initialize
+        mvn clean install
+    - name: Setup virtualsmartcard
+      working-directory: ./vsmartcard/virtualsmartcard
+      run: |
+        autoreconf -vis
+        ./configure
+        sudo make install
+    - name: Setup pivapplet
+      working-directory: ./
+      run: |
+        javac -classpath jcardsim/target/jcardsim-3.0.5-SNAPSHOT.jar PivApplet/src/net/cooperi/pivapplet/*.java
+    - name: Build pivapplet
+      working-directory: ./PivApplet
+      run: |
+        ant
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
