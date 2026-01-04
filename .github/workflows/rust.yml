@@ -18,7 +18,7 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y pkgconf libpcsclite-dev
+        sudo apt-get install -y pkgconf libpcsclite-dev softhms2 libsofthsm2
         cargo install wasm-pack
     - uses: actions/checkout@v4
     - name: Build
