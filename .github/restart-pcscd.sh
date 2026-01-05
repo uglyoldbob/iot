@@ -7,6 +7,8 @@
 
 # register cleanup handler
 function pcscd_cleanup {
+	echo "Process terminated: stopping java"
+	sudo pkill java
 	echo "Process terminated: resetting pcscd"
 	sudo pkill pcscd
 	if which systemctl && systemctl is-system-running; then
