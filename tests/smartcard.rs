@@ -56,6 +56,8 @@ async fn test1() {
         card::KeyPair::generate_with_smartcard_async(b"123456".to_vec(), "test card", false)
             .await
             .expect("Failed to generate keypair for smartcard");
+    eprintln!("About to kill smartcard simulator");
+    println!("About to kill smartcard simulator");
     simulator.kill().expect("Failed to kill simulator");
 }
 
