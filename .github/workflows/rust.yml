@@ -29,12 +29,16 @@ jobs:
         java-version: '8'
         cache: 'maven'
     - name: Setup jcardsim
-      run: |
-        export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
-        export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
-        cd jcardsim
-        mvn initialize
-        mvn clean install
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 5
+        max_attempts: 3
+        command: |
+          export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
+          export JC_HOME=$PWD/javacard-sdk/jc305u3_kit
+          cd jcardsim
+          mvn initialize
+          mvn clean install
     - name: Setup virtualsmartcard
       run: |
         export JC_CLASSIC_HOME=$PWD/javacard-sdk/jc305u3_kit
@@ -60,4 +64,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: |
+        export PCSCD_DEBUG="-d -a"
+        . .github/restart-pcscd.sh
+        cargo test --verbose
