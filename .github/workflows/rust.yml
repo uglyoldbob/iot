@@ -20,6 +20,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc pcscd pcsc-tools libpcsclite-dev
         sudo apt-get install libtool libltdl-dev autoconf automake autoconf-archive libjson-c-dev libtpms0 libtss2-tcti-libtpms0t64
+        sudo apt-get install libcurl4t64 libcurl3t64-gnutls libcurl4-openssl-dev
     - uses: actions/checkout@v4
       with:
         submodules: recursive
