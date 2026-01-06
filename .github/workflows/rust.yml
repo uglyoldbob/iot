@@ -77,7 +77,7 @@ jobs:
         export PCSCD_DEBUG="-d -a"
         . .github/restart-pcscd.sh
         cargo clean
-        cargo llvm-cov --all-features --codecov --output-path codecov.json
+        cargo llvm-cov --codecov --output-path codecov.json
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
       with:
