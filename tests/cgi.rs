@@ -574,5 +574,4 @@ async fn cgi_test1() {
         .await
         .expect("No content");
     println!("Webserver is ready");
-    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
 }
