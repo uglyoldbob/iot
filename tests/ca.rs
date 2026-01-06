@@ -1202,7 +1202,7 @@ fn build_answers(
     *dbname = base.join("test-db1.sqlite");
     let ca_a = StandaloneCaConfigurationAnswers {
         #[cfg(feature = "tpm2")]
-        tpm2_required: true,
+        tpm2_required: false,
         client_certs: None,
         database: None,
         debug_level: LogLevel::Debug,
