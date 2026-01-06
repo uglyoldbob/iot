@@ -19,6 +19,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y pkgconf libpcsclite-dev softhsm2 libsofthsm2 help2man openjdk-8-jdk maven ant opensc pcscd pcsc-tools libpcsclite-dev
+        sudo apt-get install libtool libltdl-dev
     - uses: actions/checkout@v4
       with:
         submodules: recursive
