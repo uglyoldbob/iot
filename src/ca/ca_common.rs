@@ -334,7 +334,7 @@ impl StandaloneCaConfiguration {
             debug_level: self.debug_level.clone(),
             security_config: Some(self.security_module.clone()),
             #[cfg(feature = "tpm2")]
-            tpm2_required: Some(self.tpm2_required),
+            tpm2_required: self.tpm2_required,
         }
     }
 }
@@ -716,7 +716,7 @@ impl LocalCaConfiguration {
             debug_level: None,
             security_config: None,
             #[cfg(feature = "tpm2")]
-            tpm2_required: None,
+            tpm2_required: false,
         }
     }
 }
@@ -766,7 +766,7 @@ pub struct CaConfiguration {
     pub debug_level: Option<service::LogLevel>,
     /// Is tpm2 hardware required to setup the pki?
     #[cfg(feature = "tpm2")]
-    pub tpm2_required: Option<bool>,
+    pub tpm2_required: bool,
     /// The security module configuration
     security_config: Option<SecurityModuleConfiguration>,
 }
@@ -3773,7 +3773,7 @@ impl Ca {
             debug_level: settings.debug_level.clone(),
             security_configuration: settings.security_config.clone(),
             #[cfg(feature = "tpm2")]
-            tpm2_required: settings.tpm2_required.unwrap(),
+            tpm2_required: settings.tpm2_required,
         })
     }
 
@@ -5018,7 +5018,7 @@ impl Ca {
             debug_level: settings.debug_level.clone(),
             security_configuration: settings.security_config.clone(),
             #[cfg(feature = "tpm2")]
-            tpm2_required: settings.tpm2_required.unwrap(),
+            tpm2_required: settings.tpm2_required,
         })
     }
 

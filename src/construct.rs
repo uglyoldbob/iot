@@ -352,7 +352,7 @@ library.reset_on_fork = false
 
                 let p = config_path.join(format!("{}-password.bin", name));
                 if p.exists() {
-                    panic!("Password file aready exists");
+                    panic!("Password file already exists");
                 }
                 let mut f2 = tokio::fs::File::create(&p)
                     .await
@@ -380,7 +380,7 @@ library.reset_on_fork = false
                     panic!("Credentials file already exists");
                 }
                 let mut fpw = tokio::fs::File::create(&p).await.unwrap();
-                fpw.write_all(&pw)
+                fpw.write_all(pw.as_bytes())
                     .await
                     .expect("Failed to write credentials");
                 if let Some(options) = &options {

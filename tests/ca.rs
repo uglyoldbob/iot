@@ -1201,6 +1201,8 @@ fn build_answers(
     let pw2 = Password2::new(utility::generate_password(32));
     *dbname = base.join("test-db1.sqlite");
     let ca_a = StandaloneCaConfigurationAnswers {
+        #[cfg(feature = "tpm2")]
+        tpm2_required: true,
         client_certs: None,
         database: None,
         debug_level: LogLevel::Debug,

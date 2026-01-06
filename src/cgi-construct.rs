@@ -1237,7 +1237,7 @@ async fn main() {
                         }
                         let (pw, config_encrypted) =
                             main_config::do_encryption_without_tpm2(config_data, "default").await;
-                        (pw, config_encrypted)
+                        (pw.as_bytes().to_vec(), config_encrypted)
                     };
 
                     (pw, econfig)
@@ -1246,7 +1246,7 @@ async fn main() {
                 let (pw, econfig) = {
                     let (pw, config_encrypted) =
                         main_config::do_encryption_without_tpm2(config_data, "default").await;
-                    (pw, config_encrypted)
+                    (pw.as_bytes().to_vec(), config_encrypted)
                 };
                 use std::io::Write;
                 let mut zip_contents2 = Vec::new();
@@ -1258,7 +1258,7 @@ async fn main() {
                         .compression_method(zip::CompressionMethod::Stored)
                         .unix_permissions(0o600),
                 );
-                zip.write_all(pw.as_bytes());
+                zip.write_all(&pw);
                 zip.start_file(
                     "config.bin",
                     zip::write::SimpleFileOptions::default()
