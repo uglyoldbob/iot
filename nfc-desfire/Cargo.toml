@@ -1,0 +1,52 @@
+[package]
+name = "egui-android-demo"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type=["lib", "cdylib"]
+
+[profile.release]
+strip = true  # Automatically strip symbols from the binary.
+opt-level = "z"  # Optimize for size.
+lto = true
+codegen-units = 1
+
+[dependencies]
+log = "0.4"
+egui_demo_lib = "0.33"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.eframe]
+version = "0.33"
+default-features = true
+
+[target.'cfg(target_os = "android")'.dependencies.android_logger]
+version = "0.15"
+default-features = false
+
+[target.'cfg(target_os = "android")'.dependencies.eframe]
+version = "0.33"
+default-features = false
+features = [
+    "wgpu",
+    "android-native-activity",
+    "default_fonts",
+]
+
+[target.'cfg(target_os = "android")'.dependencies.wgpu]
+version = "27"
+default-features = false
+features = [
+    "gles",
+]
+
+# Used to get same winit used by eframe.
+[target.'cfg(target_os = "android")'.dependencies.egui-winit]
+version = "0.33"
+default-features = false
+features = [
+    "clipboard",
+    "links",
+]
