@@ -7,6 +7,8 @@ Optimized for size the resulting `egui-android-demo.aab` is 2.4M.
 
 Built using [`xbuild`](https://github.com/rust-mobile/xbuild)
 
+Use the fork or xbuild at https://github.com/uglyoldbob/xbuild 
+
 ## Dependencies
 
 `xbuild` requires additional tools that cannot be automatically installed
