@@ -8,6 +8,7 @@ Optimized for size the resulting `egui-android-demo.aab` is 2.4M.
 Built using [`xbuild`](https://github.com/rust-mobile/xbuild)
 
 Use the fork or xbuild at https://github.com/uglyoldbob/xbuild 
+Put the nxp nfc aar in the libs folder
 
 ## Dependencies
 
