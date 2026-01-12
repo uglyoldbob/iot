@@ -1,5 +1,8 @@
 use eframe::{egui, NativeOptions};
 
+mod android_nfc;
+use android_nfc::*;
+
 #[cfg(target_os = "android")]
 use egui_winit::winit;
 #[cfg(target_os = "android")]
@@ -11,6 +14,8 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
+
+    let mut nfc = Nfc::make_new(app.clone());
 
     let options = NativeOptions {
         android_app: Some(app),
