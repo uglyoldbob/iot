@@ -15,10 +15,12 @@ lto = true
 codegen-units = 1
 
 [dependencies]
+anyhow = "1.0.100"
 bincode = {version = "2.0.1", features = ["serde"]}
 log = "0.4"
 ouroboros = "0.18.5"
 serde = {version = "1.0.219", features = ["derive"]}
+thiserror = "1.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = {version = "0.21.1", features = ["invocation", "default"] }

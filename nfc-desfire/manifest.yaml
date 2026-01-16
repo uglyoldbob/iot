@@ -1,6 +1,23 @@
 android:
-  libs: true
+  aars: [libs/NxpNfcAndroidLib-release-protected]
+  dependencies: [
+  ]
   gradle: true
   manifest:
+    package: "com.uglyoldbob.rust_iot_nfc"
+    uses_permission: [
+      name: android.permission.NFC,
+      name: android.permission.INTERNET,
+      name: android.permission.WRITE_EXTERNAL_STORAGE,
+      name: android.permission.ACCESS_NETWORK_STATE,
+      name: android.permission.READ_DEVICE_CONFIG,
+    ]
+    uses_feature: [
+        { name: android.hardware.nfc, required: true }
+    ]
+    xmlns_tools: 'http://schemas.android.com/tools'
     application:
+      tools_replace: 'android:label'
       theme: '@android:style/Theme.NoTitleBar.Fullscreen'
+      label: "Rust Iot NFC"
+      has_code: true

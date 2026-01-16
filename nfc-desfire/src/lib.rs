@@ -3,6 +3,12 @@ use eframe::{egui, NativeOptions};
 mod android_nfc;
 use android_nfc::*;
 
+use std::sync::{Arc, Mutex, Once};
+
+use jni::objects::GlobalRef;
+use jni::sys::_jobject;
+use jni_min_helper::*;
+
 #[cfg(target_os = "android")]
 use egui_winit::winit;
 #[cfg(target_os = "android")]
@@ -15,14 +21,14 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    let mut nfc = Nfc::make_new(app.clone());
+    let mut nfc = TapLinx::make_new(&app);
 
     let options = NativeOptions {
         android_app: Some(app),
         renderer: Renderer::Wgpu,
         ..Default::default()
     };
-    DemoApp::run(options).unwrap();
+    DemoApp::run(options, nfc).unwrap();
 }
 
 #[derive(Debug)]
@@ -40,14 +46,15 @@ struct AppConfig {
 pub struct DemoApp {
     local_storage: Option<std::path::PathBuf>,
     settings: Result<AppConfig, AppConfigError>,
+    nfc: TapLinx,
 }
 
 impl DemoApp {
-    pub fn run(options: NativeOptions) -> Result<(), eframe::Error> {
+    pub fn run(options: NativeOptions, nfc: TapLinx) -> Result<(), eframe::Error> {
         eframe::run_native(
             "rust-iot-nfc",
             options.clone(),
-            Box::new(|_cc| Ok(Box::<DemoApp>::new(DemoApp::new(options)))),
+            Box::new(|_cc| Ok(Box::<DemoApp>::new(DemoApp::new(options, nfc)))),
         )
     }
 
@@ -90,10 +97,11 @@ impl DemoApp {
         }
     }
 
-    fn new(options: NativeOptions) -> Self {
+    fn new(options: NativeOptions, nfc: TapLinx) -> Self {
         let mut s = Self {
             local_storage: options.android_app.unwrap().internal_data_path(),
             settings: Err(AppConfigError::NotLoaded),
+            nfc,
         };
         s.load_config();
         s
@@ -124,6 +132,9 @@ impl eframe::App for DemoApp {
             let min_size = Self::min_size(ui);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.label("I am groot");
+                let ver = self.nfc.get_version();
+                log::error!("The version is {:?}", ver);
+                ui.label(format!("TAPLINX VERSION: {:#?}", ver));
             });
         });
     }
