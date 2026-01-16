@@ -33,15 +33,13 @@ pub(crate) fn jerr(env: &mut jni::JNIEnv, err: jni::errors::Error) -> std::io::E
     }
 }
 
-fn get_class<'a>(
-    env: &'a mut jni::JNIEnv<'a>,
+fn get_class<'a, 'b>(
+    env: &'a mut jni::JNIEnv<'b>,
     context: jni::objects::JObject,
     name: &str,
-) -> Result<jni::objects::JClass<'a>, std::io::Error> {
-    log::error!("GROOT1");
+) -> Result<jni::objects::JClass<'b>, std::io::Error> {
     let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
     let activity_class = env.get_object_class(context2).map_err(|e| jerr(env, e))?;
-    log::error!("GROOT2");
     let get_class_loader_method = env
         .get_method_id(
             activity_class,
@@ -49,25 +47,20 @@ fn get_class<'a>(
             "()Ljava/lang/ClassLoader;",
         )
         .map_err(|e| jerr(env, e))?;
-    log::error!("GROOT3");
     let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
 
     let loader = try_call_object_method(env, context2, get_class_loader_method, &[])?;
-    log::error!("GROOT4");
     let loader_class: jni::objects::JObject = env
         .find_class("java/lang/ClassLoader")
         .map_err(|e| jerr(env, e))?
         .into();
-    log::error!("GROOT5");
     let lcc: jni::objects::JClass = loader_class.into();
     let load_class_method = env
         .get_method_id(lcc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;")
         .map_err(|e| jerr(env, e))?;
-    log::error!("GROOT6");
     //com/nxp/nfclib/NxpNfcLib
     //com/moron/ModdedNativeActivity
     let name: jni::objects::JObject = env.new_string(name).map_err(|e| jerr(env, e))?.into();
-    log::error!("GROOT7");
     let session_class: jni::objects::JClass = try_call_object_method(
         env,
         loader,
@@ -75,7 +68,6 @@ fn get_class<'a>(
         &[jni::objects::JValue::Object(&name).to_jni()],
     )?
     .into();
-    log::error!("GROOT8 {:?}", session_class);
     Ok(session_class)
 }
 
@@ -169,48 +161,7 @@ impl TapLinx {
     pub fn get_version(&self) -> Result<String, std::io::Error> {
         let mut java = self.java.lock().unwrap();
         java.use_env(|env, context| {
-            log::error!("GROOT1");
-            let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
-            let activity_class = env.get_object_class(context2).map_err(|e| jerr(env, e))?;
-            log::error!("GROOT2");
-            let get_class_loader_method = env
-                .get_method_id(
-                    activity_class,
-                    "getClassLoader",
-                    "()Ljava/lang/ClassLoader;",
-                )
-                .map_err(|e| jerr(env, e))?;
-            log::error!("GROOT3");
-            let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
-
-            let loader = try_call_object_method(env, context2, get_class_loader_method, &[])?;
-            log::error!("GROOT4");
-            let loader_class: jni::objects::JObject = env
-                .find_class("java/lang/ClassLoader")
-                .map_err(|e| jerr(env, e))?
-                .into();
-            log::error!("GROOT5");
-            let lcc: jni::objects::JClass = loader_class.into();
-            let load_class_method = env
-                .get_method_id(lcc, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;")
-                .map_err(|e| jerr(env, e))?;
-            log::error!("GROOT6");
-            //com/nxp/nfclib/NxpNfcLib
-            //com/moron/ModdedNativeActivity
-            let name: jni::objects::JObject = env
-                .new_string("com/nxp/nfclib/NxpNfcLib")
-                .map_err(|e| jerr(env, e))?
-                .into();
-            log::error!("GROOT7");
-            let session_class: jni::objects::JClass = try_call_object_method(
-                env,
-                loader,
-                load_class_method,
-                &[jni::objects::JValue::Object(&name).to_jni()],
-            )?
-            .into();
-            log::error!("GROOT8 {:?}", session_class);
-
+            let session_class = get_class(env, context, "com/nxp/nfclib/NxpNfcLib")?;
             let ver = env
                 .call_static_method(
                     session_class,
@@ -219,40 +170,14 @@ impl TapLinx {
                     &[],
                 )
                 .map_err(|e| jerr(env, e))?;
-            log::error!("TEST5");
             let ver = ver.l().map_err(|e| jerr(env, e))?;
-            log::error!("TEST5");
-            let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
-            log::error!("TEST6");
-            Ok::<String, std::io::Error>(ver)
-        })
-        /*
-        java.with_env_mut(|env| {
-            let classl = env.find_class("java/lang/ClassLoader").map_err(|e| jerr(env, e))?;
-            log::error!("Got class");
-            let arg = "com/nxp/nfclib/NxpNfcLib"
-                            .new_jobject(env)
-                            .map_err(|e| jerr(env, e))
-                            .unwrap();
-            let classl = env.call_static_method(classl, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[(&arg).into()]).map_err(|e| jerr(env, e))?;
-            log::error!("Got classloader");
-            let arg = "com/nxp/nfclib/NxpNfcLib"
-                            .new_jobject(env)
-                            .map_err(|e| jerr(env, e))
-                            .unwrap();
-            //let asdf = env.call_method(classl, "loadClass", "(Ljava/lang/String;Z)Ljava/lang/Class;", &[(&arg).into(), true.into()]).map_err(|e| jerr(env, e))?;
-            log::error!("GOT CLASS?");
-            let class = env.find_class("com/nxp/nfclib/NxpNfcLib").map_err(|e| jerr(env, e))?;
-            let ver = env.call_static_method(class, "getTaplinxVersion", "(V)Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?.l().map_err(|e| jerr(env, e))?;
             let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
             Ok::<String, std::io::Error>(ver)
         })
-        */
-        /*java.with_env_mut(|env| {
-            let class = env.find_class("com/nxp/nfclib/NxpNfcLib").map_err(|e| jerr(env, e))?;
-            let ver = env.call_static_method(class, "getTaplinxVersion", "(V)Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?.l().map_err(|e| jerr(env, e))?;
-            let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
-            Ok::<String, std::io::Error>(ver)
-        })*/
     }
+}
+
+pub struct NxpNfcLib {
+    /// The java object
+    inner: std::sync::OnceLock<jni::objects::GlobalRef>,
 }
