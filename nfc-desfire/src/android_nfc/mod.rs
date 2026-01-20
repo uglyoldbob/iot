@@ -220,7 +220,12 @@ pub struct NxpNfcLib {
 }
 
 impl NxpNfcLib {
-    pub fn register_activity(&self, java: &mut Java, key: &str, keyo: &str) -> Result<(), std::io::Error> {
+    pub fn register_activity(
+        &self,
+        java: &mut Java,
+        key: &str,
+        keyo: &str,
+    ) -> Result<(), std::io::Error> {
         java.use_env(|env, context| {
             let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
             let arg = key.new_jobject(env).map_err(|e| jerr(env, e)).unwrap();

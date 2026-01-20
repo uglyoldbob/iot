@@ -3,8 +3,6 @@ use eframe::{egui, NativeOptions};
 mod android_nfc;
 use android_nfc::*;
 
-use std::sync::{Arc, Mutex, Once};
-
 use jni::objects::GlobalRef;
 use jni::sys::_jobject;
 use jni_min_helper::*;
@@ -22,11 +20,6 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnNewInten
     intent: jni::objects::JObject,
 ) {
     log::error!("onNewIntent was called!");
-    log::error!("onNewIntent was called!");
-    log::error!("onNewIntent was called!");
-    log::error!("onNewIntent was called!");
-    log::error!("onNewIntent was called!");
-    log::error!("onNewIntent was called!");
 }
 
 #[cfg(target_os = "android")]
@@ -38,7 +31,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
 
     std::env::set_var("RUST_BACKTRACE", "full");
     android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Info),
+        android_logger::Config::default().with_max_level(log::LevelFilter::Error),
     );
 
     let mut nfc = TapLinx::make_new(&app);
@@ -125,7 +118,9 @@ impl DemoApp {
         };
         s.load_config();
         s.nfc.load_instance();
-        s.nfc.register_activity(NFC_KEY, NFC_KEY_OFFLINE).expect("Failed to register activity with NxpNfcLib");
+        s.nfc
+            .register_activity(NFC_KEY, NFC_KEY_OFFLINE)
+            .expect("Failed to register activity with NxpNfcLib");
         s
     }
 }
