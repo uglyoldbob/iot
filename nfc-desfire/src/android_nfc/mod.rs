@@ -142,6 +142,7 @@ fn try_call_object_method<'a, 'b>(
 
 pub struct TapLinx {
     java: Arc<Mutex<Java>>,
+    instance: Option<NxpNfcLib>,
 }
 
 impl TapLinx {
@@ -153,7 +154,10 @@ impl TapLinx {
 
     /// constructs a new Self with the protected java instance
     fn new(java: Arc<Mutex<Java>>) -> Self {
-        let s = Self { java };
+        let s = Self {
+            java,
+            instance: None,
+        };
         s
     }
 
@@ -175,9 +179,59 @@ impl TapLinx {
             Ok::<String, std::io::Error>(ver)
         })
     }
+
+    /// Get the taplinx instance
+    pub fn load_instance(&mut self) -> Result<(), std::io::Error> {
+        let mut java = self.java.lock().unwrap();
+        java.use_env(|env, context| {
+            let session_class = get_class(env, context, "com/nxp/nfclib/NxpNfcLib")?;
+            let ver = env
+                .call_static_method(
+                    session_class,
+                    "getInstance",
+                    "()Lcom/nxp/nfclib/NxpNfcLib;",
+                    &[],
+                )
+                .get_object(env)
+                .map_err(|e| jerr(env, e))?;
+            let ver = env.new_global_ref(&ver).map_err(|e| jerr(env, e))?;
+            let i = NxpNfcLib { inner: ver.into() };
+            self.instance = Some(i);
+            Ok::<(), std::io::Error>(())
+        })
+    }
+
+    /// Register the activity
+    pub fn register_activity(&mut self, key: &str) -> Result<(), std::io::Error> {
+        if let Some(i) = &mut self.instance {
+            let mut java = self.java.lock().unwrap();
+            let r = i.register_activity(&mut java, key);
+            log::info!("REGISTERED ACTIVITY {:?}", r);
+            r
+        } else {
+            Err(std::io::Error::other("NxpNfcLib not created yet"))
+        }
+    }
 }
 
 pub struct NxpNfcLib {
-    /// The java object
-    inner: std::sync::OnceLock<jni::objects::GlobalRef>,
+    /// The NxpNfcLib java object
+    inner: jni::objects::GlobalRef,
+}
+
+impl NxpNfcLib {
+    pub fn register_activity(&self, java: &mut Java, key: &str) -> Result<(), std::io::Error> {
+        java.use_env(|env, context| {
+            let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
+            let arg = key.new_jobject(env).map_err(|e| jerr(env, e)).unwrap();
+            env.call_method(
+                self.inner.as_obj(),
+                "registerActivity",
+                "(Landroid/app/Activity;Ljava/lang/String;)V",
+                &[(&context2).into(), (&arg).into()],
+            )
+            .map_err(|e| jerr(env, e))?;
+            Ok(())
+        })
+    }
 }

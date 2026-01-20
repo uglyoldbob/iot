@@ -1,5 +1,6 @@
 android:
   aars: [libs/NxpNfcAndroidLib-release-protected]
+  java_code_dir: java
   dependencies: [
   ]
   gradle: true
@@ -21,3 +22,12 @@ android:
       theme: '@android:style/Theme.NoTitleBar.Fullscreen'
       label: "Rust Iot NFC"
       has_code: true
+      activities: [
+        { 
+          name: .ModdedActivity,
+          config_changes: 'orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode',
+          launch_mode: singleTop,
+          window_soft_input_mode: adjustResize,
+          hardware_accelerated: true,
+        },
+      ]

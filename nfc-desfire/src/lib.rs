@@ -9,6 +9,9 @@ use jni::objects::GlobalRef;
 use jni::sys::_jobject;
 use jni_min_helper::*;
 
+/// The api key for nxpnfclib
+const NFC_KEY: &str = include_str!("../nfc_key.txt");
+
 #[cfg(target_os = "android")]
 use egui_winit::winit;
 #[cfg(target_os = "android")]
@@ -104,6 +107,8 @@ impl DemoApp {
             nfc,
         };
         s.load_config();
+        s.nfc.load_instance();
+        s.nfc.register_activity(NFC_KEY).expect("Failed to register activity with NxpNfcLib");
         s
     }
 }
