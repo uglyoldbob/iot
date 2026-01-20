@@ -1,8 +1,9 @@
-package com.uglyoldbob.rust_iot_nfc;
+package com.uglyoldbob.RustIotNfc;
 
 import android.app.NativeActivity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 
 public class ModdedActivity extends NativeActivity {
     static {
@@ -18,9 +19,9 @@ public class ModdedActivity extends NativeActivity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-
-        notifyOnNewIntent();
+        Log.e("ModdedActivity", "JAVA onNewIntent fired: " + intent);
+        notifyOnNewIntent(intent);
     }
 
-    private native void notifyOnNewIntent();
+    private native void notifyOnNewIntent(Intent intent);
 }

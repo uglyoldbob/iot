@@ -2,10 +2,11 @@ android:
   aars: [libs/NxpNfcAndroidLib-release-protected]
   java_code_dir: java
   dependencies: [
+    com.google.firebase:firebase-core:21.1.1
   ]
   gradle: true
   manifest:
-    package: "com.uglyoldbob.rust_iot_nfc"
+    package: "com.uglyoldbob.RustIotNfc"
     uses_permission: [
       name: android.permission.NFC,
       name: android.permission.INTERNET,

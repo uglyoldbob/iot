@@ -11,6 +11,23 @@ use jni_min_helper::*;
 
 /// The api key for nxpnfclib
 const NFC_KEY: &str = include_str!("../nfc_key.txt");
+/// The offline api key for nxpnfclib
+const NFC_KEY_OFFLINE: &str = include_str!("../nfc_key_offline.txt");
+
+#[allow(non_snake_case)]
+#[no_mangle]
+pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnNewIntent(
+    mut env: jni::JNIEnv,
+    _this: jni::objects::JObject,
+    intent: jni::objects::JObject,
+) {
+    log::error!("onNewIntent was called!");
+    log::error!("onNewIntent was called!");
+    log::error!("onNewIntent was called!");
+    log::error!("onNewIntent was called!");
+    log::error!("onNewIntent was called!");
+    log::error!("onNewIntent was called!");
+}
 
 #[cfg(target_os = "android")]
 use egui_winit::winit;
@@ -108,7 +125,7 @@ impl DemoApp {
         };
         s.load_config();
         s.nfc.load_instance();
-        s.nfc.register_activity(NFC_KEY).expect("Failed to register activity with NxpNfcLib");
+        s.nfc.register_activity(NFC_KEY, NFC_KEY_OFFLINE).expect("Failed to register activity with NxpNfcLib");
         s
     }
 }
@@ -138,7 +155,6 @@ impl eframe::App for DemoApp {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.label("I am groot");
                 let ver = self.nfc.get_version();
-                log::error!("The version is {:?}", ver);
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
             });
         });

@@ -202,10 +202,10 @@ impl TapLinx {
     }
 
     /// Register the activity
-    pub fn register_activity(&mut self, key: &str) -> Result<(), std::io::Error> {
+    pub fn register_activity(&mut self, key: &str, keyo: &str) -> Result<(), std::io::Error> {
         if let Some(i) = &mut self.instance {
             let mut java = self.java.lock().unwrap();
-            let r = i.register_activity(&mut java, key);
+            let r = i.register_activity(&mut java, key, keyo);
             log::info!("REGISTERED ACTIVITY {:?}", r);
             r
         } else {
@@ -220,15 +220,16 @@ pub struct NxpNfcLib {
 }
 
 impl NxpNfcLib {
-    pub fn register_activity(&self, java: &mut Java, key: &str) -> Result<(), std::io::Error> {
+    pub fn register_activity(&self, java: &mut Java, key: &str, keyo: &str) -> Result<(), std::io::Error> {
         java.use_env(|env, context| {
             let context2 = unsafe { jni::objects::JObject::from_raw(context.as_raw()) };
             let arg = key.new_jobject(env).map_err(|e| jerr(env, e)).unwrap();
+            let arg2 = keyo.new_jobject(env).map_err(|e| jerr(env, e)).unwrap();
             env.call_method(
                 self.inner.as_obj(),
                 "registerActivity",
-                "(Landroid/app/Activity;Ljava/lang/String;)V",
-                &[(&context2).into(), (&arg).into()],
+                "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)V",
+                &[(&context2).into(), (&arg).into(), (&arg2).into()],
             )
             .map_err(|e| jerr(env, e))?;
             Ok(())
