@@ -17,9 +17,7 @@ fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
     let ac: Option<&mut AndroidApp> = ac.as_mut();
     if let Some(ac) = ac {
         let context = unsafe {
-            jni::objects::JObject::from_raw(
-                ac.activity_as_ptr() as *mut jni::sys::_jobject
-            )
+            jni::objects::JObject::from_raw(ac.activity_as_ptr() as *mut jni::sys::_jobject)
         };
         Ok(context)
     } else {
@@ -241,7 +239,7 @@ impl TapLinx {
 
 pub struct NxpNfcLib {
     /// The NxpNfcLib java object
-    inner: jni::objects::GlobalRef,
+    inner: GlobalRef,
 }
 
 #[derive(Debug)]
@@ -304,6 +302,37 @@ pub enum CardType {
     Unknown,
 }
 
+impl From<&str> for CardType {
+    fn from(value: &str) -> Self {
+        match value {
+            "DESFireEV1" => Self::DesFireEv1,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl CardType {
+    pub fn process(
+        &self,
+        env: &mut jni::JNIEnv,
+        lib: &mut NxpNfcLib,
+    ) -> Result<(), std::io::Error> {
+        match self {
+            Self::DesFireEv1 => {
+                let cm = lib.get_custom_modules(env)?;
+                let factory = DesfireFactory::get_instance(env)?;
+                let ev1 = factory.get_desfire_ev1(env, cm)?;
+                log::error!("Got desfire ev1 object");
+                Ok(())
+            }
+            _ => Err(std::io::Error::other(format!(
+                "Unhandled card type {:?}",
+                self
+            ))),
+        }
+    }
+}
+
 impl NxpNfcLib {
     /// Call registerActivity with the original context and the specified keys
     /// key is the online key
@@ -329,26 +358,46 @@ impl NxpNfcLib {
         })
     }
 
+    /// Get custom modules
+    pub fn get_custom_modules<'a>(
+        &self,
+        env: &'a mut jni::JNIEnv,
+    ) -> Result<GlobalRef, std::io::Error> {
+        let ver = env
+            .call_method(
+                self.inner.as_obj(),
+                "getCustomModules",
+                "()Lcom/nxp/nfclib/CustomModules;",
+                &[],
+            )
+            .get_object(env)
+            .map_err(|e| jerr(env, e))?;
+        let ver = env.new_global_ref(&ver).map_err(|e| jerr(env, e))?;
+        Ok(ver)
+    }
+
     pub fn get_card_type_from_tag(
         &mut self,
         env: &mut jni::JNIEnv,
         tag: jni::objects::JObject,
     ) -> Result<CardType, std::io::Error> {
         let context = get_context()?;
-        let ct = env.call_method(
-            self.inner.as_obj(),
-            "getCardType",
-            "(Landroid/nfc/Tag;)Lcom/nxp/nfclib/CardType;",
-            &[(&tag).into()],
-        ).get_object(env)
-                .map_err(|e| jerr(env, e))?;
-        let ver = env.call_method(ct, "name", "()Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?;
+        let ct = env
+            .call_method(
+                self.inner.as_obj(),
+                "getCardType",
+                "(Landroid/nfc/Tag;)Lcom/nxp/nfclib/CardType;",
+                &[(&tag).into()],
+            )
+            .get_object(env)
+            .map_err(|e| jerr(env, e))?;
+        let ver = env
+            .call_method(ct, "name", "()Ljava/lang/String;", &[])
+            .map_err(|e| jerr(env, e))?;
         let ver = ver.l().map_err(|e| jerr(env, e))?;
         let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
         log::error!("Card enum is {}", ver);
-        Ok(match ver.as_str() {
-            _ => CardType::Unknown,
-        })
+        Ok(ver.as_str().into())
     }
 
     pub fn get_card_type(
@@ -356,20 +405,60 @@ impl NxpNfcLib {
         env: &mut jni::JNIEnv,
         intent: jni::objects::JObject,
     ) -> Result<CardType, std::io::Error> {
-        let context = get_context()?;
-        let ct = env.call_method(
-            self.inner.as_obj(),
-            "getCardType",
-            "(Landroid/content/Intent;)Lcom/nxp/nfclib/CardType;",
-            &[(&intent).into()],
-        ).get_object(env)
-                .map_err(|e| jerr(env, e))?;
-        let ver = env.call_method(ct, "name", "()Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?;
+        let ct = env
+            .call_method(
+                self.inner.as_obj(),
+                "getCardType",
+                "(Landroid/content/Intent;)Lcom/nxp/nfclib/CardType;",
+                &[(&intent).into()],
+            )
+            .get_object(env)
+            .map_err(|e| jerr(env, e))?;
+        let ver = env
+            .call_method(ct, "name", "()Ljava/lang/String;", &[])
+            .map_err(|e| jerr(env, e))?;
         let ver = ver.l().map_err(|e| jerr(env, e))?;
         let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
         log::error!("Card enum is {}", ver);
-        Ok(match ver.as_str() {
-            _ => CardType::Unknown,
-        })
+        Ok(ver.as_str().into())
+    }
+}
+
+pub struct DesfireFactory {
+    inner: GlobalRef,
+}
+
+impl DesfireFactory {
+    pub fn get_instance(env: &mut jni::JNIEnv) -> Result<Self, std::io::Error> {
+        let context = get_context()?;
+        let class = get_class(env, context, "com/nxp/nfclib/desfire/DESFireFactory")?;
+        let ver = env
+            .call_static_method(
+                class,
+                "getInstance",
+                "()Lcom/nxp/nfclib/desfire/DESFireFactory;",
+                &[],
+            )
+            .get_object(env)
+            .map_err(|e| jerr(env, e))?;
+        let ver = env.new_global_ref(&ver).map_err(|e| jerr(env, e))?;
+        Ok(Self { inner: ver })
+    }
+
+    pub fn get_desfire_ev1(
+        &self,
+        env: &mut jni::JNIEnv,
+        cm: GlobalRef,
+    ) -> Result<GlobalRef, std::io::Error> {
+        let ver = env
+            .call_method(
+                self.inner.as_obj(),
+                "getDESFire",
+                "(Lcom/nxp/nfclib/CustomModules;)Lcom/nxp/nfclib/desfire/IDESFireEV1;",
+                &[(&cm).into()],
+            )
+            .get_object(env)
+            .map_err(|e| jerr(env, e))?;
+        env.new_global_ref(&ver).map_err(|e| jerr(env, e))
     }
 }

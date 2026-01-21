@@ -24,6 +24,7 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
     let m: Option<&mut NxpNfcLib> = m.as_mut();
     if let Some(i) = m {
         let t = i.get_card_type_from_tag(&mut env, tag).unwrap();
+        t.process(&mut env, i).unwrap();
         log::error!("There is a nxpnfclib to use with {:?}", t);
     }
 }
@@ -123,7 +124,7 @@ impl DemoApp {
             nfc,
         };
         s.load_config();
-        s.nfc.load_instance();
+        s.nfc.load_instance().expect("Failed to load instance");
         s.nfc
             .register_activity(NFC_KEY, NFC_KEY_OFFLINE)
             .expect("Failed to register activity with NxpNfcLib");
