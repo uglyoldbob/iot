@@ -4,6 +4,7 @@ import android.app.NativeActivity;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.nfc.NfcAdapter;
+import android.nfc.Tag;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -23,10 +24,18 @@ public class ModdedActivity extends NativeActivity {
         super.onResume();
         NfcAdapter adapter = NfcAdapter.getDefaultAdapter(this);
         if (adapter != null) {
-            adapter.enableForegroundDispatch(
+            Log.e("ModdedActivity", "Enabling foreground dispatch");
+            adapter.enableReaderMode(
                 this,
-                PendingIntent.getActivity(this, 0, new Intent(this, getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE),
-                null,
+                tag -> {
+                    Log.e("ReaderMode", "Tag: " + tag);
+                    runOnUiThread(() -> notifyOnTag(this, tag));
+                },
+                NfcAdapter.FLAG_READER_NFC_A
+                    | NfcAdapter.FLAG_READER_NFC_B
+                    | NfcAdapter.FLAG_READER_NFC_F
+                    | NfcAdapter.FLAG_READER_NFC_V
+                    | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
                 null
             );
         }
@@ -37,16 +46,9 @@ public class ModdedActivity extends NativeActivity {
         super.onPause();
         NfcAdapter adapter = NfcAdapter.getDefaultAdapter(this);
         if (adapter != null) {
-            adapter.disableForegroundDispatch(this);
+            adapter.disableReaderMode(this);
         }
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        Log.e("ModdedActivity", "JAVA onNewIntent fired: " + intent);
-        notifyOnNewIntent(intent);
-    }
-
-    private native void notifyOnNewIntent(Intent intent);
+    private native void notifyOnTag(ModdedActivity ma, Tag tag);
 }

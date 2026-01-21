@@ -7,6 +7,26 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use winit::platform::android::activity::AndroidApp;
 
+lazy_static::lazy_static! {
+    pub static ref NxpNfcInstance : Arc<Mutex<Option<NxpNfcLib>>> = Arc::new(Mutex::new(None));
+    pub static ref Application : Arc<Mutex<Option<AndroidApp>>> = Arc::new(Mutex::new(None));
+}
+
+fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
+    let mut ac = Application.lock().unwrap();
+    let ac: Option<&mut AndroidApp> = ac.as_mut();
+    if let Some(ac) = ac {
+        let context = unsafe {
+            jni::objects::JObject::from_raw(
+                ac.activity_as_ptr() as *mut jni::sys::_jobject
+            )
+        };
+        Ok(context)
+    } else {
+        Err(std::io::Error::other("Context not created yet"))
+    }
+}
+
 /// Maps unexpected JNI errors to `std::io::Error`.
 /// (`From<jni::errors::Error>` cannot be implemented for `std::io::Error`
 /// here because of the orphan rule). Side effect: `jni_last_cleared_ex()`.
@@ -101,6 +121,10 @@ impl Java {
 
     /// Make a new java object using the androidapp object
     pub fn make(app: &AndroidApp) -> Self {
+        {
+            let mut ac = Application.lock().unwrap();
+            *ac = Some(app.clone());
+        }
         let vm = unsafe {
             jni::JavaVM::from_raw(app.vm_as_ptr() as *mut *const jni::sys::JNIInvokeInterface_)
         }
@@ -142,7 +166,6 @@ fn try_call_object_method<'a, 'b>(
 
 pub struct TapLinx {
     java: Arc<Mutex<Java>>,
-    instance: Option<NxpNfcLib>,
 }
 
 impl TapLinx {
@@ -154,10 +177,7 @@ impl TapLinx {
 
     /// constructs a new Self with the protected java instance
     fn new(java: Arc<Mutex<Java>>) -> Self {
-        let s = Self {
-            java,
-            instance: None,
-        };
+        let s = Self { java };
         s
     }
 
@@ -196,17 +216,22 @@ impl TapLinx {
                 .map_err(|e| jerr(env, e))?;
             let ver = env.new_global_ref(&ver).map_err(|e| jerr(env, e))?;
             let i = NxpNfcLib { inner: ver.into() };
-            self.instance = Some(i);
+            {
+                let mut m = NxpNfcInstance.lock().unwrap();
+                *m = Some(i);
+            }
             Ok::<(), std::io::Error>(())
         })
     }
 
     /// Register the activity
     pub fn register_activity(&mut self, key: &str, keyo: &str) -> Result<(), std::io::Error> {
-        if let Some(i) = &mut self.instance {
+        let mut m = NxpNfcInstance.lock().unwrap();
+        let m: Option<&mut NxpNfcLib> = m.as_mut();
+        if let Some(i) = m {
             let mut java = self.java.lock().unwrap();
             let r = i.register_activity(&mut java, key, keyo);
-            log::info!("REGISTERED ACTIVITY {:?}", r);
+            log::error!("REGISTERED ACTIVITY {:?}", r);
             r
         } else {
             Err(std::io::Error::other("NxpNfcLib not created yet"))
@@ -219,7 +244,70 @@ pub struct NxpNfcLib {
     inner: jni::objects::GlobalRef,
 }
 
+#[derive(Debug)]
+pub enum CardType {
+    DesFireEv1,
+    DesFireEv2,
+    DesFireEv3,
+    DesFireEv3C,
+    DesFireLight,
+    ICodeDna,
+    ICodeSLI,
+    ICodeSLIL,
+    ICodeSLIS,
+    ICodeSLIX,
+    ICodeSLIX2,
+    ICodeSLIXL,
+    ICodeSLIXS,
+    MifareClassic,
+    MifareClassicV2,
+    MifareIdentity,
+    MifareUltralightAes,
+    Ntag203x,
+    Ntag210,
+    Ntag210u,
+    Ntag212,
+    Ntag213,
+    Ntag213f,
+    Ntag213TagTamper,
+    Ntag215,
+    NTag216,
+    Ntag216f,
+    Ntag223Dna,
+    Ntag223DnaStatusDefect,
+    Ntag224Dna,
+    Ntag224DnaStatusDefect,
+    Ntag413Dna,
+    Ntag424Dna,
+    Ntag424DnaTagTamper,
+    Ntag5Boost,
+    Ntag5Link,
+    Ntag5Switch,
+    NtagI2c2k,
+    NtagI2cPlus1k,
+    NtagI2cPlus2k,
+    PlusEv1Sl0,
+    PlusEv1Sl1,
+    PlusEv1Sl3,
+    PlusEv2Sl0,
+    PlusEv2Sl1,
+    PlusEv2Sl3,
+    PlusSl0,
+    PlusSl1,
+    PlusSl3,
+    UltraLight,
+    UltraLightC,
+    UltraLightEv1_11,
+    UltraLightEv1_21,
+    UltraLigthNano40,
+    UltraLigthNano48,
+    Unknown,
+}
+
 impl NxpNfcLib {
+    /// Call registerActivity with the original context and the specified keys
+    /// key is the online key
+    /// keyo is the offline key
     pub fn register_activity(
         &self,
         java: &mut Java,
@@ -238,6 +326,50 @@ impl NxpNfcLib {
             )
             .map_err(|e| jerr(env, e))?;
             Ok(())
+        })
+    }
+
+    pub fn get_card_type_from_tag(
+        &mut self,
+        env: &mut jni::JNIEnv,
+        tag: jni::objects::JObject,
+    ) -> Result<CardType, std::io::Error> {
+        let context = get_context()?;
+        let ct = env.call_method(
+            self.inner.as_obj(),
+            "getCardType",
+            "(Landroid/nfc/Tag;)Lcom/nxp/nfclib/CardType;",
+            &[(&tag).into()],
+        ).get_object(env)
+                .map_err(|e| jerr(env, e))?;
+        let ver = env.call_method(ct, "name", "()Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?;
+        let ver = ver.l().map_err(|e| jerr(env, e))?;
+        let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
+        log::error!("Card enum is {}", ver);
+        Ok(match ver.as_str() {
+            _ => CardType::Unknown,
+        })
+    }
+
+    pub fn get_card_type(
+        &mut self,
+        env: &mut jni::JNIEnv,
+        intent: jni::objects::JObject,
+    ) -> Result<CardType, std::io::Error> {
+        let context = get_context()?;
+        let ct = env.call_method(
+            self.inner.as_obj(),
+            "getCardType",
+            "(Landroid/content/Intent;)Lcom/nxp/nfclib/CardType;",
+            &[(&intent).into()],
+        ).get_object(env)
+                .map_err(|e| jerr(env, e))?;
+        let ver = env.call_method(ct, "name", "()Ljava/lang/String;", &[]).map_err(|e| jerr(env, e))?;
+        let ver = ver.l().map_err(|e| jerr(env, e))?;
+        let ver = ver.get_string(env).map_err(|e| jerr(env, e))?;
+        log::error!("Card enum is {}", ver);
+        Ok(match ver.as_str() {
+            _ => CardType::Unknown,
         })
     }
 }

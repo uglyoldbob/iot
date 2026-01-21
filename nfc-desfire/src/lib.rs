@@ -14,12 +14,18 @@ const NFC_KEY_OFFLINE: &str = include_str!("../nfc_key_offline.txt");
 
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnNewIntent(
+pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
     mut env: jni::JNIEnv,
-    _this: jni::objects::JObject,
-    intent: jni::objects::JObject,
+    this: jni::objects::JObject,
+    ma: jni::objects::JObject,
+    tag: jni::objects::JObject,
 ) {
-    log::error!("onNewIntent was called!");
+    let mut m = NxpNfcInstance.lock().unwrap();
+    let m: Option<&mut NxpNfcLib> = m.as_mut();
+    if let Some(i) = m {
+        let t = i.get_card_type_from_tag(&mut env, tag).unwrap();
+        log::error!("There is a nxpnfclib to use with {:?}", t);
+    }
 }
 
 #[cfg(target_os = "android")]

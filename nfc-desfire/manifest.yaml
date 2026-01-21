@@ -29,11 +29,6 @@ android:
           config_changes: 'orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode',
           intent_filters: [
             {
-              actions: [
-              android.nfc.action.NDEF_DISCOVERED, 
-              android.nfc.action.TAG_DISCOVERED, 
-              android.nfc.action.TECH_DISCOVERED,
-              ],
               categories: [
                 android.intent.category.DEFAULT,
               ]
