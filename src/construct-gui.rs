@@ -9,6 +9,7 @@ mod main_config;
 
 pub use main_config::MainConfiguration;
 
+mod applets;
 #[path = "ca/ca_common.rs"]
 /// The ca module, with code used to construct a ca
 mod ca;

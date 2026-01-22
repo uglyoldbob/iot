@@ -1312,9 +1312,67 @@ impl CaCertificateStorage {
                     conn.execute("CREATE TABLE IF NOT EXISTS searchable ( id INTEGER PRIMARY KEY, cn TEXT, country TEXT, state TEXT, locality TEXT, organization TEXT, ou TEXT)", [])
                 })
                 .await.map_err(|_|())?;
+                p.conn(move |conn| {
+                    conn.execute("CREATE TABLE IF NOT EXISTS applets ( id INTEGER PRIMARY KEY, definition TEXT)", [])
+                })
+                .await.map_err(|_|())?;
             }
         }
         Ok(())
+    }
+
+    /// Retrieve the specified applet
+    pub async fn retrieve_applet(&self, id: u32) -> Option<crate::applets::AppletInstance> {
+        match self {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => {
+                let definition: Option<String> = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT definition FROM applets WHERE id='{id}'"),
+                            [],
+                            |r| Ok(r.get(0).unwrap()),
+                        )
+                    })
+                    .await
+                    .ok()?;
+                let def = definition?;
+                let a: crate::applets::AppletInstance = toml::from_str(&def).ok()?;
+                Some(a)
+            }
+        }
+    }
+
+    /// Retrieve all applets
+    pub async fn retrieve_all_applets(&self) -> Option<Vec<crate::applets::AppletInstance>> {
+        match self {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => {
+                let definition: Vec<String> = p
+                    .conn(move |conn| {
+                        let mut stmt = conn.prepare("SELECT definition FROM applets")?;
+                        let rows = stmt.query_map([], |row| row.get(0))?;
+                        let mut data = Vec::new();
+                        for r in rows {
+                            if let Ok(r) = r {
+                                data.push(r);
+                            }
+                        }
+                        Ok(data)
+                    })
+                    .await
+                    .ok()?;
+                Some(
+                    definition
+                        .iter()
+                        .filter_map(|t| {
+                            let a: crate::applets::AppletInstance = toml::from_str(t).ok()?;
+                            Some(a)
+                        })
+                        .collect(),
+                )
+            }
+        }
     }
 
     /// Initialize the storage medium

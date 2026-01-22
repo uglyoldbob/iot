@@ -1427,7 +1427,6 @@ async fn build_ca() -> Result<(), Box<dyn std::error::Error>> {
         cert_common::CertificateSigningMethod::Https(cert_common::HttpsSigningMethod::EcdsaSha256),
     ];
 
-
     run_ca(methods, |config| async { config }).await.unwrap();
 
     Ok(())

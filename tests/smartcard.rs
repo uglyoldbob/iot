@@ -60,5 +60,3 @@ async fn test1() {
     println!("About to kill smartcard simulator");
     simulator.kill().expect("Failed to kill simulator");
 }
-
-

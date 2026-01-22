@@ -8,6 +8,7 @@
 //For the html crate
 #![recursion_limit = "512"]
 
+pub mod applets;
 mod ca;
 mod hsm2;
 mod tpm2;
