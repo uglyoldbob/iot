@@ -1344,14 +1344,19 @@ impl CaCertificateStorage {
     }
 
     /// Retrieve all applets
-    pub async fn retrieve_all_applets(&self) -> Option<Vec<crate::applets::AppletInstance>> {
+    pub async fn retrieve_all_applets(
+        &self,
+    ) -> Option<HashMap<usize, crate::applets::AppletInstance>> {
         match self {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
-                let definition: Vec<String> = p
+                let definition: Vec<(usize, String)> = p
                     .conn(move |conn| {
-                        let mut stmt = conn.prepare("SELECT definition FROM applets")?;
-                        let rows = stmt.query_map([], |row| row.get(0))?;
+                        let mut stmt = conn.prepare("SELECT id, definition FROM applets")?;
+                        let rows = stmt.query_map([], |row| {
+                            let t: (usize, String) = (row.get(0)?, row.get(1)?);
+                            Ok(t)
+                        })?;
                         let mut data = Vec::new();
                         for r in rows {
                             if let Ok(r) = r {
@@ -1362,15 +1367,13 @@ impl CaCertificateStorage {
                     })
                     .await
                     .ok()?;
-                Some(
-                    definition
-                        .iter()
-                        .filter_map(|t| {
-                            let a: crate::applets::AppletInstance = toml::from_str(t).ok()?;
-                            Some(a)
-                        })
-                        .collect(),
-                )
+                let mut hm = HashMap::new();
+                for d in definition.iter() {
+                    if let Ok(a) = toml::from_str(&d.1) {
+                        hm.insert(d.0, a);
+                    }
+                }
+                Some(hm)
             }
         }
     }
@@ -3129,7 +3132,7 @@ impl Pki {
     #[allow(dead_code)]
     pub async fn get_client_certifiers(
         &self,
-    ) -> std::collections::hash_map::Values<String, LocalOrRemoteCa> {
+    ) -> std::collections::hash_map::Values<'_, String, LocalOrRemoteCa> {
         self.all_ca.values()
     }
 }

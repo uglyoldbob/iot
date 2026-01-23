@@ -521,6 +521,7 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
 
 /// The main page for a certificate authority
 async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    use crate::applets::AppletTrait;
     let mut admin = false;
     let mut user = None;
     let cs = s.user_certs.all_certs();
@@ -538,6 +539,13 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         }
         if ca.is_admin(cert).await {
             admin = true;
+        }
+    }
+
+    let mut applets = Vec::new();
+    if let Some(a) = ca.medium.retrieve_all_applets().await {
+        for applet in a {
+            applets.push(applet);
         }
     }
 
@@ -682,6 +690,47 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                     }
                 }
                 b.line_break(|lb| lb);
+                if admin {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Add an applet");
+                                ab.href("?action=add_applet");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Add an applet");
+                                ab.href("ca/add_applet.rs");
+                                ab
+                            });
+                        }
+                    }
+                    b.line_break(|lb| lb);
+                }
+                if !applets.is_empty() {
+                    b.text("List of applets").line_break(|lb| lb);
+                    for app in applets {
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                b.anchor(|ab| {
+                                    ab.text(format!("APP: {}", app.1.name()));
+                                    ab.href(format!("?action=view_applet&id={}", app.0));
+                                    ab
+                                });
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                b.anchor(|ab| {
+                                    ab.text(format!("APP: {}", app.1.name()));
+                                    ab.href(format!("ca/view_applet.rs?id={}", app.0));
+                                    ab
+                                });
+                            }
+                        }
+                        b.line_break(|lb| lb);
+                    }
+                }
             }
             b
         });
