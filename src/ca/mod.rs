@@ -764,6 +764,30 @@ pub async fn ca_main_page(s: WebPageContext) -> WebResponse {
     }
 }
 
+/// The actual page function for the add applet form
+async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    todo!()
+}
+
+///The page for showing an add applet form
+pub async fn ca_add_applet_form(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_add_applet_form(ca, &s).await
+            } else {
+                todo!()
+            }
+        }
+        PkiInstance::Ca(ca) => handle_ca_add_applet_form(ca, &s).await,
+    }
+}
+
 /// The page that triggers web server early exit
 async fn handle_ca_test_exit(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     if let Some(shutdown) = &ca.shutdown {

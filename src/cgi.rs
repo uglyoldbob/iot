@@ -290,6 +290,19 @@ async fn main() {
                 let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
+            Some("add_applet") => {
+                let resp = ca::ca_add_applet_form(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap_or_default()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                cgi::html_response(200, response)
+            }
             Some("view_applet") => {
                 if let Some(applet_id) = get_map.get("id") {
                     todo!()
