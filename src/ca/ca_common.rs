@@ -1080,7 +1080,7 @@ impl OwnerOptions {
     }
 
     #[cfg(target_family = "windows")]
-    pub fn set_owner(&self, p: &PathBuf, permissions: u32) {
+    pub fn set_owner(&self, p: &PathBuf, permissions: u32) -> Result<(), std::io::Error> {
         service::log::debug!("Set owner of {}", p.display());
         let (ox, ow, or) = (
             ((permissions & 1) != 0),
@@ -1118,6 +1118,7 @@ impl OwnerOptions {
         service::log::debug!("Read only {}", !uw);
         perms.set_readonly(!uw);
         std::fs::set_permissions(p, perms).unwrap(); //TODO remove this unwrap
+        Ok(())
     }
 }
 

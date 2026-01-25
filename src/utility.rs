@@ -8,6 +8,13 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
         .collect()
 }
 
+/// Build a base64 encoded toml string from an object
+pub fn build_toml_string(doc: impl serde::Serialize) -> String {
+    use base64::Engine;
+    let c = toml::to_string(&doc).unwrap();
+    base64::prelude::BASE64_STANDARD_NO_PAD.encode(c)
+}
+
 /// Encode a vec of bytes to a hex string with no separators
 pub fn encode_hex(d: &[u8]) -> String {
     let mut start_index = 0;

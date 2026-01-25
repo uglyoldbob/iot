@@ -32,11 +32,6 @@ use crate::{
     main_config::MainConfigurationAnswers,
 };
 
-fn build_toml_string(doc: &MainConfigurationAnswers) -> String {
-    let c = toml::to_string(doc).unwrap();
-    base64::prelude::BASE64_STANDARD_NO_PAD.encode(c)
-}
-
 #[derive(strum::FromRepr, Debug, PartialEq)]
 #[repr(usize)]
 enum BuildStep {
@@ -160,7 +155,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Start"))
                     });
@@ -191,7 +186,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Hardware"))
                     });
@@ -206,7 +201,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Software"))
                     });
@@ -229,7 +224,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.text("Path for software security module files");
                         f.line_break(|a| a);
@@ -256,7 +251,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.text("Path override for hardware security module library");
                         f.line_break(|a| a);
@@ -299,7 +294,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -343,7 +338,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Try again"))
                         });
@@ -377,7 +372,7 @@ async fn main() {
                                 f.input(|i| {
                                     i.type_("hidden")
                                         .name("object")
-                                        .value(build_toml_string(&toml))
+                                        .value(utility::build_toml_string(&toml))
                                 });
                                 f.button(|b| b.type_("submit").text("Next"))
                             });
@@ -403,7 +398,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Next"))
                     });
@@ -436,7 +431,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -478,7 +473,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Next"))
                     });
@@ -519,7 +514,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -548,7 +543,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Next"))
                     });
@@ -600,7 +595,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -621,7 +616,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -648,7 +643,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("Next"))
                     });
@@ -683,7 +678,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -706,7 +701,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.text("HTTPS"))
                     });
@@ -720,7 +715,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b: &mut html::forms::builders::ButtonBuilder| b.text("SSH"))
                     });
@@ -742,7 +737,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.input(|i| i.type_("hidden").name("method").value("RsaSha256"));
                         f.button(|b| b.text("RsaSha256"))
@@ -757,7 +752,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.input(|i| i.type_("hidden").name("method").value("EcdsaSha256"));
                         f.button(|b| b.text("EcdsaSha256"))
@@ -797,7 +792,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -820,7 +815,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.input(|i| i.type_("hidden").name("method").value("Rsa"));
                         f.button(|b| b.text("Rsa"))
@@ -835,7 +830,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.input(|i| i.type_("hidden").name("method").value("Ed25519"));
                         f.button(|b| b.text("Ed25519"))
@@ -875,7 +870,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -898,7 +893,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.text("Path for generated certificates");
                         f.line_break(|a| a);
@@ -931,7 +926,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -954,7 +949,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.type_("submit").text("External"))
                     });
@@ -969,7 +964,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.type_("submit").text("Soft Internal"))
                     });
@@ -990,7 +985,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.button(|b| b.type_("submit").text("Next"))
                     });
@@ -1014,7 +1009,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -1037,7 +1032,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.text("Admin access password - used to access the admin certificate");
                         f.line_break(|a| a);
@@ -1099,7 +1094,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Next"))
                         });
@@ -1122,7 +1117,7 @@ async fn main() {
                         f.input(|i| {
                             i.type_("hidden")
                                 .name("object")
-                                .value(build_toml_string(&toml))
+                                .value(utility::build_toml_string(&toml))
                         });
                         f.text("Common Name");
                         f.line_break(|a| a);
@@ -1195,7 +1190,7 @@ async fn main() {
                             f.input(|i| {
                                 i.type_("hidden")
                                     .name("object")
-                                    .value(build_toml_string(&toml))
+                                    .value(utility::build_toml_string(&toml))
                             });
                             f.button(|b| b.type_("submit").text("Finish"))
                         });

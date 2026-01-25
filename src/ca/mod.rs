@@ -3,14 +3,25 @@
 use std::sync::Arc;
 
 use hyper::header::HeaderValue;
+use strum::IntoEnumIterator;
 
-use crate::webserver::{WebPageContext, WebResponse, WebRouter};
+use crate::{
+    applets::AppletTrait,
+    webserver::{WebPageContext, WebResponse, WebRouter},
+};
 
 use cert_common::{oid::*, CertificateSigningMethod, HttpsSigningMethod};
 
 /// The module for using a certificate authority
 pub mod ca_common;
 pub use ca_common::*;
+
+#[derive(strum::FromRepr, Debug, PartialEq)]
+#[repr(usize)]
+enum AppletBuildStep {
+    ListApplets,
+    GetAppletElements,
+}
 
 /// Handle a request submission for a certificate authority
 async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
@@ -766,7 +777,69 @@ pub async fn ca_main_page(s: WebPageContext) -> WebResponse {
 
 /// The actual page function for the add applet form
 async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
-    todo!()
+    let mut step = 0;
+    let f = s.post.form();
+    if let Some(form) = f {
+        if let Some(a) = form.get_first("step") {
+            if let Ok(v) = a.parse::<usize>() {
+                step = v;
+            }
+        }
+    }
+    let Some(step) = AppletBuildStep::from_repr(step) else {
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid step"));
+        return WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        };
+    };
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
+    match step {
+        AppletBuildStep::ListApplets => {
+            let mut applets = Vec::new();
+            for a in crate::applets::AppletInstance::iter() {
+                applets.push(a);
+            }
+            html.body(|b| {
+                b.text("Select applet type");
+                b.line_break(|a| a);
+                for a in applets {
+                    b.form(|f| {
+                        f.method("POST");
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("step")
+                                .value(format!("{}", AppletBuildStep::GetAppletElements as usize))
+                        });
+                        f.input(|i| {
+                            i.type_("hidden")
+                                .name("applet_config")
+                                .value(crate::utility::build_toml_string(&a))
+                        });
+                        f.button(|b| b.text(format!("{}", a.name())));
+                        f
+                    });
+                    b.line_break(|lb| lb);
+                }
+                b
+            });
+        }
+        AppletBuildStep::GetAppletElements => {
+            
+        }
+    }
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
 }
 
 ///The page for showing an add applet form
