@@ -113,21 +113,12 @@ async fn main() {
         let example = MainConfigurationAnswers::default();
         let example = toml::to_string(&example).unwrap();
 
-        let toml_plain = post_map
-            .get("object")
-            .map(|a| base64::prelude::BASE64_STANDARD_NO_PAD.decode(a).ok())
-            .unwrap_or(None)
-            .map(|t| String::from_utf8(t).ok())
-            .flatten();
-        let toml_decoded = toml_plain
-            .clone()
-            .map(|t| toml::from_str::<MainConfigurationAnswers>(&t).ok())
-            .flatten();
-        let toml_value = match &toml_decoded {
-            Some(a) => a.clone(),
-            None => MainConfigurationAnswers::default(),
+        let toml_entry = post_map.get("object");
+        let mut toml = if let Some(t) = toml_entry {
+            utility::decode_toml_string(t).unwrap_or_default()
+        } else {
+            MainConfigurationAnswers::default()
         };
-        let mut toml = toml_value;
 
         let step = post_map
             .get("step")

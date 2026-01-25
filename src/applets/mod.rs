@@ -9,6 +9,12 @@ pub trait AppletTrait {
     fn name(&self) -> &str;
     /// Get a list of groups for the applet
     fn groups(&self) -> Vec<&str>;
+    /// Build the html form for modifying the data
+    fn html_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        html: &mut html::root::builders::HtmlBuilder,
+        fbm: F,
+    );
 }
 
 /// The individual applet instance type

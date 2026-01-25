@@ -6,7 +6,7 @@ use hyper::header::HeaderValue;
 use strum::IntoEnumIterator;
 
 use crate::{
-    applets::AppletTrait,
+    applets::{self, AppletTrait},
     webserver::{WebPageContext, WebResponse, WebRouter},
 };
 
@@ -21,6 +21,7 @@ pub use ca_common::*;
 enum AppletBuildStep {
     ListApplets,
     GetAppletElements,
+    FinishAppletElement,
 }
 
 /// Handle a request submission for a certificate authority
@@ -828,7 +829,47 @@ async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebRespon
             });
         }
         AppletBuildStep::GetAppletElements => {
-            
+            let f = s.post.form();
+            if let Some(form) = f {
+                if let Some(a) = form.get_first("applet_config") {
+                    if let Some(applet) = crate::utility::decode_toml_string(a) {
+                        let mut applet: crate::applets::AppletInstance = applet;
+                        applet.html_form(&mut html, |fb| {
+                            fb.method("POST");
+                            fb.input(|i| {
+                                i.type_("hidden").name("step").value(format!(
+                                    "{}",
+                                    AppletBuildStep::FinishAppletElement as usize
+                                ))
+                            });
+                            fb.input(|i| {
+                                i.type_("hidden")
+                                    .name("applet_config")
+                                    .value(crate::utility::build_toml_string(&a))
+                            });
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    fb.input(|ib| {
+                                        ib.type_("hidden").name("action").value("add_applet")
+                                    });
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    fb.action("ca/add_applet.rs");
+                                }
+                            }
+                        });
+                    } else {
+                        html.body(|b| b.text("Invalid form data"));
+                    }
+                } else {
+                    html.body(|b| b.text("Invalid form data"));
+                }
+            } else {
+                html.body(|b| b.text("Invalid form data"));
+            }
+        }
+        AppletBuildStep::FinishAppletElement => {
+            todo!()
         }
     }
     let html = html.build();

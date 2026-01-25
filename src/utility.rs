@@ -15,6 +15,14 @@ pub fn build_toml_string(doc: impl serde::Serialize) -> String {
     base64::prelude::BASE64_STANDARD_NO_PAD.encode(c)
 }
 
+/// Decode an object from the output of `build_toml_string`
+pub fn decode_toml_string<T: serde::de::DeserializeOwned>(v: &str) -> Option<T> {
+    use base64::Engine;
+    let d = base64::prelude::BASE64_STANDARD_NO_PAD.decode(v).ok()?;
+    let d = String::from_utf8(d).ok()?;
+    toml::from_str::<T>(&d).ok()
+}
+
 /// Encode a vec of bytes to a hex string with no separators
 pub fn encode_hex(d: &[u8]) -> String {
     let mut start_index = 0;
