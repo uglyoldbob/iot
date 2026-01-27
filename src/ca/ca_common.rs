@@ -1349,6 +1349,11 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(_p) => {
                 let mut s = String::new();
                 s.push_str(&format!("{name} "));
+                match field.ty {
+                    crate::applets::FieldType::Integer => s.push_str("INTEGER "),
+                    crate::applets::FieldType::Text => s.push_str("TEXT "),
+                    crate::applets::FieldType::Blob => s.push_str("BLOB "),
+                }
                 if field.primary_key {
                     s.push_str("PRIMARY KEY ");
                 }
@@ -3714,8 +3719,7 @@ impl Ca {
             if let MaybeError::Ok((id, dcert)) = self.get_cert_id_with_serial(serial).await {
                 if dcert.tbs_certificate.subject == cert.tbs_certificate.subject {
                     return Some(id);
-                }
-                else {
+                } else {
                     service::log::error!("Subjects dont match");
                 }
             } else {

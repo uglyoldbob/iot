@@ -25,10 +25,7 @@ pub fn decode_toml_string<T: serde::de::DeserializeOwned>(v: &str) -> Option<T> 
 
 /// Encode a vec of bytes to a hex string with no separators
 pub fn encode_hex(d: &[u8]) -> String {
-    let serhex: Vec<String> = d
-        .iter()
-        .map(|e| format!("{:02x}", e))
-        .collect();
+    let serhex: Vec<String> = d.iter().map(|e| format!("{:02x}", e)).collect();
     serhex.join("")
 }
 
