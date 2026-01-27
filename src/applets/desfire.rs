@@ -44,7 +44,7 @@ impl super::AppletTrait for Ev1 {
 
     fn table_setup(&self) -> Vec<AppletTable> {
         vec![AppletTable {
-            name: "test_table".to_string(),
+            name: "applications".to_string(),
             fields: vec![(
                 "v1".to_string(),
                 AppletTableField {
