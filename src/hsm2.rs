@@ -623,7 +623,11 @@ impl SecurityModuleTrait for Hsm {
             HttpsSigningMethod::RsaSha256 => {
                 let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
                 let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
+                #[cfg(target_os = "windows")]
                 let bits: cryptoki::types::Ulong = (keysize as u32).into();
+                #[cfg(not(target_os = "windows"))]
+                let bits: cryptoki::types::Ulong = (keysize as u64).into();
+
                 let pub_key_template = vec![
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Private(false),

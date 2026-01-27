@@ -37,4 +37,8 @@ impl super::AppletTrait for Ev1 {
             self.table_name = t.to_string();
         }
     }
+
+    fn table_names(&self) -> Vec<&str> {
+        vec!["test_table"]
+    }
 }

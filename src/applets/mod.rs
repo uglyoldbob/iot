@@ -17,6 +17,8 @@ pub trait AppletTrait {
     );
     /// Apply changes from the html form
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
+    /// Get list of all tables
+    fn table_names(&self) -> Vec<&str>;
 }
 
 /// The individual applet instance type
