@@ -702,46 +702,55 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                     }
                 }
                 b.line_break(|lb| lb);
-                if admin {
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Add an applet");
+                            ab.href("?action=add_applet");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Add an applet");
+                            ab.href("ca/add_applet.rs");
+                            ab
+                        });
+                    }
+                }
+                b.line_break(|lb| lb);
+            }
+            b.anchor(|ab| {
+                let intent = "host/path";
+                let package = "com.uglyoldbob.RustIotNfc";
+                let url = "https://play.google.com/store/apps/details?Aid=com.uglyoldbob.RustIotNfc";
+                let url = urlencoding::encode(url);
+                let scheme = "register-scheme";
+                ab.href(format!("intent://{intent}#Intent;scheme={scheme};package={package};S.browser_fallback_url={url};end"));
+                ab.text("Open in android app");
+                ab
+            });
+            b.line_break(|lb| lb);
+            if !applets.is_empty() {
+                b.text("List of applets").line_break(|lb| lb);
+                for app in applets {
                     match s.delivery {
                         crate::main_config::PageDelivery::Cgi => {
                             b.anchor(|ab| {
-                                ab.text("Add an applet");
-                                ab.href("?action=add_applet");
+                                ab.text(format!("APP: {}", app.1.name()));
+                                ab.href(format!("?action=view_applet&id={}", app.0));
                                 ab
                             });
                         }
                         crate::main_config::PageDelivery::DedicatedServer => {
                             b.anchor(|ab| {
-                                ab.text("Add an applet");
-                                ab.href("ca/add_applet.rs");
+                                ab.text(format!("APP: {}", app.1.name()));
+                                ab.href(format!("ca/view_applet.rs?id={}", app.0));
                                 ab
                             });
                         }
                     }
                     b.line_break(|lb| lb);
-                }
-                if !applets.is_empty() {
-                    b.text("List of applets").line_break(|lb| lb);
-                    for app in applets {
-                        match s.delivery {
-                            crate::main_config::PageDelivery::Cgi => {
-                                b.anchor(|ab| {
-                                    ab.text(format!("APP: {}", app.1.name()));
-                                    ab.href(format!("?action=view_applet&id={}", app.0));
-                                    ab
-                                });
-                            }
-                            crate::main_config::PageDelivery::DedicatedServer => {
-                                b.anchor(|ab| {
-                                    ab.text(format!("APP: {}", app.1.name()));
-                                    ab.href(format!("ca/view_applet.rs?id={}", app.0));
-                                    ab
-                                });
-                            }
-                        }
-                        b.line_break(|lb| lb);
-                    }
                 }
             }
             b
