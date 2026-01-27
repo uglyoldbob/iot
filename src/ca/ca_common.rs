@@ -1037,13 +1037,12 @@ impl OwnerOptions {
         let luid = crate::utility::Luid::new(None, "SeRestorePrivilege").unwrap(); //TODO remove this unwrap
         let tp = crate::utility::TokenPrivileges::enable(luid);
 
-        let token =
-            crate::utility::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
+        let token = crate::utility::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
         let token = if let Ok(t) = token {
             t
         } else {
-            crate::utility::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES)
-                .unwrap() //TODO remove this unwrap
+            crate::utility::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES).unwrap()
+            //TODO remove this unwrap
         };
         service::log::debug!("Token is obtained");
         let tpo = crate::utility::TokenPrivilegesEnabled::new(token, tp).unwrap(); //TODO remove this unwrap
@@ -2395,7 +2394,11 @@ impl PkiConfigurationEnumAnswers {
 
     pub fn get_user_password(&self) -> Option<String> {
         match self {
-            PkiConfigurationEnumAnswers::Pki(config) => config.service.password.as_ref().map(|a| a.as_str().to_string()),
+            PkiConfigurationEnumAnswers::Pki(config) => config
+                .service
+                .password
+                .as_ref()
+                .map(|a| a.as_str().to_string()),
             PkiConfigurationEnumAnswers::AddedCa(config) => None,
             PkiConfigurationEnumAnswers::Ca { pki_name, config } => config
                 .service

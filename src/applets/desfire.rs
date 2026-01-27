@@ -31,4 +31,10 @@ impl super::AppletTrait for Ev1 {
             })
         });
     }
+
+    fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData) {
+        if let Some(t) = data.get_first("table_name") {
+            self.table_name = t.to_string();
+        }
+    }
 }

@@ -15,6 +15,8 @@ pub trait AppletTrait {
         html: &mut html::root::builders::HtmlBuilder,
         fbm: F,
     );
+    /// Apply changes from the html form
+    fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
 }
 
 /// The individual applet instance type

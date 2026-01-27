@@ -134,7 +134,6 @@ pub fn run_smartcard_sim() -> Option<DroppingProcess> {
     }
 }
 
-
 #[cfg(target_family = "windows")]
 pub struct Luid {
     luid: winapi::shared::ntdef::LUID,

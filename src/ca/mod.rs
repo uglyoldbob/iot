@@ -869,7 +869,22 @@ async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebRespon
             }
         }
         AppletBuildStep::FinishAppletElement => {
-            todo!()
+            let f = s.post.form();
+            if let Some(form) = f {
+                if let Some(a) = form.get_first("applet_config") {
+                    if let Some(applet) = crate::utility::decode_toml_string(a) {
+                        let mut applet: crate::applets::AppletInstance = applet;
+                        applet.apply_form_data(form);
+                        todo!("Save the final applet to the database");
+                    } else {
+                        html.body(|b| b.text("Invalid form data"));
+                    }
+                } else {
+                    html.body(|b| b.text("Invalid form data"));
+                }
+            } else {
+                html.body(|b| b.text("Invalid form data"));
+            }
         }
     }
     let html = html.build();
