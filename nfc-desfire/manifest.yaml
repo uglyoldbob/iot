@@ -38,4 +38,27 @@ android:
           window_soft_input_mode: adjustResize,
           hardware_accelerated: true,
         },
+        { 
+          name: .RegisterActivity,
+          config_changes: 'orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode',
+          exported: true,
+          intent_filters: [
+            {
+              actions: [
+                android.intent.action.VIEW,
+              ],
+              categories: [
+                android.intent.category.BROWSABLE,
+              ],
+              data: [
+                scheme: registerscheme,
+                host: pki.uglyoldbob.com,
+                path: '/register',
+              ]
+            }
+          ],
+          launch_mode: singleTop,
+          window_soft_input_mode: adjustResize,
+          hardware_accelerated: true,
+        },
       ]
