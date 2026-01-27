@@ -845,7 +845,7 @@ async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebRespon
                             fb.input(|i| {
                                 i.type_("hidden")
                                     .name("applet_config")
-                                    .value(crate::utility::build_toml_string(&a))
+                                    .value(crate::utility::build_toml_string(&applet))
                             });
                             match s.delivery {
                                 crate::main_config::PageDelivery::Cgi => {
