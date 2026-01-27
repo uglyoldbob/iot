@@ -307,7 +307,7 @@ pub fn hsm2_path() -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn hsm2_path() -> tss_esapi::tcti_ldr::TctiNameConf {
+pub fn hsm2_path() -> String {
     "unknown".to_string()
 }
 
@@ -623,7 +623,7 @@ impl SecurityModuleTrait for Hsm {
             HttpsSigningMethod::RsaSha256 => {
                 let mechanism = cryptoki::mechanism::Mechanism::RsaPkcsKeyPairGen;
                 let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
-                let bits: cryptoki::types::Ulong = (keysize as u64).into();
+                let bits: cryptoki::types::Ulong = (keysize as u32).into();
                 let pub_key_template = vec![
                     cryptoki::object::Attribute::Token(true),
                     cryptoki::object::Attribute::Private(false),

@@ -303,7 +303,6 @@ library.reset_on_fork = false
         #[cfg(target_family = "windows")]
         {
             service_config.display = format!("Rust Iot {} Service", name);
-            service_config.user_password = answers.password.clone().map(|a| a.to_string());
         }
     }
 

@@ -1018,11 +1018,8 @@ pub struct OwnerOptions {
     #[cfg(target_family = "windows")]
     raw_sid: Vec<winapi::shared::minwindef::BYTE>,
     #[cfg(target_family = "windows")]
-    tpo: windows_privilege::TokenPrivilegesEnabled,
+    tpo: crate::utility::TokenPrivilegesEnabled,
 }
-
-#[cfg(target_family = "windows")]
-mod windows_privilege;
 
 impl OwnerOptions {
     /// Construct a new Self
@@ -1037,19 +1034,19 @@ impl OwnerOptions {
         let sid = windows_acl::helper::name_to_sid(username, None).unwrap(); //TODO remove this unwrap
         service::log::debug!("Lookup returned {:02X?}", sid);
 
-        let luid = windows_privilege::Luid::new(None, "SeRestorePrivilege").unwrap(); //TODO remove this unwrap
-        let tp = windows_privilege::TokenPrivileges::enable(luid);
+        let luid = crate::utility::Luid::new(None, "SeRestorePrivilege").unwrap(); //TODO remove this unwrap
+        let tp = crate::utility::TokenPrivileges::enable(luid);
 
         let token =
-            windows_privilege::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
+            crate::utility::Token::new_thread(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES);
         let token = if let Ok(t) = token {
             t
         } else {
-            windows_privilege::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES)
+            crate::utility::Token::new_process(winapi::um::winnt::TOKEN_ADJUST_PRIVILEGES)
                 .unwrap() //TODO remove this unwrap
         };
         service::log::debug!("Token is obtained");
-        let tpo = windows_privilege::TokenPrivilegesEnabled::new(token, tp).unwrap(); //TODO remove this unwrap
+        let tpo = crate::utility::TokenPrivilegesEnabled::new(token, tp).unwrap(); //TODO remove this unwrap
         service::log::debug!("token privileges obtained");
 
         Self { raw_sid: sid, tpo }
@@ -2392,6 +2389,18 @@ impl PkiConfigurationEnumAnswers {
                 .service
                 .as_ref()
                 .map(|s| s.username.clone())
+                .flatten(),
+        }
+    }
+
+    pub fn get_user_password(&self) -> Option<String> {
+        match self {
+            PkiConfigurationEnumAnswers::Pki(config) => config.service.password.as_ref().map(|a| a.as_str().to_string()),
+            PkiConfigurationEnumAnswers::AddedCa(config) => None,
+            PkiConfigurationEnumAnswers::Ca { pki_name, config } => config
+                .service
+                .as_ref()
+                .map(|s| s.password.as_ref().map(|a| a.as_str().to_string()))
                 .flatten(),
         }
     }
