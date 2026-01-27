@@ -57,8 +57,6 @@ android:
               ],
               data: [ {
                   scheme: registerscheme,
-                  host: pki.uglyoldbob.com,
-                  path: '/register',
               },
               ]
             }

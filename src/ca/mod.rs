@@ -720,14 +720,22 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                 }
                 b.line_break(|lb| lb);
             }
+            let name = ca.public_names.first().unwrap();
+            let url = match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    format!("{}{}?action=register_android", name.domain, name.subdomain)
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    format!("{}{}/register_android.rs", name.domain, name.subdomain)
+                }
+            };
             b.anchor(|ab| {
-                let intent = "pki.uglyoldbob.com/register";
                 let package = "com.uglyoldbob.RustIotNfc";
                 let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
                 let url = urlencoding::encode(url);
                 let scheme = "registerscheme";
                 let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
-                ab.href(format!("intent://{intent}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
+                ab.href(format!("intent://{url}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
                 ab.text("Open in android app");
                 ab
             });

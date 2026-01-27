@@ -28,8 +28,9 @@ fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
 
 pub fn handle_register(ui: &mut eframe::egui::Ui) {
     let mut rd = RegisterData.lock().unwrap();
-    let rd = rd.as_ref();
+    let rd = rd.take();
     if let Some(rd) = rd {
+        log::error!("Got a register of {rd}");
         ui.label(format!("{:?}", rd));
     }
 }
