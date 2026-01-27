@@ -1,5 +1,7 @@
 //! Code for the desfire applet
 
+use super::{AppletTable, AppletTableField, FieldType};
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Ev1 {
     table_name: String,
@@ -38,7 +40,17 @@ impl super::AppletTrait for Ev1 {
         }
     }
 
-    fn table_names(&self) -> Vec<&str> {
-        vec!["test_table"]
+    fn table_setup(&self) -> Vec<AppletTable> {
+        vec![AppletTable {
+            name: "test_table".to_string(),
+            fields: vec![(
+                "v1".to_string(),
+                AppletTableField {
+                    ty: FieldType::Integer,
+                    primary_key: false,
+                    default: None,
+                },
+            )],
+        }]
     }
 }

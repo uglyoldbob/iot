@@ -1315,7 +1315,49 @@ impl CaCertificateStorage {
                 .await.map_err(|_|())?;
             }
         }
+        use crate::applets::AppletTrait;
+        if let Some(applets) = self.retrieve_all_applets().await {
+            for (id, applet) in applets {
+                for table in applet.table_setup() {
+                    let full_table = format!("applet_{}_{}", id, table.name);
+                    let fs: Vec<String> = table
+                        .fields
+                        .iter()
+                        .map(|a| self.get_field_descriptor(&a.0, &a.1))
+                        .collect();
+                    let fields = fs.join(", ");
+                    match self {
+                        CaCertificateStorage::Nowhere => {}
+                        CaCertificateStorage::Sqlite(p) => {
+                            let query =
+                                format!("CREATE TABLE IF NOT EXISTS {full_table} ({fields})");
+                            p.conn(move |conn| conn.execute(&query, []))
+                                .await
+                                .map_err(|_| ())?;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// Retrieve a descriptor for creating tables
+    fn get_field_descriptor(&self, name: &str, field: &crate::applets::AppletTableField) -> String {
+        match self {
+            CaCertificateStorage::Nowhere => String::new(),
+            CaCertificateStorage::Sqlite(_p) => {
+                let mut s = String::new();
+                s.push_str(&format!("{name} "));
+                if field.primary_key {
+                    s.push_str("PRIMARY KEY ");
+                }
+                if let Some(d) = &field.default {
+                    s.push_str("DEFAULT {d} ");
+                }
+                s
+            }
+        }
     }
 
     /// Retrieve the specified applet

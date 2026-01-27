@@ -1,6 +1,36 @@
 //! Code for the individual applets managed by the iot manager
 
+use std::collections::HashMap;
+
 mod desfire;
+
+/// Defines the types of variables that can exist for a column of a table
+pub enum FieldType {
+    /// Integer type
+    Integer,
+    /// String type
+    Text,
+    /// Binary data type
+    Blob,
+}
+
+/// A field for an applet table
+pub struct AppletTableField {
+    /// The type for the field
+    pub ty: FieldType,
+    /// True if this is the primary key.
+    pub primary_key: bool,
+    /// The default value, if applicable
+    pub default: Option<String>,
+}
+
+/// Defines a table for an applet
+pub struct AppletTable {
+    /// The subname of the table
+    pub name: String,
+    /// The fields for the table
+    pub fields: Vec<(String, AppletTableField)>,
+}
 
 /// The main trait for each individual applet to implement
 #[enum_dispatch::enum_dispatch]
@@ -18,7 +48,7 @@ pub trait AppletTrait {
     /// Apply changes from the html form
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
     /// Get list of all tables
-    fn table_names(&self) -> Vec<&str>;
+    fn table_setup(&self) -> Vec<AppletTable>;
 }
 
 /// The individual applet instance type
