@@ -3715,7 +3715,14 @@ impl Ca {
                 if dcert.tbs_certificate.subject == cert.tbs_certificate.subject {
                     return Some(id);
                 }
+                else {
+                    service::log::error!("Subjects dont match");
+                }
+            } else {
+                service::log::error!("Serial {serial:X?} does not exist");
             }
+        } else {
+            service::log::error!("No user cert to do lookup with");
         }
         None
     }
@@ -3957,8 +3964,10 @@ impl Ca {
                 let s2_str = s_str.clone();
                 let cert_id: Result<(usize, Vec<u8>), async_sqlite::Error> = p
                     .conn(move |conn| {
+                        let query =format!("SELECT certs.id,der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str);
+                        service::log::error!("Query: {query}");
                         conn.query_row(
-                            &format!("SELECT id,der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str),
+                            &query,
                             [],
                             |r| {
                                 let a : usize = r.get(0)?;

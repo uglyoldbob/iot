@@ -951,7 +951,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet 1"));
             return WebResponse {
                 response: hyper::http::Response::from_parts(response, body),
                 cookie: s.logincookie.clone(),
@@ -960,7 +960,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     } else {
         let response = hyper::Response::new("dummy");
         let (response, _dummybody) = response.into_parts();
-        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet 2"));
         return WebResponse {
             response: hyper::http::Response::from_parts(response, body),
             cookie: s.logincookie.clone(),
@@ -974,7 +974,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();
-            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet 3"));
             return WebResponse {
                 response: hyper::http::Response::from_parts(response, body),
                 cookie: s.logincookie.clone(),
@@ -983,7 +983,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     } else {
         let response = hyper::Response::new("dummy");
         let (response, _dummybody) = response.into_parts();
-        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet 4"));
         return WebResponse {
             response: hyper::http::Response::from_parts(response, body),
             cookie: s.logincookie.clone(),
