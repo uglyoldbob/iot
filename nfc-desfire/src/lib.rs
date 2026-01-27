@@ -14,6 +14,18 @@ const NFC_KEY_OFFLINE: &str = include_str!("../nfc_key_offline.txt");
 
 #[allow(non_snake_case)]
 #[no_mangle]
+pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_RegisterActivity_nativeDoCustomization(
+    mut env: jni::JNIEnv,
+    _: jni::objects::JClass,
+    jurl: jni::objects::JString,
+) {
+    let url: String = env.get_string(&jurl).expect("invalid string").into();
+    let mut rd = android_nfc::RegisterData.lock().unwrap();
+    rd.replace(url);
+}
+
+#[allow(non_snake_case)]
+#[no_mangle]
 pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
     mut env: jni::JNIEnv,
     this: jni::objects::JObject,
@@ -158,6 +170,7 @@ impl eframe::App for DemoApp {
                 ui.label("I am groot");
                 let ver = self.nfc.get_version();
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
+                android_nfc::handle_register(ui);
             });
         });
     }

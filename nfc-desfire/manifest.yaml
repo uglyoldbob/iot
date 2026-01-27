@@ -23,6 +23,10 @@ android:
       theme: '@android:style/Theme.NoTitleBar.Fullscreen'
       label: "Rust Iot NFC"
       has_code: true
+      meta_data: [
+        { name: android:name, value: android.app.lib_name},
+        { name: android:value, value: rust_iot_nfc},
+      ]
       activities: [
         { 
           name: .ModdedActivity,

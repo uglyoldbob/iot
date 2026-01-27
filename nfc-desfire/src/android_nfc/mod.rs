@@ -10,6 +10,7 @@ use winit::platform::android::activity::AndroidApp;
 lazy_static::lazy_static! {
     pub static ref NxpNfcInstance : Arc<Mutex<Option<NxpNfcLib>>> = Arc::new(Mutex::new(None));
     pub static ref Application : Arc<Mutex<Option<AndroidApp>>> = Arc::new(Mutex::new(None));
+    pub static ref RegisterData : Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 }
 
 fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
@@ -22,6 +23,14 @@ fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
         Ok(context)
     } else {
         Err(std::io::Error::other("Context not created yet"))
+    }
+}
+
+pub fn handle_register(ui: &mut eframe::egui::Ui) {
+    let mut rd = RegisterData.lock().unwrap();
+    let rd = rd.as_ref();
+    if let Some(rd) = rd {
+        ui.label(format!("{:?}", rd));
     }
 }
 
