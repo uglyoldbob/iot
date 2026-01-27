@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::ca::Ca;
+
 mod desfire;
 
 /// Defines the types of variables that can exist for a column of a table
@@ -49,6 +51,13 @@ pub trait AppletTrait {
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
     /// Get list of all tables
     fn table_setup(&self) -> Vec<AppletTable>;
+    /// Run the applet
+    async fn run_applet(
+        &mut self,
+        html: &mut html::root::builders::HtmlBuilder,
+        userid: usize,
+        ca: &mut Ca,
+    );
 }
 
 /// The individual applet instance type

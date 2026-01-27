@@ -89,7 +89,7 @@ async fn handle_ca_submit_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     let _ = ca.save_ssh_request(&sshr).await;
                 }
                 valid_csr = true;
-                serial = todo!();
+                serial = todo!("Generate serial for ssh here?");
             }
         }
     }
@@ -168,7 +168,7 @@ pub async fn ca_submit_request(s: WebPageContext) -> WebResponse {
             if let LocalOrRemoteCa::Local(ca) = ca {
                 handle_ca_submit_request(ca, &s).await
             } else {
-                todo!()
+                todo!("Handle remote ca here")
             }
         }
         PkiInstance::Ca(ca) => handle_ca_submit_request(ca, &s).await,
@@ -420,7 +420,7 @@ pub async fn ca_request(s: WebPageContext) -> WebResponse {
             if let LocalOrRemoteCa::Local(ca) = ca {
                 handle_ca_request(ca, &s).await
             } else {
-                todo!()
+                todo!("Handle remote ca here")
             }
         }
         PkiInstance::Ca(ca) => handle_ca_request(ca, &s).await,
@@ -769,7 +769,7 @@ pub async fn ca_main_page(s: WebPageContext) -> WebResponse {
             if let LocalOrRemoteCa::Local(ca) = ca {
                 handle_ca_main_page(ca, &s).await
             } else {
-                todo!()
+                todo!("Handle remote ca here")
             }
         }
         PkiInstance::Ca(ca) => handle_ca_main_page(ca, &s).await,
@@ -875,7 +875,32 @@ async fn handle_ca_add_applet_form(ca: &mut Ca, s: &WebPageContext) -> WebRespon
                     if let Some(applet) = crate::utility::decode_toml_string(a) {
                         let mut applet: crate::applets::AppletInstance = applet;
                         applet.apply_form_data(form);
-                        todo!("Save the final applet to the database");
+                        match ca.insert_new_applet(applet).await {
+                            Ok(_) => {
+                                html.body(|b| {
+                                    b.text("Applet created");
+                                    b.line_break(|a| a);
+                                    b.anchor(|ab| {
+                                        ab.text("Back to main page");
+                                        ab.href("?");
+                                        ab
+                                    });
+                                    b
+                                });
+                            }
+                            Err(_) => {
+                                html.body(|b| {
+                                    b.text("Failed to create applet");
+                                    b.line_break(|a| a);
+                                    b.anchor(|ab| {
+                                        ab.text("Back to main page");
+                                        ab.href("?");
+                                        ab
+                                    });
+                                    b
+                                });
+                            }
+                        }
                     } else {
                         html.body(|b| b.text("Invalid form data"));
                     }
@@ -914,6 +939,84 @@ pub async fn ca_add_applet_form(s: WebPageContext) -> WebResponse {
             }
         }
         PkiInstance::Ca(ca) => handle_ca_add_applet_form(ca, &s).await,
+    }
+}
+
+/// The actual page function for the add applet form
+async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    let mut applet = 0;
+    if let Some(applet_id) = s.get.get("id") {
+        if let Ok(v) = applet_id.parse::<usize>() {
+            applet = v;
+        } else {
+            let response = hyper::Response::new("dummy");
+            let (response, _dummybody) = response.into_parts();
+            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+            return WebResponse {
+                response: hyper::http::Response::from_parts(response, body),
+                cookie: s.logincookie.clone(),
+            };
+        }
+    } else {
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+        return WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        };
+    }
+    let mut html = html::root::Html::builder();
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
+    if let Some(userid) = ca.get_current_user(&s.user_certs).await {
+        if let Some(mut applet) = ca.medium.retrieve_applet(applet as u32).await {
+            applet.run_applet(&mut html, userid, ca).await;
+        } else {
+            let response = hyper::Response::new("dummy");
+            let (response, _dummybody) = response.into_parts();
+            let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+            return WebResponse {
+                response: hyper::http::Response::from_parts(response, body),
+                cookie: s.logincookie.clone(),
+            };
+        }
+    } else {
+        let response = hyper::Response::new("dummy");
+        let (response, _dummybody) = response.into_parts();
+        let body = http_body_util::Full::new(hyper::body::Bytes::from("Invalid applet"));
+        return WebResponse {
+            response: hyper::http::Response::from_parts(response, body),
+            cookie: s.logincookie.clone(),
+        };
+    }
+
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+///The page for showing an add applet form
+pub async fn ca_view_applet(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_view_applet(ca, &s).await
+            } else {
+                todo!()
+            }
+        }
+        PkiInstance::Ca(ca) => handle_ca_view_applet(ca, &s).await,
     }
 }
 

@@ -1,5 +1,7 @@
 //! Code for the desfire applet
 
+use crate::ca::Ca;
+
 use super::{AppletTable, AppletTableField, FieldType};
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -52,5 +54,23 @@ impl super::AppletTrait for Ev1 {
                 },
             )],
         }]
+    }
+
+    async fn run_applet(
+        &mut self,
+        html: &mut html::root::builders::HtmlBuilder,
+        userid: usize,
+        ca: &mut Ca,
+    ) {
+        html.body(|b| {
+            b.text("This is the desvfire ev1 applet");
+            b.line_break(|a| a);
+            b.anchor(|ab| {
+                ab.text("Back to main page");
+                ab.href("?");
+                ab
+            });
+            b
+        });
     }
 }

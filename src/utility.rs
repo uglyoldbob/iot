@@ -294,3 +294,34 @@ impl TokenPrivilegesEnabled {
         Ok(Self { token, prev })
     }
 }
+
+/// Represents the ways user certs can make it to us
+pub enum UserCert {
+    /// The user certs came directly from tls, could be a user certificate or a load balancer (reverse proxy) certificate.
+    HttpsCert(x509_cert::Certificate),
+    /// The user certs came from http headers
+    ProxyCert(x509_cert::Certificate),
+}
+
+/// A list of all the `UserCert` that the current page knows about.
+pub struct UserCerts {
+    pub inner: Vec<UserCert>,
+}
+
+impl UserCerts {
+    /// Build a new blank list
+    pub fn new() -> Self {
+        Self { inner: Vec::new() }
+    }
+
+    /// Return a list of all certs, regardless of how the made it here
+    pub fn all_certs(&self) -> Vec<&x509_cert::Certificate> {
+        self.inner
+            .iter()
+            .map(|c| match c {
+                UserCert::HttpsCert(a) => a,
+                UserCert::ProxyCert(a) => a,
+            })
+            .collect()
+    }
+}

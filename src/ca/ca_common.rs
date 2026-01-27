@@ -1417,6 +1417,26 @@ impl CaCertificateStorage {
         }
     }
 
+    /// Insert a new applet into the database
+    pub async fn insert_new_applet(
+        &mut self,
+        applet: crate::applets::AppletInstance,
+    ) -> Result<usize, ()> {
+        let applet_def = toml::to_string(&applet).map_err(|_| ())?;
+        match self {
+            CaCertificateStorage::Nowhere => Err(()),
+            CaCertificateStorage::Sqlite(p) => p
+                .conn(move |conn| {
+                    let mut stmt = conn
+                        .prepare("INSERT INTO applets (definition) VALUES (?1)")
+                        .expect("Failed to build prepared statement");
+                    stmt.execute([applet_def.to_sql().unwrap()])
+                })
+                .await
+                .map_err(|_| ()),
+        }
+    }
+
     /// Initialize the storage medium
     pub async fn init(&mut self, settings: &crate::ca::CaConfiguration) -> Result<(), ()> {
         let sign_method = settings.sign_method;
@@ -3685,6 +3705,35 @@ impl Ca {
         self.shutdown = Some(sd);
     }
 
+    /// Get the current user details, serial number and subject must be valid
+    pub async fn get_current_user(&self, s: &crate::utility::UserCerts) -> Option<usize> {
+        let certs = s.all_certs();
+        let cert = certs.first();
+        if let Some(cert) = cert {
+            let serial = cert.tbs_certificate.serial_number.as_bytes();
+            if let MaybeError::Ok((id, dcert)) = self.get_cert_id_with_serial(serial).await {
+                if dcert.tbs_certificate.subject == cert.tbs_certificate.subject {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+
+    /// Save a new applet to the database
+    pub async fn insert_new_applet(
+        &mut self,
+        applet: crate::applets::AppletInstance,
+    ) -> Result<usize, ()> {
+        self.medium.insert_new_applet(applet).await
+    }
+
+    /// Determine if the specified user belongs in the specified group
+    pub async fn does_userid_belong_in_group(&self, id: usize, group: &str) -> bool {
+        todo!();
+        false
+    }
+
     pub async fn revoke_certificate(&mut self, form: RevokeFormData) -> Result<(), ()> {
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
@@ -3891,6 +3940,72 @@ impl Ca {
             #[cfg(feature = "tpm2")]
             tpm2_required: settings.tpm2_required,
         })
+    }
+
+    /// Retrieves a certificate id and certificate, if it is valid, or a reason for it to be invalid
+    /// # Arguments
+    /// * serial - The serial number of the certificate
+    pub async fn get_cert_id_with_serial(
+        &self,
+        serial: &[u8],
+    ) -> MaybeError<(usize, x509_cert::Certificate), ocsp::response::RevokedInfo> {
+        let s_str = crate::utility::encode_hex(serial);
+        service::log::info!("Looking for serial number {}", s_str);
+        match &self.medium {
+            CaCertificateStorage::Nowhere => MaybeError::None,
+            CaCertificateStorage::Sqlite(p) => {
+                let s2_str = s_str.clone();
+                let cert_id: Result<(usize, Vec<u8>), async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            &format!("SELECT id,der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str),
+                            [],
+                            |r| {
+                                let a : usize = r.get(0)?;
+                                let c : Vec<u8> = r.get(1)?;
+                                Ok((a,c))
+                            }
+                        )
+                    })
+                    .await;
+
+                let revoke_query = p
+                .conn(move |conn| {
+                    conn.query_row(
+                        &format!("SELECT date, reason FROM revoked INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s_str),
+                        [],
+                        |r| {
+                            let dbentry = DbEntry::new(r);
+                            let revoke_data = RevokeData::try_from(dbentry);
+                            revoke_data
+                        }
+                    )
+                });
+                match cert_id {
+                    Ok(c) => {
+                        let revoked = revoke_query.await;
+                        match revoked {
+                            Ok(revoked) => MaybeError::Err(revoked.data),
+                            Err(_) => {
+                                use der::Decode;
+                                let cert = x509_cert::Certificate::from_der(&c.1);
+                                match cert {
+                                    Ok(cert) => {
+                                        service::log::info!("Found the cert");
+                                        MaybeError::Ok((c.0, cert))
+                                    }
+                                    Err(_e) => MaybeError::None,
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        service::log::error!("Did not find the cert {:?}", e);
+                        MaybeError::None
+                    }
+                }
+            }
+        }
     }
 
     /// Initialize a Ca instance with the specified configuration.
@@ -4809,68 +4924,6 @@ impl Ca {
         Ok(urls)
     }
 
-    /// Retrieves a certificate, if it is valid, or a reason for it to be invalid
-    /// # Arguments
-    /// * serial - The serial number of the certificate
-    async fn get_cert_by_serial(
-        &self,
-        serial: &[u8],
-    ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
-        let s_str = crate::utility::encode_hex(serial);
-        service::log::info!("Looking for serial number {}", s_str);
-        match &self.medium {
-            CaCertificateStorage::Nowhere => MaybeError::None,
-            CaCertificateStorage::Sqlite(p) => {
-                let s2_str = s_str.clone();
-                let cert: Result<Vec<u8>, async_sqlite::Error> = p
-                    .conn(move |conn| {
-                        conn.query_row(
-                            &format!("SELECT der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str),
-                            [],
-                            |r| r.get(0),
-                        )
-                    })
-                    .await;
-
-                let revoke_query = p
-                .conn(move |conn| {
-                    conn.query_row(
-                        &format!("SELECT date, reason FROM revoked INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s_str),
-                        [],
-                        |r| {
-                            let dbentry = DbEntry::new(r);
-                            let revoke_data = RevokeData::try_from(dbentry);
-                            revoke_data
-                        }
-                    )
-                });
-                match cert {
-                    Ok(c) => {
-                        let revoked = revoke_query.await;
-                        match revoked {
-                            Ok(revoked) => MaybeError::Err(revoked.data),
-                            Err(_) => {
-                                use der::Decode;
-                                let c = x509_cert::Certificate::from_der(&c);
-                                match c {
-                                    Ok(c) => {
-                                        service::log::info!("Found the cert");
-                                        MaybeError::Ok(c)
-                                    }
-                                    Err(_e) => MaybeError::None,
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        service::log::error!("Did not find the cert {:?}", e);
-                        MaybeError::None
-                    }
-                }
-            }
-        }
-    }
-
     /// Attempt to load a certificate by id
     async fn load_user_cert(&self, id: u64) -> Result<CaCertificate, CertificateLoadingError> {
         match &self.medium {
@@ -5190,9 +5243,9 @@ impl Ca {
                 .raw_bytes();
             let keyhash = hash.hash(key2).ok_or(())?;
             if keyhash == certid.issuer_key_hash {
-                let cert = self.get_cert_by_serial(&certid.serial_num).await;
+                let cert = self.get_cert_id_with_serial(&certid.serial_num).await;
                 match cert {
-                    MaybeError::Ok(_cert) => {
+                    MaybeError::Ok(_cert_id) => {
                         status = ocsp::response::CertStatusCode::Good;
                     }
                     MaybeError::Err(e) => {
@@ -5304,8 +5357,10 @@ impl CertAttribute {
     pub fn with_oid_and_data(oid: Oid, data: der::asn1::OctetString) -> Result<Self, ()> {
         if oid == *OID_CERT_EXTENDED_KEY_USAGE {
             let oids: Vec<yasna::models::ObjectIdentifier> =
-                yasna::parse_der(data.as_bytes(), |r| r.collect_sequence_of(|r| r.read_oid()))
-                    .map_err(|_| ())?;
+                yasna::parse_der(data.as_bytes(), |r: yasna::BERReader<'_, '_>| {
+                    r.collect_sequence_of(|r| r.read_oid())
+                })
+                .map_err(|_| ())?;
             let eku = oids
                 .iter()
                 .map(|o| Oid::from_yasna(o.clone()).into())

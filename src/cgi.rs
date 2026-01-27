@@ -23,7 +23,8 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-use crate::webserver::{PostContent, UserCert};
+use crate::utility::UserCert;
+use crate::webserver::PostContent;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -121,7 +122,7 @@ async fn main() {
             get_map
         };
 
-        let mut ucerts = webserver::UserCerts::new();
+        let mut ucerts = utility::UserCerts::new();
         if let Ok(cert) = std::env::var("SSL_CLIENT_CERT") {
             if let Ok(c) = x509_cert::Certificate::from_pem(cert) {
                 ucerts.inner.push(UserCert::HttpsCert(c));
@@ -304,11 +305,17 @@ async fn main() {
                 cgi::html_response(200, response)
             }
             Some("view_applet") => {
-                if let Some(applet_id) = get_map.get("id") {
-                    todo!()
-                } else {
-                    todo!()
-                }
+                let resp = ca::ca_view_applet(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap_or_default()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                cgi::html_response(200, response)
             }
             _ => {
                 let resp = ca::ca_main_page(p).await;

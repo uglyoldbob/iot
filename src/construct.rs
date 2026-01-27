@@ -434,7 +434,7 @@ library.reset_on_fork = false
                 "Creating extended configuration at {:?}",
                 new_config.display()
             );
-            todo!();
+            todo!("Do something with extended configuration here");
 
             #[cfg(feature = "tpm2")]
             {

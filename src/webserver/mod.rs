@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio_rustls::rustls::RootCertStore;
 
+use crate::utility::{UserCert, UserCerts};
 use cookie::Cookie;
 
 /// Represents the response of an async function web handler. Contains web page data and cookie information.
@@ -106,37 +107,6 @@ pub struct ExtraContext {
     pub https: bool,
     /// The optional list of user certificates
     pub user_certs: Arc<Option<Vec<x509_cert::Certificate>>>,
-}
-
-/// Represents the ways user certs can make it to us
-pub enum UserCert {
-    /// The user certs came directly from tls, could be a user certificate or a load balancer (reverse proxy) certificate.
-    HttpsCert(x509_cert::Certificate),
-    /// The user certs came from http headers
-    ProxyCert(x509_cert::Certificate),
-}
-
-/// A list of all the `UserCert` that the current page knows about.
-pub struct UserCerts {
-    pub inner: Vec<UserCert>,
-}
-
-impl UserCerts {
-    /// Build a new blank list
-    pub fn new() -> Self {
-        Self { inner: Vec::new() }
-    }
-
-    /// Return a list of all certs, regardless of how the made it here
-    pub fn all_certs(&self) -> Vec<&x509_cert::Certificate> {
-        self.inner
-            .iter()
-            .map(|c| match c {
-                UserCert::HttpsCert(a) => a,
-                UserCert::ProxyCert(a) => a,
-            })
-            .collect()
-    }
 }
 
 /// Represents the context necessary to render a webpage
