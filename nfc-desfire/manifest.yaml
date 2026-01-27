@@ -49,11 +49,13 @@ android:
               ],
               categories: [
                 android.intent.category.BROWSABLE,
+                android.intent.category.DEFAULT,
               ],
-              data: [
-                scheme: registerscheme,
-                host: pki.uglyoldbob.com,
-                path: '/register',
+              data: [ {
+                  scheme: registerscheme,
+                  host: pki.uglyoldbob.com,
+                  path: '/register',
+              },
               ]
             }
           ],
