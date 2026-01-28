@@ -77,6 +77,14 @@ fn generate_csr(action: String) {
     rd.replace(RegistrationStep::SubmitCsr(action, der));
 }
 
+/// Decode a hex string to a vec of bytes
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
+}
+
 pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> bool {
     let mut rd = RegisterData.lock().unwrap();
     let rd = rd.as_mut();
@@ -111,6 +119,7 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
             RegistrationStep::SubmitCsr(url, csr) => {
                 ui.label(format!("Need to submit generated csr {csr:x?}"));
                 let settings = app.settings.as_mut().expect("No settings found");
+                let mut save_config = false;
                 let client = reqwest::blocking::ClientBuilder::new();
                 if let Ok(client) = client
                     .danger_accept_invalid_hostnames(true)
@@ -122,16 +131,32 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     form.insert("name", "Android User".to_string());
                     form.insert("email", "test@example.com".to_string());
                     form.insert("phone", "867-5309".to_string());
+                    form.insert("smartcard", "1".to_string());
                     settings.csr_der.replace(csr.to_owned());
+                    save_config = true;
                     let res = client.post(format!("https://{}", url)).form(&form).send();
                     log::error!("The submission result is {:?}", res);
                     if let Ok(r) = res {
                         let b = r.bytes().expect("Unable to read response").to_vec();
-                        if let Ok(s) = String::from_utf8(b) {
-                            log::error!("Response is {s}");
+                        if let Ok(d) = String::from_utf8(b) {
+                            log::error!("Response is {d}");
+                            let h = url_encoded_data::UrlEncodedData::parse_str(&d);
+                            let serial = h.get("serial");
+                            if let Some(serial) = serial {
+                                if let Some(serial) = serial.first() {
+                                    if let Ok(serial) = decode_hex(serial) {
+                                        log::error!("The serial is {:02x?}", serial);
+                                        settings.cert_serial.replace(serial);
+                                        save_config = true;
+                                    }
+                                }
+                            }
                         }
                     }
                     *a = RegistrationStep::WaitingForApproval(url.clone());
+                }
+                if save_config {
+                    app.save_config().expect("Failed to save config");
                 }
             }
             RegistrationStep::WaitingForApproval(action) => {
@@ -141,8 +166,8 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     *a = RegistrationStep::CheckCertificate(action.to_owned());
                 }
                 ui.label(format!(
-                    "Waiting for approval of login details {0:x?}",
-                    settings.csr_der
+                    "Waiting for approval of login details: cert serial {0:x?}",
+                    settings.cert_serial
                 ));
             }
             RegistrationStep::AlreadyRegistered => {

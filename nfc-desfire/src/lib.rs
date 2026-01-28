@@ -73,6 +73,8 @@ enum AppConfigError {
 pub struct AppConfig {
     /// The csr for registration
     pub csr_der: Option<String>,
+    /// The serial number of the certificate
+    cert_serial: Option<Vec<u8>>,
     /// The der format of x509_cert::Certificate
     certificate: Option<Vec<u8>>,
 }
