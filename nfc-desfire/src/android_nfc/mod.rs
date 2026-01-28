@@ -114,8 +114,11 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
         match a {
             RegistrationStep::GotUrl(b) => {
                 if let Some(c) = b.strip_prefix("registerscheme://") {
+                    let c2 = c.to_owned();
                     log::error!("Need to register with {c}");
                     *a = RegistrationStep::CheckCertificate(c.to_string());
+                    let settings = app.settings.as_mut().expect("No settings found");
+                    settings.server_url.replace(c2);
                 }
             }
             RegistrationStep::CheckCertificate(action) => {

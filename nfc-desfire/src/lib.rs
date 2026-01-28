@@ -82,6 +82,8 @@ pub struct AppConfig {
     cert_serial: Option<Vec<u8>>,
     /// The der format of x509_cert::Certificate
     certificate: Option<String>,
+    /// The url to use for the server
+    server_url: Option<String>,
 }
 
 impl AppConfig {
@@ -243,14 +245,16 @@ impl eframe::App for DemoApp {
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
                 android_nfc::handle_register(self, ui);
                 if let Some(client) = android_nfc::get_client(self) {
-                    if ui.button("Check login").clicked() {
-                        let res = client.get("https://pki.uglyoldbob.com/rust-iot.cgi").send();
-                        log::error!("Check returned {res:?}");
-                        if let Ok(r) = res {
-                            if let Ok(data) = r.bytes() {
-                                let data = data.to_vec();
-                                if let Ok(s) = str::from_utf8(&data) {
-                                    self.test = s.to_string();
+                    if let Ok(Some(url)) = self.settings.as_ref().map(|a| a.server_url.clone()) {
+                        if ui.button("Check login").clicked() {
+                            let res = client.get(format!("https://{url}")).send();
+                            log::error!("Check returned {res:?}");
+                            if let Ok(r) = res {
+                                if let Ok(data) = r.bytes() {
+                                    let data = data.to_vec();
+                                    if let Ok(s) = str::from_utf8(&data) {
+                                        self.test = s.to_string();
+                                    }
                                 }
                             }
                         }
