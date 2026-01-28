@@ -723,7 +723,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
             let name = ca.public_names.first().unwrap();
             let intenturl = match s.delivery {
                 crate::main_config::PageDelivery::Cgi => {
-                    format!("{}{}?action=register_android", name.domain, name.subdomain)
+                    format!("{}{}/rust-iot.cgi?action=register_android", name.domain, name.subdomain)
                 }
                 crate::main_config::PageDelivery::DedicatedServer => {
                     format!("{}{}/register_android.rs", name.domain, name.subdomain)

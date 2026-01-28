@@ -119,6 +119,9 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                 {
                     let mut form = HashMap::new();
                     form.insert("csr", csr.to_owned());
+                    form.insert("name", "Android User".to_string());
+                    form.insert("email", "test@example.com".to_string());
+                    form.insert("phone", "867-5309".to_string());
                     settings.csr_der.replace(csr.to_owned());
                     let res = client.post(format!("https://{}", url)).form(&form).send();
                     log::error!("The submission result is {:?}", res);
