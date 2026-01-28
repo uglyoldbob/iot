@@ -193,16 +193,10 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                                     let data = data.to_vec();
                                     if let Ok(s) = str::from_utf8(&data) {
                                         log::error!("Status is {s}");
-                                        let h = url_encoded_data::UrlEncodedData::parse_str(s);
-                                        let cert = h.get("cert");
-                                        if let Some(cert) = cert {
-                                            if let Some(cert) = cert.first() {
-                                                let cert = cert.to_string();
-                                                settings.certificate.replace(cert);
-                                                *a = RegistrationStep::AlreadyRegistered;
-                                                save_config = true;
-                                            }
-                                        }
+                                        let cert = s.to_string();
+                                        settings.certificate.replace(cert);
+                                        *a = RegistrationStep::AlreadyRegistered;
+                                        save_config = true;
                                     }
                                 }
                             }
@@ -218,7 +212,7 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                 }
             }
             RegistrationStep::AlreadyRegistered => {
-                ui.label("Already registered?");
+                ui.label("Currently registered");
             }
         }
         true
