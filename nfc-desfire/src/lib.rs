@@ -20,8 +20,7 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_RegisterActivity_nativeDoCustom
     jurl: jni::objects::JString,
 ) {
     let url: String = env.get_string(&jurl).expect("invalid string").into();
-    let mut rd = android_nfc::RegisterData.lock().unwrap();
-    rd.replace(url);
+    android_nfc::start_registration(url);
 }
 
 #[allow(non_snake_case)]
@@ -72,12 +71,27 @@ enum AppConfigError {
 
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
 struct AppConfig {
-    asdf: bool,
+    /// The csr for registration
+    pub csr_der: Option<Vec<u8>>,
+    /// The der format of x509_cert::Certificate
+    certificate: Option<Vec<u8>>,
+}
+
+impl AppConfig {
+    pub fn get_cert(&self) -> Option<x509_cert::Certificate> {
+        self.certificate
+            .as_ref()
+            .map(|c| {
+                use x509_cert::der::Decode;
+                x509_cert::Certificate::from_der(c).ok()
+            })
+            .flatten()
+    }
 }
 
 pub struct DemoApp {
     local_storage: Option<std::path::PathBuf>,
-    settings: Result<AppConfig, AppConfigError>,
+    pub settings: Result<AppConfig, AppConfigError>,
     nfc: TapLinx,
 }
 
@@ -111,6 +125,7 @@ impl DemoApp {
 
     fn load_config(&mut self) {
         if let Some(p) = &self.local_storage {
+            log::error!("Got local storage path: {}", p.display());
             let mut config = p.clone();
             config.push("config.bin");
             let settings = if let Ok(false) = std::fs::exists(&config) {
@@ -145,6 +160,8 @@ impl DemoApp {
                 }
             };
             self.settings = settings;
+        } else {
+            log::error!("NO LOCAL SETTINGS DIR?");
         }
     }
 
@@ -189,7 +206,7 @@ impl eframe::App for DemoApp {
                 ui.label("I am groot");
                 let ver = self.nfc.get_version();
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
-                android_nfc::handle_register(ui);
+                android_nfc::handle_register(self, ui);
             });
         });
     }

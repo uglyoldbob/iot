@@ -7,10 +7,18 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use winit::platform::android::activity::AndroidApp;
 
+pub enum RegistrationStep {
+    GotUrl(String),
+    CheckCertificate(String),
+    SubmitCsr(String, Vec<u8>),
+    WaitingForApproval(String),
+    AlreadyRegistered,
+}
+
 lazy_static::lazy_static! {
     pub static ref NxpNfcInstance : Arc<Mutex<Option<NxpNfcLib>>> = Arc::new(Mutex::new(None));
     pub static ref Application : Arc<Mutex<Option<AndroidApp>>> = Arc::new(Mutex::new(None));
-    pub static ref RegisterData : Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    pub static ref RegisterData : Arc<Mutex<Option<RegistrationStep>>> = Arc::new(Mutex::new(None));
 }
 
 fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
@@ -26,12 +34,80 @@ fn get_context<'a>() -> Result<jni::objects::JObject<'a>, std::io::Error> {
     }
 }
 
-pub fn handle_register(ui: &mut eframe::egui::Ui) {
+pub fn start_registration(url: String) {
     let mut rd = RegisterData.lock().unwrap();
-    let rd = rd.take();
-    if let Some(rd) = rd {
-        log::error!("Got a register of {rd}");
-        ui.label(format!("{:?}", rd));
+    rd.replace(RegistrationStep::GotUrl(url));
+}
+
+fn generate_keypair() -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
+    use pkcs8::EncodePrivateKey;
+    use rand::rngs::OsRng;
+    let mut rng = OsRng;
+    let private_key = rsa::RsaPrivateKey::new(&mut rng, 4096).unwrap();
+    let private_key_der = private_key.to_pkcs8_der().unwrap();
+    let pkey = zeroize::Zeroizing::new(private_key_der.as_bytes().to_vec());
+    let key_pair = rcgen::KeyPair::try_from(private_key_der.as_bytes()).unwrap();
+    (key_pair, pkey)
+}
+
+pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
+    let mut rd = RegisterData.lock().unwrap();
+    let rd = rd.as_mut();
+    if let Some(a) = rd {
+        match a {
+            RegistrationStep::GotUrl(b) => {
+                if let Some(c) = b.strip_prefix("registerscheme://") {
+                    log::error!("Need to register with {c}");
+                    *a = RegistrationStep::CheckCertificate(c.to_string());
+                }
+            }
+            RegistrationStep::CheckCertificate(action) => {
+                let settings = app.settings.as_mut().expect("No settings found");
+                log::error!("Checking for certificate and csr");
+                if settings.get_cert().is_none() {
+                    if settings.csr_der.is_none() {
+                        // TODO create the csr in a background thread
+                        let name = "Test name 1";
+                        ui.label("Creating CSR");
+                        let mut params =
+                            rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
+                        params.distinguished_name = rcgen::DistinguishedName::new();
+                        params
+                            .distinguished_name
+                            .push(rcgen::DnType::CommonName, name);
+                        params.not_before = time::OffsetDateTime::now_utc();
+                        params.not_after = params.not_before + time::Duration::days(30);
+                        //params.custom_extensions.append(&mut extensions);
+                        use rand::rngs::OsRng;
+                        use rand::RngCore;
+                        let mut rng = OsRng;
+                        let mut sn = [0u8; 20];
+                        rng.fill_bytes(&mut sn);
+                        let keypair = generate_keypair();
+                        let req = params
+                            .serialize_request(&keypair.0)
+                            .expect("Failed to generate csr");
+                        //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
+                        let der = req.der().to_vec();
+                        settings.csr_der = Some(der.clone());
+                        *a = RegistrationStep::SubmitCsr(action.clone(), der);
+                    } else {
+                        *a = RegistrationStep::WaitingForApproval(action.clone());
+                    }
+                } else {
+                    *a = RegistrationStep::AlreadyRegistered;
+                }
+            }
+            RegistrationStep::SubmitCsr(url, csr) => {
+                ui.label(format!("Need to submit generated csr {csr:x?}"));
+            }
+            RegistrationStep::WaitingForApproval(action) => {
+                ui.label("Waiting for approval of login details");
+            }
+            RegistrationStep::AlreadyRegistered => {
+                ui.label("Already registered?");
+            }
+        }
     }
 }
 

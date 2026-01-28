@@ -25,6 +25,7 @@ public class RegisterActivity extends Activity {
 
         // Launch main Rust UI activity
         Intent intent = new Intent(this, ModdedActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         startActivity(intent);
         finish(); // close RegisterActivity
     }

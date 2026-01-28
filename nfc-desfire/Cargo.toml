@@ -17,11 +17,28 @@ codegen-units = 1
 [dependencies]
 anyhow = "1.0.100"
 bincode = {version = "2.0.1", features = ["serde"]}
+getrandom = "0.2"
 lazy_static = "1.5.0"
 log = "0.4"
 ouroboros = "0.18.5"
+rand = { version = "0.8", features = ["getrandom", "std"] }
+rand_chacha = { version = "0.9.0", features = ["os_rng"] }
+rsa = "0.9.6"
 serde = {version = "1.0.219", features = ["derive"]}
 thiserror = "1.0"
+time = "0.3.34"
+x509-cert = "0.2.5"
+zeroize = "1.7.0"
+
+[dependencies.pkcs8]
+version = "0.10.2"
+features = ["encryption", "pem", "std"]
+
+[dependencies.rcgen]
+version = "0.13.0"
+git = "https://github.com/uglyoldbob/rcgen.git"
+branch = "attributes"
+features = ["ring", "pem", "x509-parser"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = {version = "0.21.1", features = ["invocation", "default"] }
