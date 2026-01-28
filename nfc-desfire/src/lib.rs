@@ -104,22 +104,27 @@ impl DemoApp {
         )
     }
 
-    fn save_config(&self) {
+    fn save_config(&self) -> Result<(), std::io::Error> {
         if let Some(p) = &self.local_storage {
             if let Ok(settings) = &self.settings {
                 let mut config = p.clone();
                 config.push("config.bin");
                 let encoded: Vec<u8> =
                     bincode::serde::encode_to_vec(settings, bincode::config::standard()).unwrap();
-                let f = std::fs::File::create(&config);
+                let mut f = std::fs::File::create(&config)?;
                 use std::io::Write;
                 match f.write_all(&encoded) {
-                    Ok(_l) => {}
+                    Ok(_l) => Ok(()),
                     Err(e) => {
                         log::error!("Unable to save config file: {:?}", e);
+                        Err(e)
                     }
                 }
+            } else {
+                Err(std::io::Error::other("No valid local settings"))
             }
+        } else {
+            Err(std::io::Error::other("No local storage"))
         }
     }
 

@@ -3,6 +3,7 @@ use ::jni::sys::_jobject;
 #[cfg(target_os = "android")]
 use egui_winit::winit;
 use jni_min_helper::*;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use winit::platform::android::activity::AndroidApp;
@@ -90,6 +91,7 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
                         //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
                         let der = req.der().to_vec();
                         settings.csr_der = Some(der.clone());
+                        app.save_config();
                         *a = RegistrationStep::SubmitCsr(action.clone(), der);
                     } else {
                         *a = RegistrationStep::WaitingForApproval(action.clone());
@@ -100,9 +102,25 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
             }
             RegistrationStep::SubmitCsr(url, csr) => {
                 ui.label(format!("Need to submit generated csr {csr:x?}"));
+                let mut client = reqwest::blocking::ClientBuilder::new();
+                if let Ok(client) = client
+                    .danger_accept_invalid_hostnames(true)
+                    .use_rustls_tls()
+                    .build()
+                {
+                    let mut form = HashMap::new();
+                    form.insert("whatever", "idontknow");
+                    let res = client.post(format!("https://{}", url)).form(&form).send();
+                    log::error!("The submission result is {:?}", res);
+                    *a = RegistrationStep::WaitingForApproval(url.clone());
+                }
             }
             RegistrationStep::WaitingForApproval(action) => {
-                ui.label("Waiting for approval of login details");
+                let settings = app.settings.as_mut().expect("No settings found");
+                ui.label(format!(
+                    "Waiting for approval of login details {0:x?}",
+                    settings.csr_der
+                ));
             }
             RegistrationStep::AlreadyRegistered => {
                 ui.label("Already registered?");
