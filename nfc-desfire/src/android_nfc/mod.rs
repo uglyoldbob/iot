@@ -11,7 +11,8 @@ use winit::platform::android::activity::AndroidApp;
 pub enum RegistrationStep {
     GotUrl(String),
     CheckCertificate(String),
-    SubmitCsr(String, Vec<u8>),
+    CreatingCsr,
+    SubmitCsr(String, String),
     WaitingForApproval(String),
     AlreadyRegistered,
 }
@@ -51,7 +52,32 @@ fn generate_keypair() -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
     (key_pair, pkey)
 }
 
-pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
+fn generate_csr(action: String) {
+    let name = "Test name 1";
+    let mut params = rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, name);
+    params.not_before = time::OffsetDateTime::now_utc();
+    params.not_after = params.not_before + time::Duration::days(30);
+    //params.custom_extensions.append(&mut extensions);
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut rng = OsRng;
+    let mut sn = [0u8; 20];
+    rng.fill_bytes(&mut sn);
+    let keypair = generate_keypair();
+    let req = params
+        .serialize_request(&keypair.0)
+        .expect("Failed to generate csr");
+    //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
+    let der = req.pem().expect("Failed to build pem for csr");
+    let mut rd = RegisterData.lock().unwrap();
+    rd.replace(RegistrationStep::SubmitCsr(action, der));
+}
+
+pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> bool {
     let mut rd = RegisterData.lock().unwrap();
     let rd = rd.as_mut();
     if let Some(a) = rd {
@@ -64,35 +90,14 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
             }
             RegistrationStep::CheckCertificate(action) => {
                 let settings = app.settings.as_mut().expect("No settings found");
+                let action2 = action.to_owned();
                 log::error!("Checking for certificate and csr");
                 if settings.get_cert().is_none() {
                     if settings.csr_der.is_none() {
-                        // TODO create the csr in a background thread
-                        let name = "Test name 1";
-                        ui.label("Creating CSR");
-                        let mut params =
-                            rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
-                        params.distinguished_name = rcgen::DistinguishedName::new();
-                        params
-                            .distinguished_name
-                            .push(rcgen::DnType::CommonName, name);
-                        params.not_before = time::OffsetDateTime::now_utc();
-                        params.not_after = params.not_before + time::Duration::days(30);
-                        //params.custom_extensions.append(&mut extensions);
-                        use rand::rngs::OsRng;
-                        use rand::RngCore;
-                        let mut rng = OsRng;
-                        let mut sn = [0u8; 20];
-                        rng.fill_bytes(&mut sn);
-                        let keypair = generate_keypair();
-                        let req = params
-                            .serialize_request(&keypair.0)
-                            .expect("Failed to generate csr");
-                        //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
-                        let der = req.der().to_vec();
-                        settings.csr_der = Some(der.clone());
-                        app.save_config();
-                        *a = RegistrationStep::SubmitCsr(action.clone(), der);
+                        std::thread::spawn(|| {
+                            generate_csr(action2);
+                        });
+                        *a = RegistrationStep::CreatingCsr;
                     } else {
                         *a = RegistrationStep::WaitingForApproval(action.clone());
                     }
@@ -100,23 +105,38 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
                     *a = RegistrationStep::AlreadyRegistered;
                 }
             }
+            RegistrationStep::CreatingCsr => {
+                ui.label("Creating CSR. This will take a while.");
+            }
             RegistrationStep::SubmitCsr(url, csr) => {
                 ui.label(format!("Need to submit generated csr {csr:x?}"));
-                let mut client = reqwest::blocking::ClientBuilder::new();
+                let settings = app.settings.as_mut().expect("No settings found");
+                let client = reqwest::blocking::ClientBuilder::new();
                 if let Ok(client) = client
                     .danger_accept_invalid_hostnames(true)
                     .use_rustls_tls()
                     .build()
                 {
                     let mut form = HashMap::new();
-                    form.insert("whatever", "idontknow");
+                    form.insert("csr", csr.to_owned());
+                    settings.csr_der.replace(csr.to_owned());
                     let res = client.post(format!("https://{}", url)).form(&form).send();
                     log::error!("The submission result is {:?}", res);
+                    if let Ok(r) = res {
+                        let b = r.bytes().expect("Unable to read response").to_vec();
+                        if let Ok(s) = String::from_utf8(b) {
+                            log::error!("Response is {s}");
+                        }
+                    }
                     *a = RegistrationStep::WaitingForApproval(url.clone());
                 }
             }
             RegistrationStep::WaitingForApproval(action) => {
                 let settings = app.settings.as_mut().expect("No settings found");
+                if ui.button("Delete CSR").clicked() {
+                    settings.csr_der.take();
+                    *a = RegistrationStep::CheckCertificate(action.to_owned());
+                }
                 ui.label(format!(
                     "Waiting for approval of login details {0:x?}",
                     settings.csr_der
@@ -126,6 +146,9 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) {
                 ui.label("Already registered?");
             }
         }
+        true
+    } else {
+        false
     }
 }
 

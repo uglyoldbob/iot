@@ -70,22 +70,19 @@ enum AppConfigError {
 }
 
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
-struct AppConfig {
+pub struct AppConfig {
     /// The csr for registration
-    pub csr_der: Option<Vec<u8>>,
+    pub csr_der: Option<String>,
     /// The der format of x509_cert::Certificate
     certificate: Option<Vec<u8>>,
 }
 
 impl AppConfig {
     pub fn get_cert(&self) -> Option<x509_cert::Certificate> {
-        self.certificate
-            .as_ref()
-            .map(|c| {
-                use x509_cert::der::Decode;
-                x509_cert::Certificate::from_der(c).ok()
-            })
-            .flatten()
+        self.certificate.as_ref().and_then(|c| {
+            use x509_cert::der::Decode;
+            x509_cert::Certificate::from_der(c).ok()
+        })
     }
 }
 
