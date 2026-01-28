@@ -12,6 +12,8 @@ const NFC_KEY: &str = include_str!("../nfc_key.txt");
 /// The offline api key for nxpnfclib
 const NFC_KEY_OFFLINE: &str = include_str!("../nfc_key_offline.txt");
 
+const CONFIGURATION_FILE: &str = "config.toml";
+
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_RegisterActivity_nativeDoCustomization(
@@ -131,9 +133,11 @@ impl DemoApp {
         if let Some(p) = &self.local_storage {
             if let Ok(settings) = &self.settings {
                 let mut config = p.clone();
-                config.push("config.bin");
-                let encoded: Vec<u8> =
-                    bincode::serde::encode_to_vec(settings, bincode::config::standard()).unwrap();
+                config.push(CONFIGURATION_FILE);
+                let encoded: Vec<u8> = toml::to_string_pretty(settings)
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec();
                 let mut f = std::fs::File::create(&config)?;
                 use std::io::Write;
                 match f.write_all(&encoded) {
@@ -155,11 +159,13 @@ impl DemoApp {
         if let Some(p) = &self.local_storage {
             log::error!("Got local storage path: {}", p.display());
             let mut config = p.clone();
-            config.push("config.bin");
+            config.push(CONFIGURATION_FILE);
             let settings = if let Ok(false) = std::fs::exists(&config) {
                 let settings = AppConfig::default();
-                let encoded: Vec<u8> =
-                    bincode::serde::encode_to_vec(&settings, bincode::config::standard()).unwrap();
+                let encoded: Vec<u8> = toml::to_string_pretty(&settings)
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec();
                 let f = std::fs::File::create(&config);
                 if let Ok(mut f) = f {
                     use std::io::Write;
@@ -177,8 +183,8 @@ impl DemoApp {
             } else {
                 let f = std::fs::read(&config);
                 if let Ok(a) = f {
-                    let s = bincode::serde::decode_from_slice(&a, bincode::config::standard());
-                    if let Ok((s, _len)) = s {
+                    let s = toml::from_str::<AppConfig>(str::from_utf8(&a).unwrap());
+                    if let Ok(s) = s {
                         Ok(s)
                     } else {
                         Err(AppConfigError::Corrupt)
