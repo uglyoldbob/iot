@@ -113,12 +113,17 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
     if let Some(a) = rd {
         match a {
             RegistrationStep::GotUrl(b) => {
+                let mut save_config = false;
                 if let Some(c) = b.strip_prefix("registerscheme://") {
                     let c2 = c.to_owned();
                     log::error!("Need to register with {c}");
                     *a = RegistrationStep::CheckCertificate(c.to_string());
                     let settings = app.settings.as_mut().expect("No settings found");
                     settings.server_url.replace(c2);
+                    save_config = true;
+                }
+                if save_config {
+                    app.save_config().expect("Failed to save config");
                 }
             }
             RegistrationStep::CheckCertificate(action) => {
@@ -158,7 +163,10 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     form.insert("phone", "867-5309".to_string());
                     form.insert("smartcard", "1".to_string());
                     settings.csr_der.replace(csr.to_owned());
-                    let res = client.post(format!("https://{}", url)).form(&form).send();
+                    let res = client
+                        .post(format!("https://{}?action=register_android", url))
+                        .form(&form)
+                        .send();
                     log::error!("The submission result is {:?}", res);
                     if let Ok(r) = res {
                         let b = r.bytes().expect("Unable to read response").to_vec();
@@ -191,7 +199,7 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                 if let Some(serial) = &settings.cert_serial {
                     if ui.button("Check status").clicked() {
                         let url = format!(
-                            "https://{}&check=1&type=pem&serial={}",
+                            "https://{}&action=register_android&check=1&type=pem&serial={}",
                             action2,
                             encode_hex(serial)
                         );
