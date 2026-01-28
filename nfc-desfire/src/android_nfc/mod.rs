@@ -160,15 +160,50 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                 }
             }
             RegistrationStep::WaitingForApproval(action) => {
+                let action2 = action.to_owned();
+                let mut save_config = false;
                 let settings = app.settings.as_mut().expect("No settings found");
                 if ui.button("Delete CSR").clicked() {
                     settings.csr_der.take();
-                    *a = RegistrationStep::CheckCertificate(action.to_owned());
+                    *a = RegistrationStep::CheckCertificate(action2.clone());
+                }
+                if ui.button("Check status").clicked() {
+                    let url = format!("https://{}&check=1&type=pem", action2);
+                    let client = reqwest::blocking::ClientBuilder::new();
+                    if let Ok(client) = client
+                        .danger_accept_invalid_hostnames(true)
+                        .use_rustls_tls()
+                        .build()
+                    {
+                        let res = client.get(url).send();
+                        log::error!("Check returned {res:?}");
+                        if let Ok(r) = res {
+                            if let Ok(data) = r.bytes() {
+                                let data = data.to_vec();
+                                if let Ok(s) = str::from_utf8(&data) {
+                                    log::error!("Status is {s}");
+                                    let h = url_encoded_data::UrlEncodedData::parse_str(s);
+                                    let cert = h.get("cert");
+                                    if let Some(cert) = cert {
+                                        if let Some(cert) = cert.first() {
+                                            let cert = cert.to_string();
+                                            settings.certificate.replace(cert);
+                                            *a = RegistrationStep::AlreadyRegistered;
+                                            save_config = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 ui.label(format!(
                     "Waiting for approval of login details: cert serial {0:x?}",
                     settings.cert_serial
                 ));
+                if save_config {
+                    app.save_config().expect("Failed to save config");
+                }
             }
             RegistrationStep::AlreadyRegistered => {
                 ui.label("Already registered?");

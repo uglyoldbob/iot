@@ -76,14 +76,15 @@ pub struct AppConfig {
     /// The serial number of the certificate
     cert_serial: Option<Vec<u8>>,
     /// The der format of x509_cert::Certificate
-    certificate: Option<Vec<u8>>,
+    certificate: Option<String>,
 }
 
 impl AppConfig {
     pub fn get_cert(&self) -> Option<x509_cert::Certificate> {
         self.certificate.as_ref().and_then(|c| {
+            let (_label, der) = pem_rfc7468::decode_vec(c.as_bytes()).ok()?;
             use x509_cert::der::Decode;
-            x509_cert::Certificate::from_der(c).ok()
+            x509_cert::Certificate::from_der(&der).ok()
         })
     }
 }

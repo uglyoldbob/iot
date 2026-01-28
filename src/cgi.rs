@@ -318,7 +318,11 @@ async fn main() {
                 cgi::html_response(200, response)
             }
             Some("register_android") => {
-                let resp = ca::ca_submit_request(p).await;
+                let resp = if get_map.get("status").is_some() {
+                    ca::ca_get_user_cert(p).await
+                } else {
+                    ca::ca_submit_request(p).await
+                };
                 let b = resp
                     .response
                     .into_body()

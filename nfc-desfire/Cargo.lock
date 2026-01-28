@@ -3298,6 +3298,7 @@ dependencies = [
  "lazy_static",
  "log",
  "ouroboros",
+ "pem-rfc7468",
  "pkcs8",
  "rand 0.8.5",
  "rand_chacha 0.9.0",
