@@ -318,7 +318,8 @@ async fn main() {
                 cgi::html_response(200, response)
             }
             Some("register_android") => {
-                if get_map.get("status").is_some() {
+                if get_map.get("check").is_some() {
+                    eprintln!("Got check");
                     let resp = ca::ca_get_user_cert(p).await;
                     let b = resp
                         .response
@@ -340,6 +341,7 @@ async fn main() {
                         cgi::html_response(200, response)
                     }
                 } else {
+                    eprintln!("NO check");
                     let resp = ca::ca_submit_request(p).await;
                     let b = resp
                         .response
