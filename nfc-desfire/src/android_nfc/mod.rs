@@ -52,12 +52,6 @@ fn generate_keypair() -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
     (key_pair, pkey)
 }
 
-fn load_keypair(data: &[u8]) -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
-    let pkey = zeroize::Zeroizing::new(data.to_vec());
-    let key_pair = rcgen::KeyPair::try_from(data).unwrap();
-    (key_pair, pkey)
-}
-
 fn generate_csr(action: String) {
     let name = "Test name 1";
     let mut params = rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
@@ -95,6 +89,22 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
 pub fn encode_hex(d: &[u8]) -> String {
     let serhex: Vec<String> = d.iter().map(|e| format!("{:02x}", e)).collect();
     serhex.join("")
+}
+
+pub fn get_client(app: &super::DemoApp) -> Option<reqwest::blocking::Client> {
+    if let Ok(settings) = &app.settings {
+        if let Some(id) = settings.get_identity() {
+            let client = reqwest::blocking::ClientBuilder::new().identity(id);
+            if let Ok(client) = client
+                .danger_accept_invalid_hostnames(true)
+                .use_rustls_tls()
+                .build()
+            {
+                return Some(client);
+            }
+        }
+    }
+    None
 }
 
 pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> bool {

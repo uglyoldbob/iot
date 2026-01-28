@@ -42,6 +42,7 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
 
 #[cfg(target_os = "android")]
 use egui_winit::winit;
+use pkcs8::der::{self, Decode};
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: winit::platform::android::activity::AndroidApp) {
@@ -74,7 +75,7 @@ pub struct AppConfig {
     /// The csr for registration
     pub csr_der: Option<String>,
     /// The keypair for the certificate
-    cert_keypair: Option<Vec<u8>>,
+    pub cert_keypair: Option<Vec<u8>>,
     /// The serial number of the certificate
     cert_serial: Option<Vec<u8>>,
     /// The der format of x509_cert::Certificate
@@ -89,12 +90,32 @@ impl AppConfig {
             x509_cert::Certificate::from_der(&der).ok()
         })
     }
+
+    pub fn get_identity(&self) -> Option<reqwest::Identity> {
+        let pem = if let Some(cert) = &self.certificate {
+            if let Some(d) = &self.cert_keypair {
+                let der = der::Document::from_der(d).unwrap();
+                let p = der
+                    .to_pem("PRIVATE KEY", der::pem::LineEnding::CRLF)
+                    .unwrap();
+                let mut res = cert.to_owned();
+                res.push_str(&p);
+                Some(res)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        pem.and_then(|pem| reqwest::Identity::from_pem(pem.as_bytes()).ok())
+    }
 }
 
 pub struct DemoApp {
     local_storage: Option<std::path::PathBuf>,
     pub settings: Result<AppConfig, AppConfigError>,
     nfc: TapLinx,
+    test: String,
 }
 
 impl DemoApp {
@@ -177,6 +198,7 @@ impl DemoApp {
             local_storage: options.android_app.unwrap().internal_data_path(),
             settings: Err(AppConfigError::NotLoaded),
             nfc,
+            test: String::new(),
         };
         s.load_config();
         s.nfc.load_instance().expect("Failed to load instance");
@@ -214,6 +236,21 @@ impl eframe::App for DemoApp {
                 let ver = self.nfc.get_version();
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
                 android_nfc::handle_register(self, ui);
+                if let Some(client) = android_nfc::get_client(self) {
+                    if ui.button("Check login").clicked() {
+                        let res = client.get("https://pki.uglyoldbob.com/rust-iot.cgi").send();
+                        log::error!("Check returned {res:?}");
+                        if let Ok(r) = res {
+                            if let Ok(data) = r.bytes() {
+                                let data = data.to_vec();
+                                if let Ok(s) = str::from_utf8(&data) {
+                                    self.test = s.to_string();
+                                }
+                            }
+                        }
+                    }
+                    ui.label(&self.test);
+                }
             });
         });
     }
