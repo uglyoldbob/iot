@@ -318,21 +318,40 @@ async fn main() {
                 cgi::html_response(200, response)
             }
             Some("register_android") => {
-                let resp = if get_map.get("status").is_some() {
-                    ca::ca_get_user_cert(p).await
+                if get_map.get("status").is_some() {
+                    let resp = ca::ca_get_user_cert(p).await;
+                    let b = resp
+                        .response
+                        .clone()
+                        .into_body()
+                        .collect()
+                        .await
+                        .unwrap_or_default()
+                        .to_bytes();
+                    let b = b.as_ref();
+                    if let Some(ct) = resp.response.headers().get("Content-Type") {
+                        let mut r = cgi::Response::new(b.to_vec());
+                        for h in resp.response.headers() {
+                            r.headers_mut().append(h.0, h.1.to_owned());
+                        }
+                        r
+                    } else {
+                        let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                        cgi::html_response(200, response)
+                    }
                 } else {
-                    ca::ca_submit_request(p).await
-                };
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
+                    let resp = ca::ca_submit_request(p).await;
+                    let b = resp
+                        .response
+                        .into_body()
+                        .collect()
+                        .await
+                        .unwrap_or_default()
+                        .to_bytes();
+                    let b = b.as_ref();
+                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                    cgi::html_response(200, response)
+                }
             }
             _ => {
                 let resp = ca::ca_main_page(p).await;
