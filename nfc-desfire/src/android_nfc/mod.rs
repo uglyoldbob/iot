@@ -12,7 +12,7 @@ pub enum RegistrationStep {
     GotUrl(String),
     CheckCertificate(String),
     CreatingCsr,
-    SubmitCsr(String, String),
+    SubmitCsr(String, String, Vec<u8>),
     WaitingForApproval(String),
     AlreadyRegistered,
 }
@@ -52,6 +52,12 @@ fn generate_keypair() -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
     (key_pair, pkey)
 }
 
+fn load_keypair(data: &[u8]) -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
+    let pkey = zeroize::Zeroizing::new(data.to_vec());
+    let key_pair = rcgen::KeyPair::try_from(data).unwrap();
+    (key_pair, pkey)
+}
+
 fn generate_csr(action: String) {
     let name = "Test name 1";
     let mut params = rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
@@ -74,7 +80,7 @@ fn generate_csr(action: String) {
     //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
     let der = req.pem().expect("Failed to build pem for csr");
     let mut rd = RegisterData.lock().unwrap();
-    rd.replace(RegistrationStep::SubmitCsr(action, der));
+    rd.replace(RegistrationStep::SubmitCsr(action, der, keypair.1.to_vec()));
 }
 
 /// Decode a hex string to a vec of bytes
@@ -122,10 +128,10 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
             RegistrationStep::CreatingCsr => {
                 ui.label("Creating CSR. This will take a while.");
             }
-            RegistrationStep::SubmitCsr(url, csr) => {
+            RegistrationStep::SubmitCsr(url, csr, pkey) => {
                 ui.label(format!("Need to submit generated csr {csr:x?}"));
                 let settings = app.settings.as_mut().expect("No settings found");
-                let mut save_config = false;
+                settings.cert_keypair.replace(pkey.to_owned());
                 let client = reqwest::blocking::ClientBuilder::new();
                 if let Ok(client) = client
                     .danger_accept_invalid_hostnames(true)
@@ -139,7 +145,6 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     form.insert("phone", "867-5309".to_string());
                     form.insert("smartcard", "1".to_string());
                     settings.csr_der.replace(csr.to_owned());
-                    save_config = true;
                     let res = client.post(format!("https://{}", url)).form(&form).send();
                     log::error!("The submission result is {:?}", res);
                     if let Ok(r) = res {
@@ -153,7 +158,6 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                                     if let Ok(serial) = decode_hex(serial) {
                                         log::error!("The serial is {:02x?}", serial);
                                         settings.cert_serial.replace(serial);
-                                        save_config = true;
                                     }
                                 }
                             }
@@ -161,9 +165,7 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     }
                     *a = RegistrationStep::WaitingForApproval(url.clone());
                 }
-                if save_config {
-                    app.save_config().expect("Failed to save config");
-                }
+                app.save_config().expect("Failed to save config");
             }
             RegistrationStep::WaitingForApproval(action) => {
                 let action2 = action.to_owned();

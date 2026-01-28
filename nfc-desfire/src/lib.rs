@@ -63,7 +63,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
 }
 
 #[derive(Debug)]
-enum AppConfigError {
+pub enum AppConfigError {
     NotLoaded,
     Corrupt,
     UnableToCreate,
@@ -73,6 +73,8 @@ enum AppConfigError {
 pub struct AppConfig {
     /// The csr for registration
     pub csr_der: Option<String>,
+    /// The keypair for the certificate
+    cert_keypair: Option<Vec<u8>>,
     /// The serial number of the certificate
     cert_serial: Option<Vec<u8>>,
     /// The der format of x509_cert::Certificate
