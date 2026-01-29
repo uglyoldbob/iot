@@ -1793,10 +1793,10 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                         ab.text("View this request");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
-                                ab.href(format!("?action=list_pending_requests&serial={}", serials))
+                                ab.href(format!("?action=list_pending_requests&id={}", id));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
-                                ab.href(format!("list.rs?serial={}", serials))
+                                ab.href(format!("list.rs?id={}", id));
                             }
                         };
                         ab
@@ -1980,7 +1980,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     crate::main_config::PageDelivery::DedicatedServer => {
                         b.anchor(|ab| {
                             ab.text("Prev page");
-                            ab.href(format!("./view_all_certs.rs?page={}".page - 1));
+                            ab.href(format!("./view_all_certs.rs?page={}", page - 1));
                             ab
                         })
                         .line_break(|a| a);
@@ -2000,7 +2000,7 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     crate::main_config::PageDelivery::DedicatedServer => {
                         b.anchor(|ab| {
                             ab.text("Next page");
-                            ab.href(format!("./view_all_certs.rs?page={}".page + 1));
+                            ab.href(format!("./view_all_certs.rs?page={}", page + 1));
                             ab
                         })
                         .line_break(|a| a);
