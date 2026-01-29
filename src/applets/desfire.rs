@@ -61,7 +61,7 @@ impl super::AppletTrait for Ev1 {
     }
 
     async fn run_applet(
-        &mut self,
+        &self,
         html: &mut html::root::builders::HtmlBuilder,
         appletid: usize,
         userid: usize,
@@ -73,9 +73,8 @@ impl super::AppletTrait for Ev1 {
             admin = true;
         }
         let mut args = Vec::new();
-        for a in &s.get {
-            args.push(format!("{}={}", a.0, a.1));
-        }
+        let mut sget = s.get.clone();
+        sget.remove_entry("applet_action");
         let action = s.get.get("applet_action").map(|a| a.as_str());
         match action {
             Some("asdf") => {
@@ -92,6 +91,9 @@ impl super::AppletTrait for Ev1 {
                         ab.text("Back to applet home");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
+                                for a in sget {
+                                    args.push(format!("{}={}", a.0, a.1));
+                                }
                                 ab.href(format!("?{}", args.join("&")));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
@@ -124,7 +126,11 @@ impl super::AppletTrait for Ev1 {
                         ab.text("Sample applet link");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
-                                ab.href(format!("?{}&applet_action=asdf", args.join("&")));
+                                sget.insert("applet_action".to_string(), "asdf".to_string());
+                                for a in sget {
+                                    args.push(format!("{}={}", a.0, a.1));
+                                }
+                                ab.href(format!("?{}", args.join("&")));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
                                 ab.href(format!("applet.rs?id={}&applet_action=asdf", appletid));

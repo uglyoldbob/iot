@@ -55,7 +55,7 @@ pub trait AppletTrait {
     fn table_setup(&self) -> Vec<AppletTable>;
     /// Run the applet
     async fn run_applet(
-        &mut self,
+        &self,
         html: &mut html::root::builders::HtmlBuilder,
         appletid: usize,
         userid: usize,
