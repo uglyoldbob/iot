@@ -1175,12 +1175,25 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
                 } else {
                     b.text("Failed to revoke certificate").line_break(|a| a);
                 }
-                b.anchor(|ab| {
-                    ab.text("Back to all certificates");
-                    ab.href("./view_all_certs.rs");
-                    ab
-                })
-                .line_break(|a| a);
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Back to all certificates");
+                            ab.href("?action=view_all_certs");
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Back to all certificates");
+                            ab.href("./view_all_certs.rs");
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                }
+
                 b.anchor(|ab| {
                     ab.text("Back to main page");
                     ab.href("?");
@@ -1273,7 +1286,7 @@ async fn handle_ca_reject_request(ca: &mut Ca, s: &WebPageContext) -> WebRespons
 }
 
 /// Reject a csr with a specified reason
-async fn ca_reject_request(s: WebPageContext) -> WebResponse {
+pub async fn ca_reject_request(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -1407,11 +1420,22 @@ async fn handle_ca_sign_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse 
                     }
                 },
             }
-            b.anchor(|ab| {
-                ab.text("List pending requests");
-                ab.href("list.rs");
-                ab
-            });
+            match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    b.anchor(|ab| {
+                        ab.text("List pending requests");
+                        ab.href("?action=list_pending_requests");
+                        ab
+                    });
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    b.anchor(|ab| {
+                        ab.text("List pending requests");
+                        ab.href("ca/list.rs");
+                        ab
+                    });
+                }
+            }
             b.line_break(|lb| lb);
             b
         });
@@ -1721,14 +1745,33 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                     }
                     b.text(format!("Comment: {}", csrr.comment))
                         .line_break(|a| a);
-                    b.anchor(|ab| {
-                        ab.text("Sign this request");
-                        ab.href(format!("{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
-                        ab
-                    })
-                    .line_break(|a| a);
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Sign this request");
+                                ab.href(format!("?action=request_sign&id={id}"));
+                                ab
+                            })
+                            .line_break(|a| a);
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Sign this request");
+                                ab.href(format!("{}{}ca/request_sign.rs?id={}", s.proxy, pki, id));
+                                ab
+                            })
+                            .line_break(|a| a);
+                        }
+                    }
                     b.form(|f| {
-                        f.action(format!("{}{}ca/request_reject.rs", s.proxy, pki));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                f.action("?action=request_reject")
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                f.action("request_reject.rs")
+                            }
+                        };
                         f.text("Reject reason")
                             .line_break(|a| a)
                             .input(|i| i.type_("hidden").id("id").name("id").value(id.to_string()))
@@ -1748,7 +1791,14 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
                     }
                     b.anchor(|ab| {
                         ab.text("View this request");
-                        ab.href(format!("{}{}ca/list.rs?id={}", s.proxy, pki, id));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                ab.href(format!("?action=list_pending_requests&serial={}", serials))
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!("list.rs?serial={}", serials))
+                            }
+                        };
                         ab
                     })
                     .line_break(|a| a);
@@ -1891,11 +1941,22 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
                     b.text(format!("Subject: {}", c.cert.tbs_certificate.subject))
                         .line_break(|a| a);
                     let serial = crate::utility::encode_hex(&c.serial);
-                    b.anchor(|ab| {
-                        ab.text("View details");
-                        ab.href(format!("view_cert.rs?serial={}", serial));
-                        ab
-                    });
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("View details");
+                                ab.href(format!("?action=view_cert&serial={}", serial));
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("View details");
+                                ab.href(format!("view_cert.rs?serial={}", serial));
+                                ab
+                            });
+                        }
+                    }
                     b.line_break(|lb| lb);
                     do_show_revoked(b, c.revoked);
                     b.text(format!(
@@ -1907,20 +1968,44 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
             }
             b.thematic_break(|a| a);
             if page > 0 {
-                b.anchor(|ab| {
-                    ab.text("Prev page");
-                    ab.href(format!("./view_all_certs.rs?page={}", page - 1));
-                    ab
-                })
-                .line_break(|a| a);
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Prev page");
+                            ab.href(format!("?action=view_all_certs&page={}", page - 1));
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Prev page");
+                            ab.href(format!("./view_all_certs.rs?page={}".page - 1));
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                }
             }
             if ((page + 1) * RESULTS_PER_PAGE) < cert_count {
-                b.anchor(|ab| {
-                    ab.text("Next page");
-                    ab.href(format!("./view_all_certs.rs?page={}", page + 1));
-                    ab
-                })
-                .line_break(|a| a);
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Next page");
+                            ab.href(format!("?action=view_all_certs&page={}", page + 1));
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Next page");
+                            ab.href(format!("./view_all_certs.rs?page={}".page + 1));
+                            ab
+                        })
+                        .line_break(|a| a);
+                    }
+                }
             }
             b.line_break(|lb| lb);
             b.anchor(|ab| {
@@ -2942,12 +3027,30 @@ async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -
                 ))
                 .line_break(|a| a);
                 if count_worked > 0 {
-                    b.anchor(|ab| {
-                        ab.text("Process next page");
-                        ab.href(format!("./refresh_certificate_search.rs?page={}", page + 1));
-                        ab
-                    })
-                    .line_break(|a| a);
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Process next page");
+                                ab.href(format!(
+                                    "?action=refresh_certificate_search&page={}",
+                                    page + 1
+                                ));
+                                ab
+                            })
+                            .line_break(|a| a);
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Process next page");
+                                ab.href(format!(
+                                    "./refresh_certificate_search.rs?page={}",
+                                    page + 1
+                                ));
+                                ab
+                            })
+                            .line_break(|a| a);
+                        }
+                    }
                 }
             }
             b
@@ -2960,7 +3063,7 @@ async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -
 }
 
 /// Run the refresh process that rebuilds the search table
-async fn ca_refresh_certificate_search(s: WebPageContext) -> WebResponse {
+pub async fn ca_refresh_certificate_search(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
