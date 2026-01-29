@@ -22,6 +22,9 @@ fn backlinks(
         match s.delivery {
             crate::main_config::PageDelivery::Cgi => {
                 sget.remove_entry("applet_action");
+                sget.remove_entry("step");
+                sget.remove_entry("serial");
+                sget.remove_entry("applet_data");
                 let a = sget
                     .iter()
                     .map(|a| format!("{}={}", a.0, a.1))
@@ -253,6 +256,27 @@ impl super::AppletTrait for Ev1 {
                                                     }
                                                 }
                                             }
+                                            for group in self.groups() {
+                                                b.anchor(|ab| {
+                                                    ab.text(format!("Add to the {group} group"));
+                                                    match s.delivery {
+                                                        crate::main_config::PageDelivery::Cgi => {
+                                                            sget.insert("applet_data".to_string(), group.to_string());
+                                                            sget.insert("step".to_string(), 2.to_string());
+                                                            let a = sget
+                                                                .iter()
+                                                                .map(|a| format!("{}={}", a.0, a.1))
+                                                                .collect::<Vec<String>>()
+                                                                .join("&");
+                                                            ab.href(format!("?{a}"));
+                                                        }
+                                                        crate::main_config::PageDelivery::DedicatedServer => {
+                                                            ab.href(format!("applet.rs?id={}&action=manage_users&step=2&serial={}&applet_data={}", appletid, myserial, group));
+                                                        }
+                                                    };
+                                                    ab
+                                                });
+                                            }
                                         }
                                         Err(e) => {
 
@@ -262,6 +286,36 @@ impl super::AppletTrait for Ev1 {
                                 backlinks(b, appletid, sget, s);
                                 b
                             });
+                        }
+                        2 => {
+                            if admin {
+                                let mut success = false;
+                                if let Some(serialhex) = s.get.get("serial") {
+                                    let serial: Result<Vec<u8>, std::num::ParseIntError> =
+                                        crate::utility::decode_hex(serialhex.as_str());
+                                    if let Ok(serial) = serial {
+                                        if let Some(group) = s.get.get("applet_data") {
+                                            ca.add_user_by_serial_to_applet_group(
+                                                &serial,
+                                                appletid,
+                                                group.to_string(),
+                                            )
+                                            .await;
+                                            success = true;
+                                        }
+                                    }
+                                }
+                                html.body(|b| {
+                                    if success {
+                                        b.text("Added user to group");
+                                    } else {
+                                        b.text("Failed to add user to group");
+                                    }
+                                    b.line_break(|a| a);
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
                         }
                         _ => {
                             let page = if let Some(p) = s.get.get("page") {
@@ -416,6 +470,7 @@ impl super::AppletTrait for Ev1 {
                             };
                             ab
                         });
+                        b.line_break(|a| a);
                     }
 
                     b.anchor(|ab| {
