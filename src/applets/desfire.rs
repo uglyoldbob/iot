@@ -63,8 +63,8 @@ impl super::AppletTrait for Ev1 {
     async fn run_applet(
         &self,
         html: &mut html::root::builders::HtmlBuilder,
-        appletid: usize,
-        userid: usize,
+        appletid: i64,
+        userid: i64,
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
     ) {
@@ -72,7 +72,6 @@ impl super::AppletTrait for Ev1 {
         if ca.is_admin_for_applet(appletid, userid).await {
             admin = true;
         }
-        let mut args = Vec::new();
         let mut sget = s.get.clone();
         sget.remove_entry("applet_action");
         let action = s.get.get("applet_action").map(|a| a.as_str());
@@ -91,10 +90,12 @@ impl super::AppletTrait for Ev1 {
                         ab.text("Back to applet home");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
-                                for a in sget {
-                                    args.push(format!("{}={}", a.0, a.1));
-                                }
-                                ab.href(format!("?{}", args.join("&")));
+                                let a = sget
+                                    .iter()
+                                    .map(|a| format!("{}={}", a.0, a.1))
+                                    .collect::<Vec<String>>()
+                                    .join("&");
+                                ab.href(format!("?{a}"));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
                                 ab.href(format!("applet.rs?id={}", appletid));
@@ -127,10 +128,12 @@ impl super::AppletTrait for Ev1 {
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
                                 sget.insert("applet_action".to_string(), "asdf".to_string());
-                                for a in sget {
-                                    args.push(format!("{}={}", a.0, a.1));
-                                }
-                                ab.href(format!("?{}", args.join("&")));
+                                let a = sget
+                                    .iter()
+                                    .map(|a| format!("{}={}", a.0, a.1))
+                                    .collect::<Vec<String>>()
+                                    .join("&");
+                                ab.href(format!("?{a}"));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
                                 ab.href(format!("applet.rs?id={}&applet_action=asdf", appletid));

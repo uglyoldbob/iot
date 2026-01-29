@@ -1371,7 +1371,7 @@ impl CaCertificateStorage {
     }
 
     /// Retrieve the specified applet
-    pub async fn retrieve_applet(&self, id: u32) -> Option<crate::applets::AppletInstance> {
+    pub async fn retrieve_applet(&self, id: i64) -> Option<crate::applets::AppletInstance> {
         match self {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
@@ -1395,15 +1395,15 @@ impl CaCertificateStorage {
     /// Retrieve all applets
     pub async fn retrieve_all_applets(
         &self,
-    ) -> Option<HashMap<usize, crate::applets::AppletInstance>> {
+    ) -> Option<HashMap<u32, crate::applets::AppletInstance>> {
         match self {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => {
-                let definition: Vec<(usize, String)> = p
+                let definition: Vec<(u32, String)> = p
                     .conn(move |conn| {
                         let mut stmt = conn.prepare("SELECT id, definition FROM applets")?;
                         let rows = stmt.query_map([], |row| {
-                            let t: (usize, String) = (row.get(0)?, row.get(1)?);
+                            let t: (u32, String) = (row.get(0)?, row.get(1)?);
                             Ok(t)
                         })?;
                         let mut data = Vec::new();
@@ -1660,7 +1660,7 @@ impl CaCertificateStorage {
             CaCertificateStorage::Sqlite(p) => {
                 let label = label.to_owned();
                 let label2 = label.to_owned();
-                let id = p
+                let id: i64 = p
                     .conn(move |conn| {
                         conn.query_row(
                             &format!("SELECT id FROM hsm_labels WHERE label='{}'", label),
@@ -2150,7 +2150,7 @@ impl CaCertificate {
         der: &[u8],
         keypair: Keypair,
         name: String,
-        _id: u64,
+        _id: i64,
     ) -> Self {
         use der::Decode;
         let x509 = x509_cert::Certificate::from_der(der).unwrap();
@@ -3525,7 +3525,7 @@ impl LocalOrRemoteCa {
     }
 
     /// Get a new request id, if possible
-    pub async fn get_new_request_id(&mut self) -> Option<u64> {
+    pub async fn get_new_request_id(&mut self) -> Option<i64> {
         match self {
             LocalOrRemoteCa::Local(ca) => ca.get_new_request_id().await,
             LocalOrRemoteCa::Remote => todo!(),
@@ -3602,7 +3602,7 @@ pub struct Ca {
 /// The data submitted by the user or admin for revoking a certificate
 pub struct RevokeFormData {
     /// The id of the certificate to revoke
-    pub id: usize,
+    pub id: i64,
     /// The numeric code for revoking the certificate. see RFC 5280 or ocsp::response::CrlReason
     pub reason: u8,
 }
@@ -3716,7 +3716,7 @@ impl Ca {
     }
 
     /// Get the current user details, serial number and subject must be valid
-    pub async fn get_current_user(&self, s: &crate::utility::UserCerts) -> Option<usize> {
+    pub async fn get_current_user(&self, s: &crate::utility::UserCerts) -> Option<i64> {
         let certs = s.all_certs();
         let cert = certs.first();
         if let Some(cert) = cert {
@@ -3961,7 +3961,7 @@ impl Ca {
     /// Retrieve the certificate with the internal id of the certificate
     pub async fn get_cert_with_id(
         &self,
-        id: usize,
+        id: i64,
     ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
@@ -4018,14 +4018,14 @@ impl Ca {
     pub async fn get_cert_id_with_serial(
         &self,
         serial: &[u8],
-    ) -> MaybeError<(usize, x509_cert::Certificate), ocsp::response::RevokedInfo> {
+    ) -> MaybeError<(i64, x509_cert::Certificate), ocsp::response::RevokedInfo> {
         let s_str = crate::utility::encode_hex(serial);
         service::log::info!("Looking for serial number {}", s_str);
         match &self.medium {
             CaCertificateStorage::Nowhere => MaybeError::None,
             CaCertificateStorage::Sqlite(p) => {
                 let s2_str = s_str.clone();
-                let cert_id: Result<(usize, Vec<u8>), async_sqlite::Error> = p
+                let cert_id: Result<(i64, Vec<u8>), async_sqlite::Error> = p
                     .conn(move |conn| {
                         let query =format!("SELECT certs.id,der FROM certs INNER JOIN serials ON certs.id = serials.id WHERE serial=x'{}'", s2_str);
                         service::log::error!("Query: {query}");
@@ -4033,7 +4033,7 @@ impl Ca {
                             &query,
                             [],
                             |r| {
-                                let a : usize = r.get(0)?;
+                                let a : i64 = r.get(0)?;
                                 let c : Vec<u8> = r.get(1)?;
                                 Ok((a,c))
                             }
@@ -4379,8 +4379,8 @@ impl Ca {
     pub async fn get_groups_for_applet_and_user(
         &self,
         applet: &crate::applets::AppletInstance,
-        applet_id: usize,
-        user_id: usize,
+        applet_id: i64,
+        user_id: i64,
     ) -> Vec<String> {
         let mut r = Vec::new();
         match &self.medium {
@@ -4418,13 +4418,13 @@ impl Ca {
     }
 
     /// Determines if the certificate id is admin for the specified applet
-    pub async fn is_admin_for_applet(&self, applet_id: usize, userid: usize) -> bool {
+    pub async fn is_admin_for_applet(&self, applet_id: i64, userid: i64) -> bool {
         if let MaybeError::Ok(user_cert) = self.get_cert_with_id(userid).await {
             if self.is_admin(&user_cert).await {
                 return true;
             }
         }
-        if let Some(applet) = self.medium.retrieve_applet(applet_id as u32).await {
+        if let Some(applet) = self.medium.retrieve_applet(applet_id).await {
             let agroups = applet.admin_groups();
             let ugroups = self
                 .get_groups_for_applet_and_user(&applet, applet_id, userid)
@@ -4481,10 +4481,10 @@ impl Ca {
     /// Performs an iteration of all certificates, processing them with the given closure. It returns the number of certificates total
     pub async fn certificate_processing<'a, F>(
         &'a self,
-        num_results: usize,
-        offset: usize,
+        num_results: i64,
+        offset: i64,
         mut process: F,
-    ) -> usize
+    ) -> i64
     where
         F: FnMut(CertificateInfo) + Send + 'a,
     {
@@ -4497,7 +4497,7 @@ impl Ca {
                 CaCertificateStorage::Nowhere => 0,
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
-                        let counti : usize = conn.query_row("SELECT COUNT(*) from certs", [], |r| {
+                        let counti : i64 = conn.query_row("SELECT COUNT(*) from certs", [], |r| {
                             r.get(0)
                         }).unwrap();
                         let mut stmt = conn
@@ -4607,7 +4607,7 @@ impl Ca {
     /// Performs an iteration of all ssh request that are not done, processing them with the given closure.
     pub async fn ssh_processing<'a, F>(&'a self, mut process: F)
     where
-        F: FnMut(usize, SshRequest, u64) + Send + 'a,
+        F: FnMut(usize, SshRequest, i64) + Send + 'a,
     {
         let (s, mut r) = tokio::sync::mpsc::unbounded_channel();
 
@@ -4923,7 +4923,7 @@ impl Ca {
     }
 
     /// Marks the specified csr as done
-    pub async fn mark_csr_done(&mut self, id: u64) -> Result<(), ()> {
+    pub async fn mark_csr_done(&mut self, id: i64) -> Result<(), ()> {
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
             CaCertificateStorage::Sqlite(p) => {
@@ -4938,7 +4938,7 @@ impl Ca {
     }
 
     /// Looks up the certificate id from the serial number
-    pub async fn get_id_from_serial(&mut self, serial: Vec<u8>) -> Option<u64> {
+    pub async fn get_id_from_serial(&mut self, serial: Vec<u8>) -> Option<i64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => p
@@ -4956,7 +4956,7 @@ impl Ca {
         }
     }
 
-    pub async fn insert_searchable(&mut self, cert: &x509_cert::Certificate, id: u64) {
+    pub async fn insert_searchable(&mut self, cert: &x509_cert::Certificate, id: i64) {
         let searchable = CertificateSearchable::try_from(cert);
         if let Ok(s) = searchable {
             // destructure to make it obvious that items were missed if they are added in the future
@@ -4989,7 +4989,7 @@ impl Ca {
     }
 
     /// Save the user cert of the specified index to storage
-    pub async fn save_user_cert(&mut self, id: u64, der: &[u8], sn: Option<&[u8]>) {
+    pub async fn save_user_cert(&mut self, id: i64, der: &[u8], sn: Option<&[u8]>) {
         let decoded_cert = x509_cert::Certificate::from_der(der);
         match &self.medium {
             CaCertificateStorage::Nowhere => {}
@@ -5065,7 +5065,7 @@ impl Ca {
     }
 
     /// Attempt to load a certificate by id
-    async fn load_user_cert(&self, id: u64) -> Result<CaCertificate, CertificateLoadingError> {
+    async fn load_user_cert(&self, id: i64) -> Result<CaCertificate, CertificateLoadingError> {
         match &self.medium {
             CaCertificateStorage::Nowhere => {
                 service::log::debug!("Tried to load {} certificate from nowhere", id);
@@ -5332,7 +5332,7 @@ impl Ca {
     }
 
     /// Get a new request id, if possible
-    pub async fn get_new_request_id(&self) -> Option<u64> {
+    pub async fn get_new_request_id(&self) -> Option<i64> {
         match &self.medium {
             CaCertificateStorage::Nowhere => None,
             CaCertificateStorage::Sqlite(p) => p
@@ -5342,7 +5342,7 @@ impl Ca {
                 })
                 .await
                 .ok()
-                .map(|v| v as u64),
+                .map(|v| v as i64),
         }
     }
 
@@ -5592,7 +5592,7 @@ pub struct SshRejection {
     /// The reason for rejection
     pub rejection: String,
     /// The id for the csr
-    pub id: u64,
+    pub id: i64,
 }
 
 impl SshRejection {
@@ -5780,7 +5780,7 @@ pub struct SshRequest {
     /// The phone number of the person issuing the request
     pub phone: String,
     /// The id of the request
-    pub id: u64,
+    pub id: i64,
 }
 
 /// Contains a user signing request for a certificate
@@ -5795,7 +5795,7 @@ pub struct CsrRequest {
     /// The phone number of the person issuing the request
     pub phone: String,
     /// The id of the request
-    pub id: u64,
+    pub id: i64,
     /// The serial number of the certificate request
     pub sn: Vec<u8>,
 }
@@ -5928,7 +5928,7 @@ pub struct SigningRequestParams {
     /// Extensions for the certificate
     pub extensions: Vec<rcgen::CustomExtension>,
     /// The id for the certificate
-    pub id: u64,
+    pub id: i64,
     /// The number of days the certificate should be valid
     pub days_valid: u32,
 }

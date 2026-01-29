@@ -57,8 +57,8 @@ pub trait AppletTrait {
     async fn run_applet(
         &self,
         html: &mut html::root::builders::HtmlBuilder,
-        appletid: usize,
-        userid: usize,
+        appletid: i64,
+        userid: i64,
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
     );

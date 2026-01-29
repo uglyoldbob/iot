@@ -965,7 +965,7 @@ pub async fn ca_add_applet_form(s: WebPageContext) -> WebResponse {
 async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut applet_id = 0;
     if let Some(applet_id_s) = s.get.get("id") {
-        if let Ok(v) = applet_id_s.parse::<usize>() {
+        if let Ok(v) = applet_id_s.parse::<i64>() {
             applet_id = v;
         } else {
             let response = hyper::Response::new("dummy");
@@ -988,7 +988,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
     if let Some(userid) = ca.get_current_user(&s.user_certs).await {
-        if let Some(mut applet) = ca.medium.retrieve_applet(applet_id as u32).await {
+        if let Some(mut applet) = ca.medium.retrieve_applet(applet_id).await {
             applet.run_applet(&mut html, applet_id, userid, ca, s).await;
         } else {
             let response = hyper::Response::new("dummy");
@@ -1151,7 +1151,7 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
         let p = &s.post;
         if let Some(form) = p.form() {
             if let Some(ids) = form.get_first("id") {
-                if let Ok(id) = ids.parse::<usize>() {
+                if let Ok(id) = ids.parse::<i64>() {
                     if let Some(reasona) = form.get_first("reason") {
                         if let Ok(reason) = reasona.parse::<u8>() {
                             let form_data = ca_common::RevokeFormData { id, reason };
@@ -1712,7 +1712,7 @@ async fn handle_ca_list_ssh_requests(ca: &mut Ca, s: &WebPageContext) -> WebResp
         None
     };
 
-    let mut csr_list: Vec<(SshRequest, u64)> = Vec::new();
+    let mut csr_list: Vec<(SshRequest, i64)> = Vec::new();
     ca.ssh_processing(|_index, csr, id| {
         csr_list.push((csr, id));
     })
@@ -1901,10 +1901,10 @@ async fn handle_ca_view_all_certs(ca: &mut Ca, s: &WebPageContext) -> WebRespons
         }
     }
 
-    const RESULTS_PER_PAGE: usize = 10;
+    const RESULTS_PER_PAGE: i64 = 10;
 
     let page = if let Some(p) = s.get.get("page") {
-        if let Ok(p) = p.parse::<usize>() {
+        if let Ok(p) = p.parse::<i64>() {
             p
         } else {
             0
@@ -2987,10 +2987,10 @@ async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -
         }
     }
 
-    const RESULTS_PER_PAGE: usize = 100;
+    const RESULTS_PER_PAGE: i64 = 100;
 
     let page = if let Some(p) = s.get.get("page") {
-        if let Ok(p) = p.parse::<usize>() {
+        if let Ok(p) = p.parse::<i64>() {
             p
         } else {
             0

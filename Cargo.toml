@@ -70,8 +70,9 @@ git = "https://github.com/uglyoldbob/smartcard.git"
 optional = true
 
 [dependencies.cert-common]
-version = "0.2.1"
+version = "0.2.2"
 git = "https://github.com/uglyoldbob/cert-common.git"
+features = [ "egui" ]
 
 [dependencies.clap]
 version = "4.5.3"
