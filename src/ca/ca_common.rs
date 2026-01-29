@@ -5988,3 +5988,44 @@ impl SigningRequestParams {
         }
     }
 }
+
+/// Show the revoked reason for a certificate
+pub fn do_show_revoked(
+    b: &mut html::root::builders::BodyBuilder,
+    r: Option<ocsp::response::CrlReason>,
+) {
+    if let Some(r) = r {
+        match r {
+            ocsp::response::CrlReason::OcspRevokeUnspecified => {
+                b.text("REVOKED: Unspecified reason").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeKeyCompromise => {
+                b.text("REVOKED: Key compromised").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCaCompromise => {
+                b.text("REVOKED: Ca compromised").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeAffChanged => {
+                b.text("REVOKED: Affinity changed").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeSuperseded => {
+                b.text("REVOKED: Superseded").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCessOperation => {
+                b.text("REVOKED: Cessation of operations").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeCertHold => {
+                b.text("REVOKED: Certificate hold").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeRemoveFromCrl => {
+                b.text("REVOKED: Removed from crl").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokePrivWithdrawn => {
+                b.text("REVOKED: Privilege withdrawn").line_break(|a| a);
+            }
+            ocsp::response::CrlReason::OcspRevokeAaCompromise => {
+                b.text("REVOKED: AA Compromised").line_break(|a| a);
+            }
+        }
+    }
+}
