@@ -72,14 +72,34 @@ impl super::AppletTrait for Ev1 {
         if ca.is_admin_for_applet(appletid, userid).await {
             admin = true;
         }
+        let mut args = Vec::new();
+        for a in &s.get {
+            args.push(format!("{}={}", a.0, a.1));
+        }
         let action = s.get.get("applet_action").map(|a| a.as_str());
         match action {
             Some("asdf") => {
                 html.body(|b| {
                     b.text("This is the desvfire ev1 applet sample page");
+                    b.line_break(|a| a);
+
                     if admin {
                         b.text("You are admin over this applet");
                     }
+                    b.line_break(|a| a);
+
+                    b.anchor(|ab| {
+                        ab.text("Back to applet home");
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                ab.href(format!("?{}", args.join("&")));
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!("applet.rs?id={}", appletid));
+                            }
+                        };
+                        ab
+                    });
                     b.line_break(|a| a);
 
                     b.anchor(|ab| {
@@ -93,6 +113,8 @@ impl super::AppletTrait for Ev1 {
             _ => {
                 html.body(|b| {
                     b.text("This is the desvfire ev1 applet");
+                    b.line_break(|a| a);
+
                     if admin {
                         b.text("You are admin over this applet");
                     }
@@ -102,10 +124,6 @@ impl super::AppletTrait for Ev1 {
                         ab.text("Sample applet link");
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
-                                let mut args = Vec::new();
-                                for a in &s.get {
-                                    args.push(format!("{}={}", a.0, a.1));
-                                }
                                 ab.href(format!("?{}&applet_action=asdf", args.join("&")));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
@@ -114,7 +132,7 @@ impl super::AppletTrait for Ev1 {
                         };
                         ab
                     });
-
+                    b.line_break(|a| a);
                     b.anchor(|ab| {
                         ab.text("Back to main page");
                         ab.href("?");
