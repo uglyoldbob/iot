@@ -128,7 +128,12 @@ impl super::AppletTrait for Ev1 {
             }
             Some("manage_users") => {
                 if admin {
-                    let step = 0;
+                    let step = s
+                        .get
+                        .get("step")
+                        .map(|a| a.parse::<usize>().ok())
+                        .flatten()
+                        .unwrap_or(0);
                     match step {
                         1 => {
                             let mut cert: Option<crate::ca::RawCertificateInfo> = None;
