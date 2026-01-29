@@ -3620,7 +3620,7 @@ pub struct RawCertificateInfo {
 /// A structure used when iterating over certificates for the front end
 pub struct CertificateInfo {
     /// The index of the certificate
-    index: usize,
+    pub index: i64,
     /// The certificate
     pub cert: x509_cert::certificate::CertificateInner,
     /// The serial number of the certificate
@@ -4403,7 +4403,6 @@ impl Ca {
     /// Get a list of groups for a specific applet id and user id
     pub async fn get_groups_for_applet_and_user(
         &self,
-        applet: &crate::applets::AppletInstance,
         applet_id: i64,
         user_id: i64,
     ) -> Vec<String> {
@@ -4451,9 +4450,7 @@ impl Ca {
         }
         if let Some(applet) = self.medium.retrieve_applet(applet_id).await {
             let agroups = applet.admin_groups();
-            let ugroups = self
-                .get_groups_for_applet_and_user(&applet, applet_id, userid)
-                .await;
+            let ugroups = self.get_groups_for_applet_and_user(applet_id, userid).await;
             let mut found_match = false;
             for u in ugroups {
                 for a in &agroups {

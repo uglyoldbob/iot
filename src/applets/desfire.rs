@@ -276,6 +276,7 @@ impl super::AppletTrait for Ev1 {
                                                     };
                                                     ab
                                                 });
+                                                b.line_break(|a|a);
                                             }
                                         }
                                         Err(e) => {
@@ -334,10 +335,21 @@ impl super::AppletTrait for Ev1 {
                                     user_list.push(ci);
                                 })
                                 .await;
+                            let mut user_groups = Vec::new();
+                            for user in &user_list {
+                                let userid = user.index;
+                                let mut group_member = Vec::new();
+                                for group in
+                                    ca.get_groups_for_applet_and_user(appletid, userid).await
+                                {
+                                    group_member.push(group);
+                                }
+                                user_groups.push(group_member);
+                            }
                             html.body(|b| {
                                 b.text("List of users");
                                 b.line_break(|a| a);
-                                for c in user_list {
+                                for (index, c) in user_list.iter().enumerate() {
                                     b.thematic_break(|a| a);
                                     b.text(format!("Issued by: {}", c.cert.tbs_certificate.issuer))
                                         .line_break(|a| a);
@@ -375,6 +387,10 @@ impl super::AppletTrait for Ev1 {
                                         crate::ca::CertificateSearchable::try_from(&c.cert)
                                     ))
                                     .line_break(|a| a);
+                                    if let Some(usergroups) = user_groups.get(index) {
+                                        b.text(format!("Groups are {}", usergroups.join(", ")));
+                                        b.line_break(|a|a);
+                                    }
                                 }
                                 b.thematic_break(|a| a);
                                 if page > 0 {
