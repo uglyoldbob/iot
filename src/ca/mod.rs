@@ -1584,10 +1584,15 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                         b.form(|f| {
                             match s.delivery {
                                 crate::main_config::PageDelivery::Cgi => {
-                                    f.action("?action=request_reject")
+                                    f.input(|i| {
+                                        i.type_("hidden")
+                                            .id("action")
+                                            .name("action")
+                                            .value("request_reject")
+                                    });
                                 }
                                 crate::main_config::PageDelivery::DedicatedServer => {
-                                    f.action("request_reject.rs")
+                                    f.action("request_reject.rs");
                                 }
                             };
                             f.text("Reject reason")
