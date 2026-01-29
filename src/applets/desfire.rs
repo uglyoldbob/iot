@@ -387,6 +387,30 @@ impl super::AppletTrait for Ev1 {
                     if admin {
                         b.text("You are admin over this applet");
                         b.line_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text("Modify users");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert(
+                                        "applet_action".to_string(),
+                                        "manage_users".to_string(),
+                                    );
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!(
+                                        "applet.rs?id={}&applet_action=manage_users",
+                                        appletid
+                                    ));
+                                }
+                            };
+                            ab
+                        });
                     }
 
                     b.anchor(|ab| {
