@@ -23,8 +23,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::Arc;
 
-use crate::utility::UserCert;
-use crate::webserver::PostContent;
+use crate::utility::{PostContent, UserCert};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -136,7 +135,7 @@ async fn main() {
             .flatten()
             .unwrap_or_default();
 
-        let p = crate::webserver::WebPageContext {
+        let p = crate::utility::WebPageContext {
             delivery: main_config::PageDelivery::Cgi,
             https: true,
             domain: domain.to_string(),

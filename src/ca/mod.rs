@@ -7,7 +7,8 @@ use strum::IntoEnumIterator;
 
 use crate::{
     applets::{self, AppletTrait},
-    webserver::{WebPageContext, WebResponse, WebRouter},
+    utility::WebPageContext,
+    webserver::{WebResponse, WebRouter},
 };
 
 use cert_common::{oid::*, CertificateSigningMethod, HttpsSigningMethod};
@@ -988,7 +989,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
     if let Some(userid) = ca.get_current_user(&s.user_certs).await {
         if let Some(mut applet) = ca.medium.retrieve_applet(applet_id as u32).await {
-            applet.run_applet(&mut html, applet_id, userid, ca).await;
+            applet.run_applet(&mut html, applet_id, userid, ca, s).await;
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();

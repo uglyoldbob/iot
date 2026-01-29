@@ -66,23 +66,30 @@ impl super::AppletTrait for Ev1 {
         appletid: usize,
         userid: usize,
         ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
     ) {
         let mut admin = false;
         if ca.is_admin_for_applet(appletid, userid).await {
             admin = true;
         }
-        html.body(|b| {
-            b.text("This is the desvfire ev1 applet");
-            if admin {
-                b.text("You are admin over this applet");
+        let action = s.get.get("applet_action").map(|a| a.as_str());
+        match action {
+            Some("asdf") => {}
+            _ => {
+                html.body(|b| {
+                    b.text("This is the desvfire ev1 applet");
+                    if admin {
+                        b.text("You are admin over this applet");
+                    }
+                    b.line_break(|a| a);
+                    b.anchor(|ab| {
+                        ab.text("Back to main page");
+                        ab.href("?");
+                        ab
+                    });
+                    b
+                });
             }
-            b.line_break(|a| a);
-            b.anchor(|ab| {
-                ab.text("Back to main page");
-                ab.href("?");
-                ab
-            });
-            b
-        });
+        }
     }
 }

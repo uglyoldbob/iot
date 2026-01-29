@@ -124,6 +124,7 @@ async fn test_func3(s: WebPageContext) -> webserver::WebResponse {
 use clap::Parser;
 
 use crate::hsm2::SecurityModuleTrait;
+use crate::utility::WebPageContext;
 /// Arguments for creating an iot instance
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

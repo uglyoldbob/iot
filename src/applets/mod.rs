@@ -60,6 +60,7 @@ pub trait AppletTrait {
         appletid: usize,
         userid: usize,
         ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
     );
 }
 

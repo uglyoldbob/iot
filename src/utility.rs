@@ -1,5 +1,9 @@
 //! A collection of random utility functions and structures
 
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
+
+use crate::{ca::SimplifiedPkiConfigurationEnum, main_config::PageDelivery};
+
 /// Decode a hex string to a vec of bytes
 pub fn decode_hex(s: &str) -> Result<Vec<u8>, std::num::ParseIntError> {
     (0..s.len())
@@ -308,4 +312,96 @@ impl UserCerts {
             })
             .collect()
     }
+}
+
+/// Represents the contents of a post request
+#[derive(Clone)]
+pub struct PostContent {
+    /// The body of a request, containing some content
+    body: Option<hyper::body::Bytes>,
+    /// The headers, for extracting the multipart
+    headers: hyper::header::HeaderMap,
+}
+
+impl PostContent {
+    /// Construct a Self with the given body and headers.
+    pub fn new(body: Option<hyper::body::Bytes>, headers: hyper::header::HeaderMap) -> Self {
+        Self { body, headers }
+    }
+
+    /// Just get the post content
+    #[allow(dead_code)]
+    pub fn content(&self) -> Option<Vec<u8>> {
+        self.body.as_ref().map(|d| d.to_vec())
+    }
+
+    /// Convert the post content to an ocsp request if possible.
+    pub fn ocsp(&self) -> Option<ocsp::request::OcspRequest> {
+        let b = self.body.as_ref()?;
+        ocsp::request::OcspRequest::parse(b.as_ref()).ok()
+    }
+
+    /// Convert the post content to form data if possible
+    pub fn form(&self) -> Option<url_encoded_data::UrlEncodedData<'_>> {
+        if let Some(body) = self.body.as_ref() {
+            let s = std::str::from_utf8(body).ok()?;
+            Some(url_encoded_data::UrlEncodedData::parse_str(s))
+        } else {
+            None
+        }
+    }
+
+    /// Convert the post content to a multipart request if possible.
+    #[allow(dead_code)]
+    pub fn multipart(&self) -> Option<multer::Multipart<'_>> {
+        let body = self.body.as_ref()?;
+        let boundary = self.headers.get("Content-Type")?;
+        let b = boundary.to_str().ok()?;
+        let boundary = multer::parse_boundary(b).ok()?;
+        let data = futures_util::stream::once(async move {
+            Result::<multer::bytes::Bytes, Infallible>::Ok(body.clone())
+        });
+        Some(multer::Multipart::new(data, boundary))
+    }
+}
+
+impl std::io::Read for PostContent {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let b = match self.body.as_ref() {
+            None => {
+                return Ok(0);
+            }
+            Some(a) => a,
+        };
+        buf.copy_from_slice(b);
+        Ok(b.len())
+    }
+}
+
+/// Represents the context necessary to render a webpage
+pub struct WebPageContext {
+    /// What kind of method was used to deliver the page?
+    pub delivery: PageDelivery,
+    /// Was https used to access the page?
+    pub https: bool,
+    /// The domain that was used to access the request
+    pub domain: String,
+    /// The actual page requested
+    pub page: std::path::PathBuf,
+    /// The proxy sub-directory
+    pub proxy: String,
+    /// The map of all post arguments
+    pub post: PostContent,
+    /// The map of all get arguments
+    pub get: HashMap<String, String>,
+    /// The login cookie
+    pub logincookie: Option<String>,
+    /// The optional mysql server connection
+    pub pool: Option<mysql::PooledConn>,
+    /// The list of user certificates presented by the user
+    pub user_certs: UserCerts,
+    /// The application settings
+    pub pki_type: SimplifiedPkiConfigurationEnum,
+    /// The pki object
+    pub pki: Arc<futures::lock::Mutex<crate::ca::PkiInstance>>,
 }
