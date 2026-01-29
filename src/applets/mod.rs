@@ -39,6 +39,8 @@ pub struct AppletTable {
 pub trait AppletTrait {
     /// Get the applet name
     fn name(&self) -> &str;
+    /// Get a list of the admin groups for the applet (there might be only one - that's fine)
+    fn admin_groups(&self) -> Vec<&str>;
     /// Get a list of groups for the applet
     fn groups(&self) -> Vec<&str>;
     /// Build the html form for modifying the data
@@ -55,6 +57,7 @@ pub trait AppletTrait {
     async fn run_applet(
         &mut self,
         html: &mut html::root::builders::HtmlBuilder,
+        appletid: usize,
         userid: usize,
         ca: &mut Ca,
     );

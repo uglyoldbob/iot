@@ -24,6 +24,7 @@ use tokio_rustls::rustls::pki_types;
 use x509_cert::ext::pkix::AccessDescription;
 use zeroize::Zeroizing;
 
+use crate::applets::AppletTrait;
 use crate::hsm2::KeyPairTrait;
 use crate::hsm2::SecurityModule;
 use crate::hsm2::SecurityModuleTrait;
@@ -1311,6 +1312,10 @@ impl CaCertificateStorage {
                 .await.map_err(|_|())?;
                 p.conn(move |conn| {
                     conn.execute("CREATE TABLE IF NOT EXISTS applets ( id INTEGER PRIMARY KEY, definition TEXT)", [])
+                })
+                .await.map_err(|_|())?;
+                p.conn(move |conn| {
+                    conn.execute("CREATE TABLE IF NOT EXISTS group_membership ( id INTEGER PRIMARY KEY, userid INTEGER, appletid INTEGER, groupname TEXT)", [])
                 })
                 .await.map_err(|_|())?;
             }
@@ -3953,6 +3958,60 @@ impl Ca {
         })
     }
 
+    /// Retrieve the certificate with the internal id of the certificate
+    pub async fn get_cert_with_id(
+        &self,
+        id: usize,
+    ) -> MaybeError<x509_cert::Certificate, ocsp::response::RevokedInfo> {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => MaybeError::None,
+            CaCertificateStorage::Sqlite(p) => {
+                let cert_id: Result<Vec<u8>, async_sqlite::Error> = p
+                    .conn(move |conn| {
+                        let query = format!("SELECT der FROM certs WHERE id='{}'", id);
+                        service::log::error!("Query: {query}");
+                        conn.query_row(&query, [], |r| r.get(0))
+                    })
+                    .await;
+
+                let revoke_query = p.conn(move |conn| {
+                    conn.query_row(
+                        &format!("SELECT date, reason FROM revoked WHERE id='{}'", id),
+                        [],
+                        |r| {
+                            let dbentry = DbEntry::new(r);
+                            let revoke_data = RevokeData::try_from(dbentry);
+                            revoke_data
+                        },
+                    )
+                });
+                match cert_id {
+                    Ok(c) => {
+                        let revoked = revoke_query.await;
+                        match revoked {
+                            Ok(revoked) => MaybeError::Err(revoked.data),
+                            Err(_) => {
+                                use der::Decode;
+                                let cert = x509_cert::Certificate::from_der(&c);
+                                match cert {
+                                    Ok(cert) => {
+                                        service::log::info!("Found the cert");
+                                        MaybeError::Ok(cert)
+                                    }
+                                    Err(_e) => MaybeError::None,
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        service::log::error!("Did not find the cert {:?}", e);
+                        MaybeError::None
+                    }
+                }
+            }
+        }
+    }
+
     /// Retrieves a certificate id and certificate, if it is valid, or a reason for it to be invalid
     /// # Arguments
     /// * serial - The serial number of the certificate
@@ -4314,6 +4373,74 @@ impl Ca {
     /// Return a reference to the root cert
     pub fn root_ca_cert(&self) -> Result<&CaCertificate, &CertificateLoadingError> {
         self.root_cert.as_ref()
+    }
+
+    /// Get a list of groups for a specific applet id and user id
+    pub async fn get_groups_for_applet_and_user(
+        &self,
+        applet: &crate::applets::AppletInstance,
+        applet_id: usize,
+        user_id: usize,
+    ) -> Vec<String> {
+        let mut r = Vec::new();
+        match &self.medium {
+            CaCertificateStorage::Nowhere => {}
+            CaCertificateStorage::Sqlite(p) => {
+                let groups = p
+                    .conn(move |conn| {
+                        let mut stmt = conn.prepare("SELECT groupname FROM group_membership WHERE userid=?1 AND appletid=?2")?;
+                        let groups = stmt.query_map(
+                            [&user_id, &applet_id],
+                            |r| {
+                                let dbentry = DbEntry::new(r);
+                                let a: String = dbentry.try_into().unwrap();
+                                Ok(a)
+                            },
+                        )?;
+                        let mut g = Vec::new();
+                        for group in groups {
+                            if let Ok(s) = group {
+                                g.push(s);
+                            }
+                        }
+                        Ok(g)
+                    })
+                    .await;
+                if let Ok(groups) = groups {
+                    for group in groups {
+                        r.push(group);
+                    }
+                }
+            }
+        }
+
+        r
+    }
+
+    /// Determines if the certificate id is admin for the specified applet
+    pub async fn is_admin_for_applet(&self, applet_id: usize, userid: usize) -> bool {
+        if let MaybeError::Ok(user_cert) = self.get_cert_with_id(userid).await {
+            if self.is_admin(&user_cert).await {
+                return true;
+            }
+        }
+        if let Some(applet) = self.medium.retrieve_applet(applet_id as u32).await {
+            let agroups = applet.admin_groups();
+            let ugroups = self
+                .get_groups_for_applet_and_user(&applet, applet_id, userid)
+                .await;
+            let mut found_match = false;
+            for u in ugroups {
+                for a in &agroups {
+                    if *a == u {
+                        found_match = true;
+                        break;
+                    }
+                }
+            }
+            return found_match;
+        }
+        false
     }
 
     /// Returns true if the provided certificate is an admin certificate
@@ -5494,6 +5621,12 @@ impl<'a> DbEntry<'a> {
     /// Construct a new Self from a sqlite row
     pub fn new(row: &'a async_sqlite::rusqlite::Row<'a>) -> Self {
         Self { row_data: row }
+    }
+}
+
+impl<'a> From<DbEntry<'a>> for String {
+    fn from(val: DbEntry<'a>) -> Self {
+        val.row_data.get::<usize, String>(0).unwrap()
     }
 }
 

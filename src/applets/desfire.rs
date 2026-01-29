@@ -14,6 +14,10 @@ impl super::AppletTrait for Ev1 {
         "desfire_ev1"
     }
 
+    fn admin_groups(&self) -> Vec<&str> {
+        vec!["admin"]
+    }
+
     fn groups(&self) -> Vec<&str> {
         vec!["admin", "manager"]
     }
@@ -59,11 +63,19 @@ impl super::AppletTrait for Ev1 {
     async fn run_applet(
         &mut self,
         html: &mut html::root::builders::HtmlBuilder,
+        appletid: usize,
         userid: usize,
         ca: &mut Ca,
     ) {
+        let mut admin = false;
+        if ca.is_admin_for_applet(appletid, userid).await {
+            admin = true;
+        }
         html.body(|b| {
             b.text("This is the desvfire ev1 applet");
+            if admin {
+                b.text("You are admin over this applet");
+            }
             b.line_break(|a| a);
             b.anchor(|ab| {
                 ab.text("Back to main page");

@@ -962,10 +962,10 @@ pub async fn ca_add_applet_form(s: WebPageContext) -> WebResponse {
 
 /// The actual page function for the add applet form
 async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
-    let mut applet = 0;
-    if let Some(applet_id) = s.get.get("id") {
-        if let Ok(v) = applet_id.parse::<usize>() {
-            applet = v;
+    let mut applet_id = 0;
+    if let Some(applet_id_s) = s.get.get("id") {
+        if let Ok(v) = applet_id_s.parse::<usize>() {
+            applet_id = v;
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();
@@ -987,8 +987,8 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut html = html::root::Html::builder();
     html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
     if let Some(userid) = ca.get_current_user(&s.user_certs).await {
-        if let Some(mut applet) = ca.medium.retrieve_applet(applet as u32).await {
-            applet.run_applet(&mut html, userid, ca).await;
+        if let Some(mut applet) = ca.medium.retrieve_applet(applet_id as u32).await {
+            applet.run_applet(&mut html, applet_id, userid, ca).await;
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();
