@@ -530,6 +530,8 @@ pub trait CardTrait {
         keytype: &str,
         key: Option<&[u8]>,
     ) -> Result<(), std::io::Error>;
+    /// List applications
+    fn list_applications(&self, env: &mut jni::JNIEnv) -> Result<Vec<Vec<u8>>, std::io::Error>;
 }
 
 #[enum_dispatch::enum_dispatch(CardTrait)]

@@ -17,7 +17,7 @@ pub enum NfcCardCommand {
 }
 
 pub enum NfcCardResponse {
-    BasicInfo { stuff: String },
+    BasicInfo { applications: Vec<Vec<u8>> },
 }
 
 lazy_static::lazy_static! {
@@ -73,9 +73,11 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
                                                 None
                                             )
                                         );
-                                        let _ = r.send(NfcCardResponse::BasicInfo {
-                                            stuff: "TESTING".to_string(),
-                                        });
+                                        if let Ok(apps) = card.list_applications(&mut env) {
+                                            let _ = r.send(NfcCardResponse::BasicInfo {
+                                                applications: apps,
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -356,8 +358,8 @@ impl eframe::App for DemoApp {
                 }
                 if let Some(resp) = &self.nfc_response {
                     match resp {
-                        NfcCardResponse::BasicInfo { stuff } => {
-                            ui.label(format!("Response is: {stuff}"));
+                        NfcCardResponse::BasicInfo { applications } => {
+                            ui.label(format!("Response is: {applications:x?}"));
                         }
                     }
                 }

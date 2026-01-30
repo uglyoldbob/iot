@@ -73,6 +73,40 @@ impl super::CardTrait for Ev1 {
         Ok(())
     }
 
+    fn list_applications(&self, env: &mut jni::JNIEnv) -> Result<Vec<Vec<u8>>, std::io::Error> {
+        let result = env
+            .call_method(
+                self.inner.as_obj(),
+                "getApplicationIDs",
+                "()[I", // Returns int array
+                &[],
+            )
+            .map_err(|e| super::jerr(env, e))?;
+
+        let int_array = result.l().map_err(|e| super::jerr(env, e))?;
+        let int_array = jni::objects::JIntArray::from(int_array);
+        let len = env
+            .get_array_length(&int_array)
+            .map_err(|e| super::jerr(env, e))?;
+        let mut app_ids = vec![0i32; len as usize];
+        env.get_int_array_region(&int_array, 0, &mut app_ids)
+            .map_err(|e| super::jerr(env, e))?;
+
+        // Convert each int (AID) to 3-byte array (DESFire AIDs are 3 bytes)
+        let result: Vec<Vec<u8>> = app_ids
+            .iter()
+            .map(|&aid| {
+                vec![
+                    ((aid >> 16) & 0xFF) as u8,
+                    ((aid >> 8) & 0xFF) as u8,
+                    (aid & 0xFF) as u8,
+                ]
+            })
+            .collect();
+
+        Ok(result)
+    }
+
     fn authenticate(
         &self,
         env: &mut jni::JNIEnv,
