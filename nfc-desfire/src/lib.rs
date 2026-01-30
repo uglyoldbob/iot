@@ -3,8 +3,6 @@ use eframe::{egui, NativeOptions};
 mod android_nfc;
 use android_nfc::*;
 
-use jni::objects::GlobalRef;
-use jni::sys::_jobject;
 use jni_min_helper::*;
 
 /// The api key for nxpnfclib

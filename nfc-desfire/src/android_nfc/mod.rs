@@ -10,9 +10,22 @@ use winit::platform::android::activity::AndroidApp;
 
 pub enum RegistrationStep {
     GotUrl(String),
+    GettingUserInput {
+        name: String,
+        email: String,
+        phone: String,
+        url: String,
+    },
     CheckCertificate(String),
     CreatingCsr,
-    SubmitCsr(String, String, Vec<u8>),
+    SubmitCsr {
+        url: String,
+        csr: String,
+        pkey: Vec<u8>,
+        name: String,
+        email: String,
+        phone: String,
+    },
     WaitingForApproval(String),
     AlreadyRegistered,
 }
@@ -52,13 +65,12 @@ fn generate_keypair() -> (rcgen::KeyPair, zeroize::Zeroizing<Vec<u8>>) {
     (key_pair, pkey)
 }
 
-fn generate_csr(action: String) {
-    let name = "Test name 1";
-    let mut params = rcgen::CertificateParams::new(vec![name.to_string()]).unwrap();
+fn generate_csr(action: String, name: String, email: String, phone: String) {
+    let mut params = rcgen::CertificateParams::new(vec![name.clone()]).unwrap();
     params.distinguished_name = rcgen::DistinguishedName::new();
     params
         .distinguished_name
-        .push(rcgen::DnType::CommonName, name);
+        .push(rcgen::DnType::CommonName, &name);
     params.not_before = time::OffsetDateTime::now_utc();
     params.not_after = params.not_before + time::Duration::days(30);
     //params.custom_extensions.append(&mut extensions);
@@ -74,7 +86,14 @@ fn generate_csr(action: String) {
     //req.params.serial_number = Some(rcgen::SerialNumber::from_slice(&sn));
     let der = req.pem().expect("Failed to build pem for csr");
     let mut rd = RegisterData.lock().unwrap();
-    rd.replace(RegistrationStep::SubmitCsr(action, der, keypair.1.to_vec()));
+    rd.replace(RegistrationStep::SubmitCsr {
+        url: action,
+        csr: der,
+        pkey: keypair.1.to_vec(),
+        name,
+        email,
+        phone,
+    });
 }
 
 /// Decode a hex string to a vec of bytes
@@ -126,16 +145,41 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                     app.save_config().expect("Failed to save config");
                 }
             }
+            RegistrationStep::GettingUserInput {
+                name,
+                email,
+                phone,
+                url,
+            } => {
+                ui.label("NAME:");
+                ui.text_edit_singleline(name);
+                ui.label("EMAIL:");
+                ui.text_edit_singleline(email);
+                ui.label("PHONE:");
+                ui.text_edit_singleline(phone);
+                let url2 = url.to_string();
+                let name2 = name.to_string();
+                let email2 = email.to_string();
+                let phone2 = phone.to_string();
+                if ui.button("SUBMIT").clicked() {
+                    std::thread::spawn(|| {
+                        generate_csr(url2, name2, email2, phone2);
+                    });
+                    *a = RegistrationStep::CreatingCsr;
+                }
+            }
             RegistrationStep::CheckCertificate(action) => {
                 let settings = app.settings.as_mut().expect("No settings found");
                 let action2 = action.to_owned();
                 log::error!("Checking for certificate and csr");
                 if settings.get_cert().is_none() {
                     if settings.csr_der.is_none() {
-                        std::thread::spawn(|| {
-                            generate_csr(action2);
-                        });
-                        *a = RegistrationStep::CreatingCsr;
+                        *a = RegistrationStep::GettingUserInput {
+                            name: String::new(),
+                            email: String::new(),
+                            phone: String::new(),
+                            url: action2,
+                        };
                     } else {
                         *a = RegistrationStep::WaitingForApproval(action.clone());
                     }
@@ -146,7 +190,14 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
             RegistrationStep::CreatingCsr => {
                 ui.label("Creating CSR. This will take a while.");
             }
-            RegistrationStep::SubmitCsr(url, csr, pkey) => {
+            RegistrationStep::SubmitCsr {
+                url,
+                csr,
+                pkey,
+                name,
+                email,
+                phone,
+            } => {
                 ui.label(format!("Need to submit generated csr {csr:x?}"));
                 let settings = app.settings.as_mut().expect("No settings found");
                 settings.cert_keypair.replace(pkey.to_owned());
@@ -158,9 +209,9 @@ pub fn handle_register(app: &mut super::DemoApp, ui: &mut eframe::egui::Ui) -> b
                 {
                     let mut form = HashMap::new();
                     form.insert("csr", csr.to_owned());
-                    form.insert("name", "Android User".to_string());
-                    form.insert("email", "test@example.com".to_string());
-                    form.insert("phone", "867-5309".to_string());
+                    form.insert("name", name.to_string());
+                    form.insert("email", email.to_string());
+                    form.insert("phone", phone.to_string());
                     form.insert("smartcard", "1".to_string());
                     settings.csr_der.replace(csr.to_owned());
                     let res = client
