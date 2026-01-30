@@ -53,6 +53,8 @@ pub trait AppletTrait {
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
     /// Get list of all tables
     fn table_setup(&self) -> Vec<AppletTable>;
+    /// Get the list of valid api calls
+    fn api_calls(&self) -> cert_common::api::AppletCalls;
     /// Run the applet
     async fn run_applet(
         &self,
@@ -62,6 +64,15 @@ pub trait AppletTrait {
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
     );
+    /// Run the api call, must return a toml formatted string
+    async fn api_call(
+        &self,
+        call: &str,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) -> String;
 }
 
 /// The individual applet instance type

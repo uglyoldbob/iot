@@ -98,6 +98,30 @@ impl super::AppletTrait for Ev1 {
         }]
     }
 
+    fn api_calls(&self) -> cert_common::api::AppletCalls {
+        cert_common::api::AppletCalls {
+            calls: vec!["test".to_string()],
+        }
+    }
+
+    async fn api_call(
+        &self,
+        call: &str,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) -> String {
+        let mut admin = false;
+        if ca.is_admin_for_applet(appletid, userid).await {
+            admin = true;
+        }
+        match call {
+            "test" => String::new(),
+            _ => String::new(),
+        }
+    }
+
     async fn run_applet(
         &self,
         html: &mut html::root::builders::HtmlBuilder,

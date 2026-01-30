@@ -2949,6 +2949,28 @@ async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
 async fn handle_ca_api(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let call = s.get.get("call").map(|a| a.as_str());
     let contents: String = match call {
+        Some("applet") => {
+            let appletid: Option<i64> = s.get.get("id").and_then(|a| a.parse().ok());
+            if let Some(appletid) = appletid {
+                if let Some(applet) = ca.medium.retrieve_applet(appletid).await {
+                    let call2 = s.get.get("call2").map(|a| a.as_str());
+                    match call2 {
+                        Some(call2) => {
+                            if let Some(userid) = ca.get_current_user(&s.user_certs).await {
+                                applet.api_call(call2, appletid, userid, ca, s).await
+                            } else {
+                                String::new()
+                            }
+                        }
+                        None => toml::to_string(&applet.api_calls()).unwrap(),
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        }
         _ => {
             let mut applets_list = Vec::new();
             if let Some(applets) = ca.medium.retrieve_all_applets().await {
