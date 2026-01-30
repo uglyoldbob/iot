@@ -3619,8 +3619,8 @@ pub struct RawCertificateInfo {
 
 /// A structure used when iterating over certificates for the front end
 pub struct CertificateInfo {
-    /// The index of the certificate
-    pub index: i64,
+    /// The id of the certificate
+    pub id: i64,
     /// The certificate
     pub cert: x509_cert::certificate::CertificateInner,
     /// The serial number of the certificate
@@ -4555,6 +4555,7 @@ impl Ca {
                         let mut rows = stmt.query([]).unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
+                            let id: i64 = r.get(0).unwrap();
                             let der: Vec<u8> = r.get(1).unwrap();
                             let date: Option<String> = r.get(3).ok();
                             let reason: Option<u32> = r.get(4).ok();
@@ -4595,7 +4596,7 @@ impl Ca {
                             let cert: x509_cert::Certificate =
                                 x509_cert::Certificate::from_der(&der).unwrap();
                             let ci = CertificateInfo {
-                                index,
+                                id,
                                 cert,
                                 serial,
                                 revoked,

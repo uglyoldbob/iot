@@ -404,7 +404,7 @@ impl super::AppletTrait for Ev1 {
                             }
 
                             for user in &user_list {
-                                let userid = user.index;
+                                let userid = user.id;
                                 let mut group_member = Vec::new();
                                 for group in
                                     ca.get_groups_for_applet_and_user(appletid, userid).await
