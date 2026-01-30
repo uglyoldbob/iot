@@ -937,8 +937,8 @@ dependencies = [
 
 [[package]]
 name = "cert-common"
-version = "0.2.2"
-source = "git+https://github.com/uglyoldbob/cert-common.git#75768a21637da4c195eb8b1ccab0f961d28f48e1"
+version = "0.2.4"
+source = "git+https://github.com/uglyoldbob/cert-common.git#f11ac0d32bae90be2ff7e7bbb7cf2dc0cc2c7c3d"
 dependencies = [
  "cms",
  "const-oid",
@@ -2770,7 +2770,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -4542,7 +4542,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.36",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4579,7 +4579,7 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.2",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]

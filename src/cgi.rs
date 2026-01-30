@@ -358,7 +358,16 @@ async fn main() {
                 cgi::html_response(200, response)
             }
             Some("api") => {
-                let response: String = String::new();
+                let resp = ca::ca_api(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap_or_default()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
                 cgi::html_response(200, response)
             }
             Some("register_android") => {

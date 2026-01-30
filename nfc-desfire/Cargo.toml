@@ -38,7 +38,7 @@ version = "0.10.2"
 features = ["encryption", "pem", "std"]
 
 [dependencies.cert-common]
-version = "0.2.2"
+version = "0.2.4"
 git = "https://github.com/uglyoldbob/cert-common.git"
 
 [dependencies.rcgen]

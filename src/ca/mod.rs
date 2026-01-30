@@ -2946,6 +2946,57 @@ async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
     }
 }
 
+async fn handle_ca_api(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    let call = s.get.get("call").map(|a| a.as_str());
+    let contents: String = match call {
+        _ => {
+            let mut applets_list = Vec::new();
+            if let Some(applets) = ca.medium.retrieve_all_applets().await {
+                for applet in applets {
+                    applets_list.push(applet.0 as i64);
+                }
+            }
+            let v = cert_common::api::AppletList {
+                applet_ids: applets_list,
+            };
+            toml::to_string(&v).unwrap()
+        }
+    };
+
+    let response = hyper::Response::new("dummy");
+    let (mut response, _dummybody) = response.into_parts();
+
+    response.headers.append(
+        "Content-Type",
+        HeaderValue::from_static("application/ocsp-response"),
+    );
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(contents));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// Run the ocsp responder
+pub async fn ca_api(s: WebPageContext) -> WebResponse {
+    let mut pki = s.pki.lock().await;
+    match std::ops::DerefMut::deref_mut(&mut pki) {
+        PkiInstance::Pki(pki) => {
+            let mut pb = s.page.clone();
+            pb.pop();
+            pb.pop();
+            let name = pb.file_name().unwrap().to_str().unwrap();
+            let ca = pki.all_ca.get_mut(name).unwrap();
+            if let LocalOrRemoteCa::Local(ca) = ca {
+                handle_ca_api(ca, &s).await
+            } else {
+                todo!()
+            }
+        }
+        PkiInstance::Ca(ca) => handle_ca_api(ca, &s).await,
+    }
+}
+
 /// Run an ocsp response for a ca
 async fn handle_ca_refresh_certificate_search(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     let mut admin = false;
