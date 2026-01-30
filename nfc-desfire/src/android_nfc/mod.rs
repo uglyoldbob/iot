@@ -523,8 +523,13 @@ pub trait CardTrait {
         app: Option<&[u8]>,
     ) -> Result<(), std::io::Error>;
     /// Authenticate to the entire card, with an optional non-default key
-    fn authenticate(&self, env: &mut jni::JNIEnv, key: Option<&[u8]>)
-        -> Result<(), std::io::Error>;
+    fn authenticate(
+        &self,
+        env: &mut jni::JNIEnv,
+        auth: &str,
+        keytype: &str,
+        key: Option<&[u8]>,
+    ) -> Result<(), std::io::Error>;
 }
 
 #[enum_dispatch::enum_dispatch(CardTrait)]

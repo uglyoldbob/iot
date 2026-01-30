@@ -76,6 +76,8 @@ impl super::CardTrait for Ev1 {
     fn authenticate(
         &self,
         env: &mut jni::JNIEnv,
+        auth: &str,
+        keytype: &str,
         key: Option<&[u8]>,
     ) -> Result<(), std::io::Error> {
         let key = key.unwrap_or(DEFAULT_PICC_KEY);
@@ -86,7 +88,7 @@ impl super::CardTrait for Ev1 {
         let aes = env
             .get_static_field(
                 auth_type_class,
-                "Native",
+                auth,
                 "Lcom/nxp/nfclib/desfire/IDESFireEV1$AuthType;",
             )
             .map_err(|e| super::jerr(env, e))?
@@ -97,11 +99,7 @@ impl super::CardTrait for Ev1 {
             .find_class("com/nxp/nfclib/KeyType")
             .map_err(|e| super::jerr(env, e))?;
         let keytype = env
-            .get_static_field(
-                key_type_class,
-                "TWO_KEY_THREEDES",
-                "Lcom/nxp/nfclib/KeyType;",
-            )
+            .get_static_field(key_type_class, keytype, "Lcom/nxp/nfclib/KeyType;")
             .map_err(|e| super::jerr(env, e))?
             .l()
             .map_err(|e| super::jerr(env, e))?;

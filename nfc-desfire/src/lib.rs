@@ -66,7 +66,12 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
                                         );
                                         log::error!(
                                             "Authenticate is {:?}",
-                                            card.authenticate(&mut env, None)
+                                            card.authenticate(
+                                                &mut env,
+                                                "Native",
+                                                "TWO_KEY_THREEDES",
+                                                None
+                                            )
                                         );
                                         let _ = r.send(NfcCardResponse::BasicInfo {
                                             stuff: "TESTING".to_string(),
