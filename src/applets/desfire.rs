@@ -393,16 +393,6 @@ impl super::AppletTrait for Ev1 {
                                 .await;
                             let mut user_groups = Vec::new();
 
-                            let mut myserial = String::new();
-
-                            if let Some(serialhex) = s.get.get("serial") {
-                                let serial: Result<Vec<u8>, std::num::ParseIntError> =
-                                    crate::utility::decode_hex(serialhex.as_str());
-                                if let Ok(serial) = serial {
-                                    myserial = crate::utility::encode_hex(&serial);
-                                }
-                            }
-
                             for user in &user_list {
                                 let userid = user.id;
                                 let mut group_member = Vec::new();
@@ -433,7 +423,7 @@ impl super::AppletTrait for Ev1 {
                                         match s.delivery {
                                             crate::main_config::PageDelivery::Cgi => {
                                                 sget.insert("step".to_string(), 1.to_string());
-                                                sget.insert("serial".to_string(), serial);
+                                                sget.insert("serial".to_string(), serial.clone());
                                                 let a = sget
                                                     .iter()
                                                     .map(|a| format!("{}={}", a.0, a.1))
@@ -472,7 +462,7 @@ impl super::AppletTrait for Ev1 {
                                                         ab.href(format!("?{a}"));
                                                     }
                                                     crate::main_config::PageDelivery::DedicatedServer => {
-                                                        ab.href(format!("applet.rs?id={}&action=manage_users&step=3&serial={}&applet_data={}", appletid, myserial, group));
+                                                        ab.href(format!("applet.rs?id={}&action=manage_users&step=3&serial={}&applet_data={}", appletid, serial, group));
                                                     }
                                                 };
                                                 ab
