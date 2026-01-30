@@ -328,7 +328,7 @@ async fn handle_ca_request(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                         div.text("SSH STUFF").line_break(|a|a);
                         div.form(|f| {
                             f.name("request");
-                            f.action("ca/submit_request.rs");
+                            f.action("ca/submit_request.rs"); //TODO change this depending on delivery
                             f.method("post");
                             f.text("Your Name")
                                 .line_break(|a| a)
@@ -1307,7 +1307,7 @@ pub async fn ca_reject_request(s: WebPageContext) -> WebResponse {
 }
 
 /// Revoke a certificate
-async fn ca_revoke_certificate(s: WebPageContext) -> WebResponse {
+pub async fn ca_revoke_certificate(s: WebPageContext) -> WebResponse {
     let mut pki = s.pki.lock().await;
     match std::ops::DerefMut::deref_mut(&mut pki) {
         PkiInstance::Pki(pki) => {
@@ -2178,7 +2178,14 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                         f.input(|i| i.type_("hidden").id("id").name("serial").value(myserial2));
                         f.input(|i| i.type_("submit").value("REVOKE"))
                             .line_break(|a| a);
-                        f.action("./revoke_cert.rs");
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                f.action("?action=revoke_cert")
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                f.action("revoke_cert.rs")
+                            }
+                        };
                         f
                     })
                     .line_break(|a| a);
