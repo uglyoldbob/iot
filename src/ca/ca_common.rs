@@ -4024,7 +4024,7 @@ impl Ca {
                 CaCertificateStorage::Nowhere => {}
                 CaCertificateStorage::Sqlite(p) => {
                     p.conn(move |conn| {
-                        let mut stmt = conn.prepare("DELETE FROM group_membership WHERE userid='?1' AND appletid='?2' AND groupname='?3'").expect("Failed to build statement");
+                        let mut stmt = conn.prepare("DELETE FROM group_membership WHERE userid=?1 AND appletid=?2 AND groupname=?3").expect("Failed to build statement");
                         stmt.execute([
                             userid.to_sql().unwrap(),
                             appletid.to_sql().unwrap(),
