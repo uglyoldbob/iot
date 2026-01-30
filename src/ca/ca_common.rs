@@ -3601,8 +3601,8 @@ pub struct Ca {
 
 /// The data submitted by the user or admin for revoking a certificate
 pub struct RevokeFormData {
-    /// The id of the certificate to revoke
-    pub id: i64,
+    /// The serial of the certificate to revoke
+    pub serial: Vec<u8>,
     /// The numeric code for revoking the certificate. see RFC 5280 or ocsp::response::CrlReason
     pub reason: u8,
 }
@@ -3751,6 +3751,10 @@ impl Ca {
     }
 
     pub async fn revoke_certificate(&mut self, form: RevokeFormData) -> Result<(), ()> {
+        let (id, _) = match self.get_cert_id_with_serial(&form.serial).await {
+            MaybeError::Ok(a) => a,
+            _ => return Err(()),
+        };
         match &self.medium {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
@@ -3768,7 +3772,7 @@ impl Ca {
                     let mut stmt =
                         conn.prepare("INSERT INTO revoked (id, date, reason) VALUES (?1, ?2, ?3)")?;
                     stmt.execute([
-                        form.id.to_sql().unwrap(),
+                        id.to_sql().unwrap(),
                         dates.to_sql().unwrap(),
                         form.reason.to_sql().unwrap(),
                     ])?;
