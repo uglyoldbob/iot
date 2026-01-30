@@ -86,7 +86,7 @@ impl super::CardTrait for Ev1 {
         let aes = env
             .get_static_field(
                 auth_type_class,
-                "AES",
+                "Native",
                 "Lcom/nxp/nfclib/desfire/IDESFireEV1$AuthType;",
             )
             .map_err(|e| super::jerr(env, e))?
@@ -97,7 +97,11 @@ impl super::CardTrait for Ev1 {
             .find_class("com/nxp/nfclib/KeyType")
             .map_err(|e| super::jerr(env, e))?;
         let keytype = env
-            .get_static_field(key_type_class, "AES128", "Lcom/nxp/nfclib/KeyType;")
+            .get_static_field(
+                key_type_class,
+                "TWO_KEY_THREEDES",
+                "Lcom/nxp/nfclib/KeyType;",
+            )
             .map_err(|e| super::jerr(env, e))?
             .l()
             .map_err(|e| super::jerr(env, e))?;
