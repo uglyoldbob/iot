@@ -4013,6 +4013,31 @@ impl Ca {
     }
 
     /// Add the specified user to the specified applet group
+    pub async fn delete_user_by_serial_from_applet_group(
+        &mut self,
+        serial: &[u8],
+        appletid: i64,
+        groupname: String,
+    ) {
+        if let MaybeError::Ok((userid, _cert)) = self.get_cert_id_with_serial(serial).await {
+            match &self.medium {
+                CaCertificateStorage::Nowhere => {}
+                CaCertificateStorage::Sqlite(p) => {
+                    p.conn(move |conn| {
+                        let mut stmt = conn.prepare("DELETE FROM group_membership WHERE userid='?1' AND appletid='?2' AND groupname='?3'").expect("Failed to build statement");
+                        stmt.execute([
+                            userid.to_sql().unwrap(),
+                            appletid.to_sql().unwrap(),
+                            groupname.to_sql().unwrap(),
+                        ]).expect("Failed to remove group membership");
+                        Ok(())
+                    }).await.expect("Failed to remove group membership");
+                }
+            }
+        }
+    }
+
+    /// Add the specified user to the specified applet group
     pub async fn add_user_by_serial_to_applet_group(
         &mut self,
         serial: &[u8],

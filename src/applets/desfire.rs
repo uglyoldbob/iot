@@ -313,6 +313,62 @@ impl super::AppletTrait for Ev1 {
                                         b.text("Failed to add user to group");
                                     }
                                     b.line_break(|a| a);
+
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
+                        }
+                        3 => {
+                            if admin {
+                                let mut success = false;
+
+                                let mut myserial = String::new();
+
+                                if let Some(serialhex) = s.get.get("serial") {
+                                    let serial: Result<Vec<u8>, std::num::ParseIntError> =
+                                        crate::utility::decode_hex(serialhex.as_str());
+                                    if let Ok(serial) = serial {
+                                        myserial = crate::utility::encode_hex(&serial);
+                                        if let Some(group) = s.get.get("applet_data") {
+                                            ca.delete_user_by_serial_from_applet_group(
+                                                &serial,
+                                                appletid,
+                                                group.to_string(),
+                                            )
+                                            .await;
+                                            success = true;
+                                        }
+                                    }
+                                }
+                                html.body(|b| {
+                                    if success {
+                                        b.text("Removed user from group");
+                                    } else {
+                                        b.text("Failed to remove user from group");
+                                    }
+                                    b.line_break(|a| a);
+
+                                    b.anchor(|ab| {
+                                        ab.text(format!("Back to user"));
+                                        match s.delivery {
+                                            crate::main_config::PageDelivery::Cgi => {
+                                                sget.remove("applet_data");
+                                                sget.insert("step".to_string(), 1.to_string());
+                                                let a = sget
+                                                    .iter()
+                                                    .map(|a| format!("{}={}", a.0, a.1))
+                                                    .collect::<Vec<String>>()
+                                                    .join("&");
+                                                ab.href(format!("?{a}"));
+                                            }
+                                            crate::main_config::PageDelivery::DedicatedServer => {
+                                                ab.href(format!("applet.rs?id={}&action=manage_users&step=1&serial={}", appletid, myserial));
+                                            }
+                                        };
+                                        ab
+                                    });
+
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
@@ -336,6 +392,17 @@ impl super::AppletTrait for Ev1 {
                                 })
                                 .await;
                             let mut user_groups = Vec::new();
+
+                            let mut myserial = String::new();
+
+                            if let Some(serialhex) = s.get.get("serial") {
+                                let serial: Result<Vec<u8>, std::num::ParseIntError> =
+                                    crate::utility::decode_hex(serialhex.as_str());
+                                if let Ok(serial) = serial {
+                                    myserial = crate::utility::encode_hex(&serial);
+                                }
+                            }
+
                             for user in &user_list {
                                 let userid = user.index;
                                 let mut group_member = Vec::new();
@@ -390,6 +457,28 @@ impl super::AppletTrait for Ev1 {
                                     if let Some(usergroups) = user_groups.get(index) {
                                         b.text(format!("Groups are {}", usergroups.join(", ")));
                                         b.line_break(|a|a);
+                                        for group in usergroups {
+                                            b.anchor(|ab| {
+                                                ab.text(format!("Remove from the {group} group"));
+                                                match s.delivery {
+                                                    crate::main_config::PageDelivery::Cgi => {
+                                                        sget.insert("applet_data".to_string(), group.to_string());
+                                                        sget.insert("step".to_string(), 3.to_string());
+                                                        let a = sget
+                                                            .iter()
+                                                            .map(|a| format!("{}={}", a.0, a.1))
+                                                            .collect::<Vec<String>>()
+                                                            .join("&");
+                                                        ab.href(format!("?{a}"));
+                                                    }
+                                                    crate::main_config::PageDelivery::DedicatedServer => {
+                                                        ab.href(format!("applet.rs?id={}&action=manage_users&step=3&serial={}&applet_data={}", appletid, myserial, group));
+                                                    }
+                                                };
+                                                ab
+                                            });
+                                            b.line_break(|a|a);
+                                        }
                                     }
                                 }
                                 b.thematic_break(|a| a);
