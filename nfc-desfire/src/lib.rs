@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use eframe::{egui, NativeOptions};
 
 mod android_nfc;
@@ -9,6 +11,19 @@ use jni_min_helper::*;
 const NFC_KEY: &str = include_str!("../nfc_key.txt");
 /// The offline api key for nxpnfclib
 const NFC_KEY_OFFLINE: &str = include_str!("../nfc_key_offline.txt");
+
+pub enum NfcCardCommand {
+    BasicInfo,
+}
+
+pub enum NfcCardResponse {
+    BasicInfo { stuff: String },
+}
+
+lazy_static::lazy_static! {
+    static ref NFC_CARD_COMMAND : Arc<Mutex<Option<std::sync::mpsc::Receiver<NfcCardCommand>>>> = Arc::new(Mutex::new(None));
+    static ref NFC_CARD_RESPONSE: Arc<Mutex<Option<std::sync::mpsc::Sender<NfcCardResponse>>>> = Arc::new(Mutex::new(None));
+}
 
 const CONFIGURATION_FILE: &str = "config.toml";
 
@@ -34,9 +49,42 @@ pub extern "C" fn Java_com_uglyoldbob_RustIotNfc_ModdedActivity_notifyOnTag(
     let mut m = NxpNfcInstance.lock().unwrap();
     let m: Option<&mut NxpNfcLib> = m.as_mut();
     if let Some(i) = m {
-        let t = i.get_card_type_from_tag(&mut env, tag).unwrap();
-        t.process(&mut env, i).unwrap();
-        log::error!("There is a nxpnfclib to use with {:?}", t);
+        match i.get_card_type_from_tag(&mut env, tag) {
+            Ok(t) => match t.process(&mut env, i) {
+                Ok(card) => {
+                    log::error!("There is a nxpnfclib to use with {:?}", t);
+                    let mut q = NFC_CARD_COMMAND.lock().unwrap();
+                    if let Some(q) = q.as_mut() {
+                        let mut r = NFC_CARD_RESPONSE.lock().unwrap();
+                        if let Some(r) = r.as_mut() {
+                            if let Ok(cmd) = q.try_recv() {
+                                match cmd {
+                                    NfcCardCommand::BasicInfo => {
+                                        log::error!(
+                                            "App select is {:?}",
+                                            card.select_application(&mut env, None)
+                                        );
+                                        log::error!(
+                                            "Authenticate is {:?}",
+                                            card.authenticate(&mut env, None)
+                                        );
+                                        let _ = r.send(NfcCardResponse::BasicInfo {
+                                            stuff: "TESTING".to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("There was an error processing the card type: {e:?}");
+                }
+            },
+            Err(e) => {
+                log::error!("There was an error reading the card type: {e:?}");
+            }
+        }
     }
 }
 
@@ -53,6 +101,18 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Error),
     );
 
+    let chan_1 = std::sync::mpsc::channel();
+    {
+        let mut q = NFC_CARD_COMMAND.lock().unwrap();
+        q.replace(chan_1.1);
+    }
+
+    let chan_2 = std::sync::mpsc::channel();
+    {
+        let mut r = NFC_CARD_RESPONSE.lock().unwrap();
+        r.replace(chan_2.0);
+    }
+
     let mut nfc = TapLinx::make_new(&app);
 
     let options = NativeOptions {
@@ -60,7 +120,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
         renderer: Renderer::Wgpu,
         ..Default::default()
     };
-    DemoApp::run(options, nfc).unwrap();
+    DemoApp::run(options, nfc, chan_1.0, chan_2.1).unwrap();
 }
 
 #[derive(Debug)]
@@ -118,14 +178,23 @@ pub struct DemoApp {
     pub settings: Result<AppConfig, AppConfigError>,
     nfc: TapLinx,
     test: String,
+    send: std::sync::mpsc::Sender<NfcCardCommand>,
+    resp: std::sync::mpsc::Receiver<NfcCardResponse>,
+    waiting_nfc_response: bool,
+    nfc_response: Option<NfcCardResponse>,
 }
 
 impl DemoApp {
-    pub fn run(options: NativeOptions, nfc: TapLinx) -> Result<(), eframe::Error> {
+    pub fn run(
+        options: NativeOptions,
+        nfc: TapLinx,
+        send: std::sync::mpsc::Sender<NfcCardCommand>,
+        resp: std::sync::mpsc::Receiver<NfcCardResponse>,
+    ) -> Result<(), eframe::Error> {
         eframe::run_native(
             "rust-iot-nfc",
             options.clone(),
-            Box::new(|_cc| Ok(Box::<DemoApp>::new(DemoApp::new(options, nfc)))),
+            Box::new(|_cc| Ok(Box::<DemoApp>::new(DemoApp::new(options, nfc, send, resp)))),
         )
     }
 
@@ -199,12 +268,21 @@ impl DemoApp {
         }
     }
 
-    fn new(options: NativeOptions, nfc: TapLinx) -> Self {
+    fn new(
+        options: NativeOptions,
+        nfc: TapLinx,
+        send: std::sync::mpsc::Sender<NfcCardCommand>,
+        resp: std::sync::mpsc::Receiver<NfcCardResponse>,
+    ) -> Self {
         let mut s = Self {
             local_storage: options.android_app.unwrap().internal_data_path(),
             settings: Err(AppConfigError::NotLoaded),
             nfc,
             test: String::new(),
+            send,
+            resp,
+            waiting_nfc_response: false,
+            nfc_response: None,
         };
         s.load_config();
         s.nfc.load_instance().expect("Failed to load instance");
@@ -238,7 +316,10 @@ impl eframe::App for DemoApp {
             );
             let min_size = Self::min_size(ui);
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.label("I am groot");
+                if let Ok(resp) = self.resp.try_recv() {
+                    self.waiting_nfc_response = false;
+                    self.nfc_response.replace(resp);
+                }
                 let ver = self.nfc.get_version();
                 ui.label(format!("TAPLINX VERSION: {:#?}", ver));
                 android_nfc::handle_register(self, ui);
@@ -258,6 +339,22 @@ impl eframe::App for DemoApp {
                         }
                     }
                     ui.label(&self.test);
+                }
+                if ui.button("Check card").clicked() {
+                    self.nfc_response = None;
+                    if self.send.send(NfcCardCommand::BasicInfo).is_ok() {
+                        self.waiting_nfc_response = true;
+                    }
+                }
+                if self.waiting_nfc_response {
+                    ui.label("Waiting for nfc tag");
+                }
+                if let Some(resp) = &self.nfc_response {
+                    match resp {
+                        NfcCardResponse::BasicInfo { stuff } => {
+                            ui.label(format!("Response is: {stuff}"));
+                        }
+                    }
                 }
             });
         });

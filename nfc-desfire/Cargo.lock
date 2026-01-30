@@ -709,8 +709,8 @@ dependencies = [
 
 [[package]]
 name = "cert-common"
-version = "0.2.2"
-source = "git+https://github.com/uglyoldbob/cert-common.git#75768a21637da4c195eb8b1ccab0f961d28f48e1"
+version = "0.2.5"
+source = "git+https://github.com/uglyoldbob/cert-common.git#8d0e7642f46bb5c3f20f3941a5dc82d22badeed3"
 dependencies = [
  "cms",
  "const-oid",
@@ -1310,6 +1310,18 @@ name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
+
+[[package]]
+name = "enum_dispatch"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa18ce2bc66555b3218614519ac839ddb759a7d6720732f979ef8d13be147ecd"
+dependencies = [
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "enumflags2"
@@ -1999,7 +2011,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -3673,6 +3685,7 @@ dependencies = [
  "cert-common",
  "eframe",
  "egui-winit",
+ "enum_dispatch",
  "getrandom 0.2.17",
  "jni",
  "jni-min-helper",
@@ -5261,19 +5274,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
-]
-
-[[package]]
 name = "windows-future"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5369,15 +5369,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link 0.2.1",
-]
-
-[[package]]
 name = "windows-strings"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5394,15 +5385,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]

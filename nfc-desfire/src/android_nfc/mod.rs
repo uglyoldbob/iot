@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use winit::platform::android::activity::AndroidApp;
 
+mod desfire;
+
 pub enum RegistrationStep {
     GotUrl(String),
     GettingUserInput {
@@ -512,6 +514,24 @@ pub struct NxpNfcLib {
     inner: GlobalRef,
 }
 
+#[enum_dispatch::enum_dispatch]
+pub trait CardTrait {
+    /// Select the card application
+    fn select_application(
+        &self,
+        env: &mut jni::JNIEnv,
+        app: Option<&[u8]>,
+    ) -> Result<(), std::io::Error>;
+    /// Authenticate to the entire card, with an optional non-default key
+    fn authenticate(&self, env: &mut jni::JNIEnv, key: Option<&[u8]>)
+        -> Result<(), std::io::Error>;
+}
+
+#[enum_dispatch::enum_dispatch(CardTrait)]
+pub enum CardInstance {
+    DesFireEv1(desfire::Ev1),
+}
+
 #[derive(Debug)]
 pub enum CardType {
     DesFireEv1,
@@ -586,14 +606,13 @@ impl CardType {
         &self,
         env: &mut jni::JNIEnv,
         lib: &mut NxpNfcLib,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<CardInstance, std::io::Error> {
         match self {
             Self::DesFireEv1 => {
                 let cm = lib.get_custom_modules(env)?;
                 let factory = DesfireFactory::get_instance(env)?;
                 let ev1 = factory.get_desfire_ev1(env, cm)?;
-                log::error!("Got desfire ev1 object");
-                Ok(())
+                Ok(ev1.into())
             }
             _ => Err(std::io::Error::other(format!(
                 "Unhandled card type {:?}",
@@ -719,7 +738,7 @@ impl DesfireFactory {
         &self,
         env: &mut jni::JNIEnv,
         cm: GlobalRef,
-    ) -> Result<GlobalRef, std::io::Error> {
+    ) -> Result<desfire::Ev1, std::io::Error> {
         let ver = env
             .call_method(
                 self.inner.as_obj(),
@@ -729,6 +748,8 @@ impl DesfireFactory {
             )
             .get_object(env)
             .map_err(|e| jerr(env, e))?;
-        env.new_global_ref(&ver).map_err(|e| jerr(env, e))
+        Ok(desfire::Ev1::new(
+            env.new_global_ref(&ver).map_err(|e| jerr(env, e))?,
+        ))
     }
 }
