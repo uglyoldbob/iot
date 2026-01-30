@@ -1150,7 +1150,7 @@ async fn handle_ca_revoke_certificate(ca: &mut Ca, s: &WebPageContext) -> WebRes
     if allowed_to_revoke {
         let p = &s.post;
         if let Some(form) = p.form() {
-            if let Some(serialhex) = s.get.get("serial") {
+            if let Some(serialhex) = form.get_first("serial") {
                 let serial: Result<Vec<u8>, std::num::ParseIntError> =
                     crate::utility::decode_hex(serialhex.as_str());
                 if let Ok(serial) = serial {
