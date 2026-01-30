@@ -85,17 +85,234 @@ impl super::AppletTrait for Ev1 {
     }
 
     fn table_setup(&self) -> Vec<AppletTable> {
-        vec![AppletTable {
-            name: "applications".to_string(),
-            fields: vec![(
-                "v1".to_string(),
-                AppletTableField {
-                    ty: FieldType::Integer,
-                    primary_key: false,
-                    default: None,
-                },
-            )],
-        }]
+        vec![
+            AppletTable {
+                name: "applications".to_string(),
+                fields: vec![(
+                    "v1".to_string(),
+                    AppletTableField {
+                        ty: FieldType::Integer,
+                        primary_key: false,
+                        default: None,
+                    },
+                )],
+            },
+            AppletTable {
+                name: "static_file_templates".to_string(),
+                fields: vec![
+                    (
+                        "id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: true,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "name".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "contents".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Blob,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                ],
+            },
+            AppletTable {
+                name: "card_keys".to_string(),
+                fields: vec![
+                    (
+                        "id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: true,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Blob,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "auth".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "keytype".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "name".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                ],
+            },
+            AppletTable {
+                name: "card_applications".to_string(),
+                fields: vec![
+                    (
+                        "aid".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Blob,
+                            primary_key: true,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "name".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key0".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key1".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key2".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key3".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key4".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key5".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key6".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key7".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key8".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key9".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key10".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key11".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key12".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key13".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "key14".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                ],
+            },
+        ]
     }
 
     fn api_calls(&self) -> cert_common::api::AppletCalls {
