@@ -1,5 +1,7 @@
 //! Code for the desfire applet
 
+mod templates;
+
 use std::collections::HashMap;
 
 use crate::ca::{Ca, CertAttribute};
@@ -10,6 +12,46 @@ use super::{AppletTable, AppletTableField, FieldType};
 pub struct Ev1 {
     table_name: String,
 }
+
+#[enum_dispatch::enum_dispatch]
+trait FileTemplateTrait {
+    /// Build the html form for modifying the data
+    fn html_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        html: &mut html::root::builders::HtmlBuilder,
+        fbm: F,
+    );
+    /// Apply changes from the html form
+    fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
+    /// Generate the file
+    fn generate(&self) -> FileGenerator;
+}
+
+#[enum_dispatch::enum_dispatch(FileTemplateTrait)]
+enum FileTemplate {
+    Counter(templates::Counter),
+}
+
+#[enum_dispatch::enum_dispatch]
+trait FileGeneratorTrait {
+    /// Build the html form for modifying the data
+    fn html_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        html: &mut html::root::builders::HtmlBuilder,
+        fbm: F,
+    );
+    /// Apply changes from the html form
+    fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
+    /// Generate the file
+    fn generate(&self) -> File;
+}
+
+#[enum_dispatch::enum_dispatch(FileGeneratorTrait)]
+enum FileGenerator {
+    Counter(templates::CounterGenerator),
+}
+
+enum File {}
 
 fn backlinks(
     b: &mut html::root::builders::BodyBuilder,
@@ -98,7 +140,7 @@ impl super::AppletTrait for Ev1 {
                 )],
             },
             AppletTable {
-                name: "static_file_templates".to_string(),
+                name: "file_templates".to_string(),
                 fields: vec![
                     (
                         "id".to_string(),
@@ -117,9 +159,9 @@ impl super::AppletTrait for Ev1 {
                         },
                     ),
                     (
-                        "contents".to_string(),
+                        "definition".to_string(),
                         AppletTableField {
-                            ty: FieldType::Blob,
+                            ty: FieldType::Text,
                             primary_key: false,
                             default: None,
                         },
