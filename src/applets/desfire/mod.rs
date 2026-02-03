@@ -751,9 +751,30 @@ impl Ev1 {
         }
     }
 
-    async fn insert_new_application(&self, ca: &mut Ca, app: &CardApplication) -> Result<(), ()> {
+    async fn insert_new_application(
+        &self,
+        ca: &mut Ca,
+        appletid: i64,
+        app: CardApplication,
+    ) -> Result<(), ()> {
         let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
-        Ok(())
+        use crate::ca::CaCertificateStorage;
+        use async_sqlite::rusqlite::ToSql;
+        match &ca.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "INSERT INTO {app_table} (aid, name) VALUES (?1, ?2)"
+                    ))?;
+                    stmt.execute([app.aid.to_sql().unwrap(), app.name.to_sql().unwrap()])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
     }
 
     async fn submit_new_application_form(
@@ -781,7 +802,7 @@ impl Ev1 {
                             let mut app = CardApplication::default();
                             app.name = app_name.to_string();
                             app.aid = app_aid;
-                            if self.insert_new_application(&app).is_ok() {
+                            if self.insert_new_application(ca, appletid, app).await.is_ok() {
                                 html.body(|b| {
                                     b.text("Applicaiton created");
                                     backlinks(b, appletid, sget, s);
