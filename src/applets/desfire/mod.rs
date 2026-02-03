@@ -1035,11 +1035,16 @@ impl Ev1 {
                     fb.line_break(|a| a);
                     fb.input(|i| i.name("key_name"));
                     fb.line_break(|a| a);
+                    fb.text("Key auth method");
+                    fb.line_break(|a| a);
                     fb.input(|i| i.name("key_auth"));
+                    fb.line_break(|a| a);
+                    fb.text("Key type");
                     fb.line_break(|a| a);
                     fb.input(|i| i.name("key_type"));
                     fb.line_break(|a| a);
                     fb.input(|i| i.type_("hidden").name("applet_action").value("manage_keys"));
+                    fb.line_break(|a| a);
                     fb.input(|i| i.type_("hidden").name("step").value("3"));
                     fb.line_break(|a| a);
                     fb.button(|b| b.text("Finish"));
