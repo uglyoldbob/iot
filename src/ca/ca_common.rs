@@ -3750,6 +3750,11 @@ impl Ca {
         false
     }
 
+    /// Get the applet specific table name
+    pub fn get_applet_specific_table_name(&self, appletid: i64, name: &str) -> String {
+        format!("applet_{}_{}", appletid, name)
+    }
+
     pub async fn revoke_certificate(&mut self, form: RevokeFormData) -> Result<(), ()> {
         let (id, _) = match self.get_cert_id_with_serial(&form.serial).await {
             MaybeError::Ok(a) => a,
@@ -5665,7 +5670,7 @@ impl SshRejection {
 /// The database form of an entry
 pub struct DbEntry<'a> {
     /// The row contents
-    row_data: &'a async_sqlite::rusqlite::Row<'a>,
+    pub row_data: &'a async_sqlite::rusqlite::Row<'a>,
 }
 
 impl<'a> DbEntry<'a> {

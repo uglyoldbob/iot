@@ -989,7 +989,24 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
     if let Some(userid) = ca.get_current_user(&s.user_certs).await {
         if let Some(mut applet) = ca.medium.retrieve_applet(applet_id).await {
-            applet.run_applet(&mut html, applet_id, userid, ca, s).await;
+            applet
+                .run_applet(&mut html, applet_id, userid, ca, s, |fb| {
+                    fb.method("POST");
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("applet_config")
+                            .value(crate::utility::build_toml_string(&applet))
+                    });
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            fb.input(|i| i.type_("hidden").name("action").value("view_applet"));
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            fb.action("ca/view_applet.rs");
+                        }
+                    }
+                })
+                .await;
         } else {
             let response = hyper::Response::new("dummy");
             let (response, _dummybody) = response.into_parts();
@@ -2947,8 +2964,11 @@ async fn ca_ocsp_responder(s: WebPageContext) -> WebResponse {
 }
 
 async fn handle_ca_api(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
-    let call = s.get.get("call").map(|a| a.as_str());
-    let contents: String = match call {
+    let call = s.get.get("call").map(|a| a.to_owned()).or(s
+        .post
+        .form()
+        .and_then(|f| f.get_first("call").map(|a| a.to_string())));
+    let contents: String = match call.as_deref() {
         Some("applet") => {
             let appletid: Option<i64> = s.get.get("id").and_then(|a| a.parse().ok());
             if let Some(appletid) = appletid {

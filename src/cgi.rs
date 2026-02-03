@@ -25,6 +25,283 @@ use std::sync::Arc;
 
 use crate::utility::{PostContent, UserCert};
 
+async fn run_command(
+    action: Option<&str>,
+    p: crate::utility::WebPageContext,
+    get_map: HashMap<String, String>,
+) -> cgi::Response {
+    match action {
+        Some("download_ca") => {
+            let resp = ca::ca_get_cert(p).await;
+            let b = resp
+                .response
+                .clone()
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let mut r = cgi::Response::new(b.to_vec());
+            for h in resp.response.headers() {
+                r.headers_mut().append(h.0, h.1.to_owned());
+            }
+            r
+        }
+        Some("request_signature") => {
+            let resp = ca::ca_request(p).await;
+            let b = resp
+                .response
+                .clone()
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("request_reject") => {
+            let resp = ca::ca_reject_request(p).await;
+            let b = resp
+                .response
+                .clone()
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("revoke_cert") => {
+            let resp = ca::ca_revoke_certificate(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("submit_request") => {
+            let resp = ca::ca_submit_request(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("view_cert") => {
+            //TODO determine when to show https and when to show ssh certs?
+            let resp = ca::ca_view_user_https_cert(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("admin") => {
+            let resp = ca::ca_get_admin(p).await;
+            let b = resp
+                .response
+                .clone()
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            if let Some(ct) = resp.response.headers().get("Content-Type") {
+                let mut r = cgi::Response::new(b.to_vec());
+                for h in resp.response.headers() {
+                    r.headers_mut().append(h.0, h.1.to_owned());
+                }
+                r
+            } else {
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                cgi::html_response(200, response)
+            }
+        }
+        Some("list_pending_requests") => {
+            let resp = ca::ca_list_https_requests(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("request_sign") => {
+            let resp = ca::ca_sign_request(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("get_cert") => {
+            let resp = ca::ca_get_user_cert(p).await;
+            let b = resp
+                .response
+                .clone()
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            if let Some(ct) = resp.response.headers().get("Content-Type") {
+                let mut r = cgi::Response::new(b.to_vec());
+                for h in resp.response.headers() {
+                    r.headers_mut().append(h.0, h.1.to_owned());
+                }
+                r
+            } else {
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                cgi::html_response(200, response)
+            }
+        }
+        Some("view_all_certs") => {
+            let resp = ca::ca_view_all_certs(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("add_applet") => {
+            let resp = ca::ca_add_applet_form(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("view_applet") => {
+            let resp = ca::ca_view_applet(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("refresh_certificate_search") => {
+            let resp = ca::ca_refresh_certificate_search(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("api") => {
+            let resp = ca::ca_api(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+        Some("register_android") => {
+            if get_map.get("check").is_some() {
+                let resp = ca::ca_get_user_cert(p).await;
+                let b = resp
+                    .response
+                    .clone()
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap_or_default()
+                    .to_bytes();
+                let b = b.as_ref();
+                if let Some(ct) = resp.response.headers().get("Content-Type") {
+                    let mut r = cgi::Response::new(b.to_vec());
+                    for h in resp.response.headers() {
+                        r.headers_mut().append(h.0, h.1.to_owned());
+                    }
+                    r
+                } else {
+                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                    cgi::html_response(200, response)
+                }
+            } else {
+                let resp = ca::ca_submit_request(p).await;
+                let b = resp
+                    .response
+                    .into_body()
+                    .collect()
+                    .await
+                    .unwrap_or_default()
+                    .to_bytes();
+                let b = b.as_ref();
+                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+                cgi::html_response(200, response)
+            }
+        }
+        _ => {
+            let resp = ca::ca_main_page(p).await;
+            let b = resp
+                .response
+                .into_body()
+                .collect()
+                .await
+                .unwrap_or_default()
+                .to_bytes();
+            let b = b.as_ref();
+            let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
+            cgi::html_response(200, response)
+        }
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     cgi::handle_async(async |request: cgi::Request| -> cgi::Response {
@@ -150,276 +427,20 @@ async fn main() {
             pki: pki.clone(),
         };
 
-        match get_map.get("action").map(|a| a.as_str()) {
-            Some("download_ca") => {
-                let resp = ca::ca_get_cert(p).await;
-                let b = resp
-                    .response
-                    .clone()
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let mut r = cgi::Response::new(b.to_vec());
-                for h in resp.response.headers() {
-                    r.headers_mut().append(h.0, h.1.to_owned());
+        if let Some(f) = p.post.content() {
+            if let Ok(a) = str::from_utf8(&f) {
+                let f = url_encoded_data::UrlEncodedData::parse_str(a);
+                if let Some(action) = f.get_first("action") {
+                    return run_command(Some(a), p, get_map).await;
                 }
-                r
-            }
-            Some("request_signature") => {
-                let resp = ca::ca_request(p).await;
-                let b = resp
-                    .response
-                    .clone()
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("request_reject") => {
-                let resp = ca::ca_reject_request(p).await;
-                let b = resp
-                    .response
-                    .clone()
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("revoke_cert") => {
-                let resp = ca::ca_revoke_certificate(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("submit_request") => {
-                let resp = ca::ca_submit_request(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("view_cert") => {
-                //TODO determine when to show https and when to show ssh certs?
-                let resp = ca::ca_view_user_https_cert(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("admin") => {
-                let resp = ca::ca_get_admin(p).await;
-                let b = resp
-                    .response
-                    .clone()
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                if let Some(ct) = resp.response.headers().get("Content-Type") {
-                    let mut r = cgi::Response::new(b.to_vec());
-                    for h in resp.response.headers() {
-                        r.headers_mut().append(h.0, h.1.to_owned());
-                    }
-                    r
-                } else {
-                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                    cgi::html_response(200, response)
-                }
-            }
-            Some("list_pending_requests") => {
-                let resp = ca::ca_list_https_requests(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("request_sign") => {
-                let resp = ca::ca_sign_request(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("get_cert") => {
-                let resp = ca::ca_get_user_cert(p).await;
-                let b = resp
-                    .response
-                    .clone()
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                if let Some(ct) = resp.response.headers().get("Content-Type") {
-                    let mut r = cgi::Response::new(b.to_vec());
-                    for h in resp.response.headers() {
-                        r.headers_mut().append(h.0, h.1.to_owned());
-                    }
-                    r
-                } else {
-                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                    cgi::html_response(200, response)
-                }
-            }
-            Some("view_all_certs") => {
-                let resp = ca::ca_view_all_certs(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("add_applet") => {
-                let resp = ca::ca_add_applet_form(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("view_applet") => {
-                let resp = ca::ca_view_applet(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("refresh_certificate_search") => {
-                let resp = ca::ca_refresh_certificate_search(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("api") => {
-                let resp = ca::ca_api(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
-            }
-            Some("register_android") => {
-                if get_map.get("check").is_some() {
-                    let resp = ca::ca_get_user_cert(p).await;
-                    let b = resp
-                        .response
-                        .clone()
-                        .into_body()
-                        .collect()
-                        .await
-                        .unwrap_or_default()
-                        .to_bytes();
-                    let b = b.as_ref();
-                    if let Some(ct) = resp.response.headers().get("Content-Type") {
-                        let mut r = cgi::Response::new(b.to_vec());
-                        for h in resp.response.headers() {
-                            r.headers_mut().append(h.0, h.1.to_owned());
-                        }
-                        r
-                    } else {
-                        let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                        cgi::html_response(200, response)
-                    }
-                } else {
-                    let resp = ca::ca_submit_request(p).await;
-                    let b = resp
-                        .response
-                        .into_body()
-                        .collect()
-                        .await
-                        .unwrap_or_default()
-                        .to_bytes();
-                    let b = b.as_ref();
-                    let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                    cgi::html_response(200, response)
-                }
-            }
-            _ => {
-                let resp = ca::ca_main_page(p).await;
-                let b = resp
-                    .response
-                    .into_body()
-                    .collect()
-                    .await
-                    .unwrap_or_default()
-                    .to_bytes();
-                let b = b.as_ref();
-                let response: String = String::from_utf8(b.to_vec()).unwrap_or_default();
-                cgi::html_response(200, response)
             }
         }
+        run_command(
+            get_map.clone().get("action").map(|a| a.as_str()),
+            p,
+            get_map,
+        )
+        .await
     })
     .await
 }

@@ -56,13 +56,14 @@ pub trait AppletTrait {
     /// Get the list of valid api calls
     fn api_calls(&self) -> cert_common::api::AppletCalls;
     /// Run the applet
-    async fn run_applet(
+    async fn run_applet<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
         &self,
         html: &mut html::root::builders::HtmlBuilder,
         appletid: i64,
         userid: i64,
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
+        fbm: F,
     );
     /// Run the api call, must return a toml formatted string
     async fn api_call(
