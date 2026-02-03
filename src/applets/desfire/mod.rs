@@ -4,6 +4,8 @@ mod templates;
 
 use std::collections::HashMap;
 
+use rand::RngCore;
+
 use crate::ca::{Ca, CertAttribute, DbEntry};
 
 use super::{AppletTable, AppletTableField, FieldType};
@@ -70,6 +72,7 @@ impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
     }
 }
 
+#[derive(Default)]
 struct CardKey {
     key: Vec<u8>,
     auth: String,
@@ -649,6 +652,34 @@ impl Ev1 {
         }
     }
 
+    /// Retrieve a single applet by name
+    async fn retrieve_single_key(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+        appname: String,
+    ) -> Option<CardKey> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt =
+                        conn.prepare(&format!("SELECT * FROM {app_table2} WHERE name=?1 LIMIT 1"))?;
+                    let data = stmt.query_row([appname], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: CardKey = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
     /// Retrieve all applets
     async fn retrieve_all_card_applications(
         &self,
@@ -925,7 +956,7 @@ impl Ev1 {
                                 ab.href(format!("?{a}"));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
-                                ab.href(format!("applet.rs?id={}&action=manage_users&step=2", appletid));
+                                ab.href(format!("applet.rs?id={}&action=manage_applications&step=2", appletid));
                             }
                         };
                         ab
@@ -980,6 +1011,272 @@ impl Ev1 {
             }
             _ => {
                 self.show_applications_list(admin, sget, html, appletid, userid, ca, s, &app_table)
+                    .await;
+            }
+        }
+    }
+
+    async fn create_key_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        app_table: &str,
+        fbm: F,
+    ) {
+        if admin {
+            html.body(|b| {
+                b.form(|fb| {
+                    fb.text("Name of key");
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("key_name"));
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("key_auth"));
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("key_type"));
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.type_("hidden").name("applet_action").value("manage_keys"));
+                    fb.input(|i| i.type_("hidden").name("step").value("3"));
+                    fb.line_break(|a| a);
+                    fb.button(|b| b.text("Finish"));
+                    fbm(fb);
+                    fb
+                })
+            });
+        }
+    }
+
+    async fn insert_new_key(&self, ca: &mut Ca, appletid: i64, app: CardKey) -> Result<(), ()> {
+        let app_table = ca.get_applet_specific_table_name(appletid, "card_keys");
+        use crate::ca::CaCertificateStorage;
+        use async_sqlite::rusqlite::ToSql;
+        match &ca.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "INSERT INTO {app_table} (name, key, keytype, auth) VALUES (?1, ?2, ?3, ?4)"
+                    ))?;
+                    stmt.execute([
+                        app.name.to_sql().unwrap(),
+                        app.key.to_sql().unwrap(),
+                        app.keytype.to_sql().unwrap(),
+                        app.auth.to_sql().unwrap(),
+                    ])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn submit_new_key_form(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        app_table: &str,
+    ) {
+        if admin {
+            if let Some(form) = s.post.form() {
+                if let Some(app_name) = form.get_first("key_name") {
+                    if let Some(key_auth) = form.get_first("key_auth") {
+                        if let Some(key_type) = form.get_first("key_type") {
+                            let mut app = CardKey::default();
+                            let mut rng = rand::thread_rng();
+                            app.key = match key_type {
+                                "DES" => {
+                                    let mut key: [u8; 8] = [0; 8];
+                                    rng.fill_bytes(&mut key);
+                                    key.to_vec()
+                                }
+                                "TDES" | "AES" | "TWO_KEY_THREEDES" => {
+                                    let mut key: [u8; 16] = [0; 16];
+                                    rng.fill_bytes(&mut key);
+                                    key.to_vec()
+                                }
+                                "TKTDES" => {
+                                    let mut key: [u8; 24] = [0; 24];
+                                    rng.fill_bytes(&mut key);
+                                    key.to_vec()
+                                }
+                                _ => Vec::new(),
+                            };
+                            app.name = app_name.to_string();
+                            app.keytype = key_type.to_string();
+                            app.auth = key_auth.to_string();
+
+                            if self.insert_new_key(ca, appletid, app).await.is_ok() {
+                                html.body(|b| {
+                                    b.text("Key created");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            } else {
+                                html.body(|b| {
+                                    b.text("Failed to create key");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn view_specific_key(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        key_table: &str,
+    ) {
+        if admin {
+            if let Some(appname) = s.get.get("applet_data") {
+                if let Some(app) = self
+                    .retrieve_single_key(&ca.medium, key_table, appname.to_owned())
+                    .await
+                {
+                    let key_table = ca.get_applet_specific_table_name(appletid, "card_keys");
+                    let keys = self.retrieve_all_keys(&ca.medium, &key_table).await;
+                    html.body(|b| {
+                        b.text(format!("NAME: {}", app.name));
+                        b.line_break(|a| a);
+                        b.text(format!("AUTH: {}", app.auth));
+                        b.line_break(|a| a);
+                        b.text(format!("KEYTYPE: {}", app.keytype));
+                        b.line_break(|a| a);
+                        backlinks(b, appletid, sget, s);
+                        b
+                    });
+                }
+            }
+        }
+    }
+
+    async fn show_keys_list(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        key_table: &str,
+    ) {
+        if admin {
+            let list = self.retrieve_all_keys(&ca.medium, key_table).await;
+            html.body(|b| {
+                if let Some(list) = list {
+                    for app in list {
+                        b.thematic_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text(format!("{} key", app.name));
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert("applet_data".to_string(), app.name.clone());
+                                    sget.insert("step".to_string(), 1.to_string());
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!(
+                                        "applet.rs?id={}&action=manage_keys&step=3&applet_data={}",
+                                        appletid, app.name
+                                    ));
+                                }
+                            };
+                            ab
+                        });
+                        b.line_break(|a| a);
+                    }
+                    b.thematic_break(|a| a);
+                    b.anchor(|ab| {
+                        ab.text(format!("Create new key"));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                sget.insert("step".to_string(), 2.to_string());
+                                let a = sget
+                                    .iter()
+                                    .map(|a| format!("{}={}", a.0, a.1))
+                                    .collect::<Vec<String>>()
+                                    .join("&");
+                                ab.href(format!("?{a}"));
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!(
+                                    "applet.rs?id={}&action=manage_keys&step=2",
+                                    appletid
+                                ));
+                            }
+                        };
+                        ab
+                    });
+                    b.line_break(|a| a);
+                }
+                backlinks(b, appletid, sget, s);
+                b
+            });
+        }
+    }
+
+    async fn manage_keys<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        let steps = s
+            .post
+            .form()
+            .and_then(|f| f.get_first("step").map(|a| a.to_string()))
+            .or(s.get.get("step").map(|a| a.clone()));
+        let step = steps
+            .map(|a| a.parse::<usize>().ok())
+            .flatten()
+            .unwrap_or(0);
+        let key_table = ca.get_applet_specific_table_name(appletid, "card_keys");
+        match step {
+            1 => {
+                self.view_specific_key(admin, sget, html, appletid, userid, ca, s, &key_table)
+                    .await;
+            }
+            2 => {
+                self.create_key_form(admin, sget, html, appletid, userid, ca, s, &key_table, fbm)
+                    .await;
+            }
+            3 => {
+                self.submit_new_key_form(admin, sget, html, appletid, userid, ca, s, &key_table)
+                    .await;
+            }
+            _ => {
+                self.show_keys_list(admin, sget, html, appletid, userid, ca, s, &key_table)
                     .await;
             }
         }
@@ -1305,6 +1602,10 @@ impl super::AppletTrait for Ev1 {
                 self.manage_applications(admin, sget, html, appletid, userid, ca, s, fbm)
                     .await;
             }
+            Some("manage_keys") => {
+                self.manage_keys(admin, sget, html, appletid, userid, ca, s, fbm)
+                    .await;
+            }
             _ => {
                 html.body(|b| {
                     b.text("This is the desvfire ev1 applet");
@@ -1356,6 +1657,31 @@ impl super::AppletTrait for Ev1 {
                                 crate::main_config::PageDelivery::DedicatedServer => {
                                     ab.href(format!(
                                         "applet.rs?id={}&applet_action=manage_applications",
+                                        appletid
+                                    ));
+                                }
+                            };
+                            ab
+                        });
+                        b.line_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text("Modify application keys");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert(
+                                        "applet_action".to_string(),
+                                        "manage_keys".to_string(),
+                                    );
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!(
+                                        "applet.rs?id={}&applet_action=manage_keys",
                                         appletid
                                     ));
                                 }
