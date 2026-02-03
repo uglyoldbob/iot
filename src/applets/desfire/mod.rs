@@ -27,10 +27,11 @@ trait FileTemplateTrait {
     fn generate(&self) -> FileGenerator;
 }
 
+#[derive(Default)]
 struct CardApplication {
     aid: [u8; 3],
     name: String,
-    key_ids: [i64; 15],
+    key_ids: Vec<(u8, i64)>,
 }
 
 impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
@@ -38,7 +39,7 @@ impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
     fn try_from(val: DbEntry<'a>) -> Result<Self, Self::Error> {
         let aid: Vec<u8> = val.row_data.get(0)?;
         let aid = [aid[0], aid[1], aid[2]];
-        let key_ids: [i64; 15] = [
+        let key_ids_o: [Option<i64>; 15] = [
             val.row_data.get(2)?,
             val.row_data.get(3)?,
             val.row_data.get(4)?,
@@ -55,6 +56,12 @@ impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
             val.row_data.get(15)?,
             val.row_data.get(16)?,
         ];
+        let mut key_ids = Vec::new();
+        for k in key_ids_o.iter().enumerate() {
+            if let Some(k2) = k.1 {
+                key_ids.push((k.0 as u8, *k2));
+            }
+        }
         Ok(Self {
             aid,
             name: val.row_data.get(1)?,
@@ -718,17 +725,80 @@ impl Ev1 {
         app_table: &str,
         fbm: F,
     ) {
-        html.body(|b| {
-            b.form(|fb| {
-                fb.text("Name of application");
-                fb.line_break(|a| a);
-                fb.input(|i| i.name("application_name"));
-                fb.line_break(|a| a);
-                fb.button(|b| b.text("Finish"));
-                fbm(fb);
-                fb
-            })
-        });
+        if admin {
+            html.body(|b| {
+                b.form(|fb| {
+                    fb.text("Name of application");
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("application_name"));
+                    fb.line_break(|a| a);
+                    fb.text("AID of application");
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("aid").type_("number").min("0").max("16777215"));
+                    fb.line_break(|a| a);
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("applet_action")
+                            .value("manage_applications")
+                    });
+                    fb.input(|i| i.type_("hidden").name("step").value("3"));
+                    fb.line_break(|a| a);
+                    fb.button(|b| b.text("Finish"));
+                    fbm(fb);
+                    fb
+                })
+            });
+        }
+    }
+
+    async fn insert_new_application(&self, ca: &mut Ca, app: &CardApplication) -> Result<(), ()> {
+        let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
+        Ok(())
+    }
+
+    async fn submit_new_application_form(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        app_table: &str,
+    ) {
+        if admin {
+            if let Some(form) = s.post.form() {
+                if let Some(app_name) = form.get_first("application_name") {
+                    if let Some(app_aid) = form.get_first("aid") {
+                        let app_aid = if let Ok(a) = app_aid.parse::<u32>() {
+                            let aid_full = a.to_le_bytes();
+                            Some([aid_full[2], aid_full[1], aid_full[0]])
+                        } else {
+                            None
+                        };
+                        if let Some(app_aid) = app_aid {
+                            let mut app = CardApplication::default();
+                            app.name = app_name.to_string();
+                            app.aid = app_aid;
+                            if self.insert_new_application(&app).is_ok() {
+                                html.body(|b| {
+                                    b.text("Applicaiton created");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            } else {
+                                html.body(|b| {
+                                    b.text("Failed to create applicaiton");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     async fn view_specific_application(
@@ -742,38 +812,40 @@ impl Ev1 {
         s: &crate::utility::WebPageContext,
         app_table: &str,
     ) {
-        if let Some(appname) = s.get.get("applet_data") {
-            if let Some(app) = self
-                .retrieve_single_application(&ca.medium, app_table, appname.to_owned())
-                .await
-            {
-                let key_table = ca.get_applet_specific_table_name(appletid, "card_keys");
-                let keys = self.retrieve_all_keys(&ca.medium, &key_table).await;
-                html.body(|b| {
-                    b.text(format!("NAME: {}", app.name));
-                    b.line_break(|a| a);
-                    b.text(format!("AID: {:X?}", app.aid));
-                    b.line_break(|a| a);
-                    if let Some(keys) = keys {
-                        for akey in app.key_ids.iter().enumerate() {
-                            b.thematic_break(|a| a);
-                            if let Some(key) = keys.get(akey.0 as usize) {
-                                b.text(format!("KEY {} - {}", akey.0, key.name));
-                                b.line_break(|a| a);
-                                b.text(format!("AUTH {}", key.auth));
-                                b.line_break(|a| a);
-                                b.text(format!("KEYTYPE {}", key.keytype));
-                                b.line_break(|a| a);
-                            } else {
-                                b.text(format!("INVALID KEY {}", akey.0));
-                                b.line_break(|a| a);
+        if admin {
+            if let Some(appname) = s.get.get("applet_data") {
+                if let Some(app) = self
+                    .retrieve_single_application(&ca.medium, app_table, appname.to_owned())
+                    .await
+                {
+                    let key_table = ca.get_applet_specific_table_name(appletid, "card_keys");
+                    let keys = self.retrieve_all_keys(&ca.medium, &key_table).await;
+                    html.body(|b| {
+                        b.text(format!("NAME: {}", app.name));
+                        b.line_break(|a| a);
+                        b.text(format!("AID: {:X?}", app.aid));
+                        b.line_break(|a| a);
+                        if let Some(keys) = keys {
+                            for akey in app.key_ids.iter().enumerate() {
+                                b.thematic_break(|a| a);
+                                if let Some(key) = keys.get(akey.0 as usize) {
+                                    b.text(format!("KEY {} - {}", akey.0, key.name));
+                                    b.line_break(|a| a);
+                                    b.text(format!("AUTH {}", key.auth));
+                                    b.line_break(|a| a);
+                                    b.text(format!("KEYTYPE {}", key.keytype));
+                                    b.line_break(|a| a);
+                                } else {
+                                    b.text(format!("INVALID KEY {}", akey.0));
+                                    b.line_break(|a| a);
+                                }
                             }
+                            b.thematic_break(|a| a);
                         }
-                        b.thematic_break(|a| a);
-                    }
-                    backlinks(b, appletid, sget, s);
-                    b
-                });
+                        backlinks(b, appletid, sget, s);
+                        b
+                    });
+                }
             }
         }
     }
@@ -789,19 +861,41 @@ impl Ev1 {
         s: &crate::utility::WebPageContext,
         app_table: &str,
     ) {
-        let list = self
-            .retrieve_all_card_applications(&ca.medium, app_table)
-            .await;
-        html.body(|b| {
-            if let Some(list) = list {
-                for app in list {
+        if admin {
+            let list = self
+                .retrieve_all_card_applications(&ca.medium, app_table)
+                .await;
+            html.body(|b| {
+                if let Some(list) = list {
+                    for app in list {
+                        b.thematic_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text(format!("{} application", app.name));
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert("applet_data".to_string(), app.name.clone());
+                                    sget.insert("step".to_string(), 1.to_string());
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!("applet.rs?id={}&action=manage_applications&step=3&applet_data={}", appletid, app.name));
+                                }
+                            };
+                            ab
+                        });
+                        b.line_break(|a|a);
+                    }
                     b.thematic_break(|a| a);
                     b.anchor(|ab| {
-                        ab.text(format!("{} application", app.name));
+                        ab.text(format!("Create new application"));
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
-                                sget.insert("applet_data".to_string(), app.name.clone());
-                                sget.insert("step".to_string(), 1.to_string());
+                                sget.insert("step".to_string(), 2.to_string());
                                 let a = sget
                                     .iter()
                                     .map(|a| format!("{}={}", a.0, a.1))
@@ -810,37 +904,17 @@ impl Ev1 {
                                 ab.href(format!("?{a}"));
                             }
                             crate::main_config::PageDelivery::DedicatedServer => {
-                                ab.href(format!("applet.rs?id={}&action=manage_applications&step=3&applet_data={}", appletid, app.name));
+                                ab.href(format!("applet.rs?id={}&action=manage_users&step=2", appletid));
                             }
                         };
                         ab
                     });
                     b.line_break(|a|a);
                 }
-                b.thematic_break(|a| a);
-                b.anchor(|ab| {
-                    ab.text(format!("Create new application"));
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            sget.insert("step".to_string(), 2.to_string());
-                            let a = sget
-                                .iter()
-                                .map(|a| format!("{}={}", a.0, a.1))
-                                .collect::<Vec<String>>()
-                                .join("&");
-                            ab.href(format!("?{a}"));
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            ab.href(format!("applet.rs?id={}&action=manage_users&step=2", appletid));
-                        }
-                    };
-                    ab
-                });
-                b.line_break(|a|a);
-            }
-            backlinks(b, appletid, sget, s);
-            b
-        });
+                backlinks(b, appletid, sget, s);
+                b
+            });
+        }
     }
 
     async fn manage_applications<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
@@ -854,10 +928,11 @@ impl Ev1 {
         s: &crate::utility::WebPageContext,
         fbm: F,
     ) {
-        let steps = s.get.get("step").map(|a| a.clone()).or(s
+        let steps = s
             .post
             .form()
-            .and_then(|f| f.get_first("step").map(|a| a.to_string())));
+            .and_then(|f| f.get_first("step").map(|a| a.to_string()))
+            .or(s.get.get("step").map(|a| a.clone()));
         let step = steps
             .map(|a| a.parse::<usize>().ok())
             .flatten()
@@ -873,6 +948,12 @@ impl Ev1 {
             2 => {
                 self.create_application_form(
                     admin, sget, html, appletid, userid, ca, s, &app_table, fbm,
+                )
+                .await;
+            }
+            3 => {
+                self.submit_new_application_form(
+                    admin, sget, html, appletid, userid, ca, s, &app_table,
                 )
                 .await;
             }

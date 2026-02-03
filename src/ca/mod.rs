@@ -992,11 +992,7 @@ async fn handle_ca_view_applet(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
             applet
                 .run_applet(&mut html, applet_id, userid, ca, s, |fb| {
                     fb.method("POST");
-                    fb.input(|i| {
-                        i.type_("hidden")
-                            .name("applet_config")
-                            .value(crate::utility::build_toml_string(&applet))
-                    });
+                    fb.input(|i| i.type_("hidden").name("id").value(format!("{applet_id}")));
                     match s.delivery {
                         crate::main_config::PageDelivery::Cgi => {
                             fb.input(|i| i.type_("hidden").name("action").value("view_applet"));

@@ -427,13 +427,8 @@ async fn main() {
             pki: pki.clone(),
         };
 
-        if let Some(f) = p.post.content() {
-            if let Ok(a) = str::from_utf8(&f) {
-                let f = url_encoded_data::UrlEncodedData::parse_str(a);
-                if let Some(action) = f.get_first("action") {
-                    return run_command(Some(a), p, get_map).await;
-                }
-            }
+        if let Some(action) = post_map.get("action") {
+            return run_command(Some(action), p, get_map).await;
         }
         run_command(
             get_map.clone().get("action").map(|a| a.as_str()),
