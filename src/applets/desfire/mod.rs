@@ -1588,6 +1588,13 @@ impl Ev1 {
                                             .name("applet_action")
                                             .value("manage_file_templates")
                                     });
+                                    fb.input(|i| {
+                                        i.type_("hidden")
+                                            .name("template_id")
+                                            .value(format!("{}", id))
+                                    });
+                                    fb.input(|i| i.type_("hidden").name("step").value("4"));
+                                    fb.button(|b| b.text("Update"));
                                     fbm(fb);
                                 });
                             }
@@ -1618,6 +1625,38 @@ impl Ev1 {
                         "INSERT INTO {table} (name, definition) VALUES (?1, ?2)"
                     ))?;
                     stmt.execute([
+                        name.to_sql().unwrap(),
+                        toml::to_string(&template).unwrap().to_sql().unwrap(),
+                    ])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn update_file_template(
+        &self,
+        ca: &mut Ca,
+        appletid: i64,
+        name: String,
+        template: FileTemplate,
+        templateid: i64,
+    ) -> Result<(), ()> {
+        let table = ca.get_applet_specific_table_name(appletid, "file_templates");
+        use crate::ca::CaCertificateStorage;
+        use async_sqlite::rusqlite::ToSql;
+        match &ca.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "REPLACE INTO {table} (id, name, definition) VALUES (?1, ?2, ?3)"
+                    ))?;
+                    stmt.execute([
+                        templateid.to_sql().unwrap(),
                         name.to_sql().unwrap(),
                         toml::to_string(&template).unwrap().to_sql().unwrap(),
                     ])?;
@@ -1736,7 +1775,7 @@ impl Ev1 {
                             let ft: FileTemplate = ft;
                             b.thematic_break(|a| a);
                             b.anchor(|ab| {
-                                ab.text(format!("{} template", ft.name()));
+                                ab.text(format!("{} template", app.name.clone()));
                                 match s.delivery {
                                     crate::main_config::PageDelivery::Cgi => {
                                         sget.insert("applet_data".to_string(), format!("{}", app.id));
@@ -1762,7 +1801,7 @@ impl Ev1 {
                     }
                     b.thematic_break(|a| a);
                     b.anchor(|ab| {
-                        ab.text(format!("Create new key"));
+                        ab.text(format!("Create new file template"));
                         match s.delivery {
                             crate::main_config::PageDelivery::Cgi => {
                                 sget.insert("step".to_string(), 2.to_string());
@@ -1822,6 +1861,52 @@ impl Ev1 {
             3 => {
                 self.submit_new_file_template_form(admin, sget, html, appletid, userid, ca, s)
                     .await;
+            }
+            4 => {
+                if admin {
+                    if let Some(form) = s.post.form() {
+                        if let Some(templateid_str) = form.get_first("template_id") {
+                            if let Ok(templateid) = templateid_str.parse::<i64>() {
+                                let tablename =
+                                    ca.get_applet_specific_table_name(appletid, "file_templates");
+                                if let Some(template) = self
+                                    .retrieve_specific_file_template(
+                                        &ca.medium, &tablename, templateid,
+                                    )
+                                    .await
+                                {
+                                    if let Ok(ftemplate) = toml::from_str(&template.definition) {
+                                        let mut ftemplate: FileTemplate = ftemplate;
+                                        ftemplate.apply_form_data(form);
+                                        if self
+                                            .update_file_template(
+                                                ca,
+                                                appletid,
+                                                template.name.clone(),
+                                                ftemplate,
+                                                templateid,
+                                            )
+                                            .await
+                                            .is_ok()
+                                        {
+                                            html.body(|b| {
+                                                b.text("File template updated");
+                                                backlinks(b, appletid, sget, s);
+                                                b
+                                            });
+                                        } else {
+                                            html.body(|b| {
+                                                b.text("Failed to update file template");
+                                                backlinks(b, appletid, sget, s);
+                                                b
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             _ => {
                 self.show_file_templates_list(admin, sget, html, appletid, userid, ca, s)

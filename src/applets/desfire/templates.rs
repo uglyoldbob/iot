@@ -7,7 +7,7 @@ impl super::FileTemplateTrait for Counter {
         b: &mut html::root::builders::BodyBuilder,
         fbm: F,
     ) {
-        b.text("Type: Counter");
+        b.text("Type: Counter - no configuration available");
         b.line_break(|a| a);
     }
 
@@ -56,12 +56,18 @@ impl super::FileTemplateTrait for Bitmap {
         b.form(|fb| {
             fb.text("Type: Bitmap");
             fb.line_break(|a| a);
+            fb.text("Current entries:").line_break(|a| a);
+            for i in &self.items {
+                fb.text(i.to_string()).line_break(|a| a);
+            }
+            fb.text("New entries:");
+            fb.line_break(|a| a);
             fb.text_area(|ta| {
                 ta.rows(20).cols(50);
                 ta.name("file_template_items");
-                //ta.text(self.items.join("\r\n"));
                 ta
             });
+            fb.line_break(|a| a);
             fbm(fb);
             fb
         });
@@ -69,16 +75,14 @@ impl super::FileTemplateTrait for Bitmap {
 
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData) {
         if let Some(t) = data.get_first("file_template_items") {
-            let mut elements = Vec::new();
             for line in t.lines() {
-                elements.push(line.to_string());
+                self.items.push(line.to_string());
             }
-            self.items = elements;
         }
     }
 
     fn name(&self) -> &str {
-        "counter"
+        "bitmap"
     }
 
     fn generate(&self) -> super::FileGenerator {
