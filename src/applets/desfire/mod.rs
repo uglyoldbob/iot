@@ -20,11 +20,13 @@ trait FileTemplateTrait {
     /// Build the html form for modifying the data
     fn html_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
         &self,
-        html: &mut html::root::builders::HtmlBuilder,
+        b: &mut html::root::builders::BodyBuilder,
         fbm: F,
     );
     /// Apply changes from the html form
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
+    /// Show the name of the template
+    fn name(&self) -> &str;
     /// Generate the file
     fn generate(&self) -> FileGenerator;
 }
@@ -95,8 +97,26 @@ impl<'a> TryFrom<DbEntry<'a>> for CardKey {
 }
 
 #[enum_dispatch::enum_dispatch(FileTemplateTrait)]
+#[derive(strum::EnumIter, serde::Serialize, serde::Deserialize)]
 enum FileTemplate {
     Counter(templates::Counter),
+}
+
+struct FileTemplateEntry {
+    id: i64,
+    name: String,
+    definition: String,
+}
+
+impl<'a> TryFrom<DbEntry<'a>> for FileTemplateEntry {
+    type Error = async_sqlite::rusqlite::Error;
+    fn try_from(val: DbEntry<'a>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: val.row_data.get(0)?,
+            name: val.row_data.get(1)?,
+            definition: val.row_data.get(2)?,
+        })
+    }
 }
 
 #[enum_dispatch::enum_dispatch]
@@ -698,6 +718,66 @@ impl Ev1 {
                     let rows = stmt.query_map([], |row| {
                         let dbentry = DbEntry::new(row);
                         let t: CardApplication = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    let mut data = Vec::new();
+                    for r in rows {
+                        if let Ok(r) = r {
+                            data.push(r);
+                        }
+                    }
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
+    /// Retrieve a specific file template
+    async fn retrieve_specific_file_template(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+        id: i64,
+    ) -> Option<FileTemplateEntry> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt =
+                        conn.prepare(&format!("SELECT * FROM {app_table2} WHERE id=?1 LIMIT 1"))?;
+                    let data = stmt.query_row([id], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: FileTemplateEntry = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
+    /// Retrieve all file templates
+    async fn retrieve_all_file_templates(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+    ) -> Option<Vec<FileTemplateEntry>> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!("SELECT * FROM {app_table2}"))?;
+                    let rows = stmt.query_map([], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: FileTemplateEntry = dbentry.try_into()?;
                         Ok(t)
                     })?;
                     let mut data = Vec::new();
@@ -1475,6 +1555,278 @@ impl Ev1 {
             }
         }
     }
+
+    async fn view_specific_file_template<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {
+            if let Some(template_id) = s.get.get("applet_data") {
+                if let Ok(id) = template_id.parse::<i64>() {
+                    let key_table = ca.get_applet_specific_table_name(appletid, "file_templates");
+                    if let Some(template) = self
+                        .retrieve_specific_file_template(&ca.medium, &key_table, id)
+                        .await
+                    {
+                        html.body(|b| {
+                            b.text(format!("NAME: {}", template.name));
+                            b.line_break(|a| a);
+                            if let Ok(temp) = toml::from_str(&template.definition) {
+                                let temp: FileTemplate = temp;
+                                temp.html_form(b, |fb| {
+                                    fb.input(|i| {
+                                        i.type_("hidden")
+                                            .name("applet_action")
+                                            .value("manage_file_templates")
+                                    });
+                                    fbm(fb);
+                                });
+                            }
+                            backlinks(b, appletid, sget, s);
+                            b
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    async fn insert_new_file_template(
+        &self,
+        ca: &mut Ca,
+        appletid: i64,
+        name: String,
+        template: FileTemplate,
+    ) -> Result<(), ()> {
+        let table = ca.get_applet_specific_table_name(appletid, "file_templates");
+        use crate::ca::CaCertificateStorage;
+        use async_sqlite::rusqlite::ToSql;
+        match &ca.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "INSERT INTO {table} (name, definition) VALUES (?1, ?2)"
+                    ))?;
+                    stmt.execute([
+                        name.to_sql().unwrap(),
+                        toml::to_string(&template).unwrap().to_sql().unwrap(),
+                    ])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn create_file_template_form<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {
+            html.body(|b| {
+                b.form(|fb| {
+                    fb.text("Name of file template");
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("template_name"));
+                    fb.line_break(|a| a);
+                    fb.select(|sb| {
+                        sb.name("definition");
+                        use strum::IntoEnumIterator;
+                        for f in FileTemplate::iter() {
+                            let encoded = crate::utility::build_toml_string(&f);
+                            sb.option(|ob| ob.value(encoded).text(f.name().to_string()));
+                        }
+                        sb
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("applet_action")
+                            .value("manage_file_templates")
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.type_("hidden").name("step").value("3"));
+                    fb.line_break(|a| a);
+                    fb.button(|b| b.text("Finish"));
+                    fbm(fb);
+                    fb
+                })
+            });
+        }
+    }
+
+    async fn submit_new_file_template_form(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) {
+        if admin {
+            if let Some(form) = s.post.form() {
+                if let Some(name) = form.get_first("template_name") {
+                    if let Some(definition) = form.get_first("definition") {
+                        if let Some(template) = crate::utility::decode_toml_string(definition) {
+                            let template: FileTemplate = template;
+                            if self
+                                .insert_new_file_template(ca, appletid, name.to_string(), template)
+                                .await
+                                .is_ok()
+                            {
+                                html.body(|b| {
+                                    b.text("File template created");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            } else {
+                                html.body(|b| {
+                                    b.text("Failed to create file template");
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn show_file_templates_list(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) {
+        if admin {
+            let key_table = ca.get_applet_specific_table_name(appletid, "file_templates");
+            let list = self
+                .retrieve_all_file_templates(&ca.medium, &key_table)
+                .await;
+            html.body(|b| {
+                if let Some(list) = list {
+                    for app in list {
+                        if let Ok(ft) = toml::from_str(&app.definition) {
+                            let ft: FileTemplate = ft;
+                            b.thematic_break(|a| a);
+                            b.anchor(|ab| {
+                                ab.text(format!("{} template", ft.name()));
+                                match s.delivery {
+                                    crate::main_config::PageDelivery::Cgi => {
+                                        sget.insert("applet_data".to_string(), format!("{}", app.id));
+                                        sget.insert("step".to_string(), 1.to_string());
+                                        let a = sget
+                                            .iter()
+                                            .map(|a| format!("{}={}", a.0, a.1))
+                                            .collect::<Vec<String>>()
+                                            .join("&");
+                                        ab.href(format!("?{a}"));
+                                    }
+                                    crate::main_config::PageDelivery::DedicatedServer => {
+                                        ab.href(format!(
+                                            "applet.rs?id={}&action=manage_file_templates&step=3&applet_data={}",
+                                            appletid, app.id
+                                        ));
+                                    }
+                                };
+                                ab
+                            });
+                            b.line_break(|a| a);
+                        }
+                    }
+                    b.thematic_break(|a| a);
+                    b.anchor(|ab| {
+                        ab.text(format!("Create new key"));
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                sget.insert("step".to_string(), 2.to_string());
+                                let a = sget
+                                    .iter()
+                                    .map(|a| format!("{}={}", a.0, a.1))
+                                    .collect::<Vec<String>>()
+                                    .join("&");
+                                ab.href(format!("?{a}"));
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!(
+                                    "applet.rs?id={}&action=manage_file_templates&step=2",
+                                    appletid
+                                ));
+                            }
+                        };
+                        ab
+                    });
+                    b.line_break(|a| a);
+                }
+                backlinks(b, appletid, sget, s);
+                b
+            });
+        }
+    }
+
+    async fn manage_file_templates<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        let steps = s
+            .post
+            .form()
+            .and_then(|f| f.get_first("step").map(|a| a.to_string()))
+            .or(s.get.get("step").map(|a| a.clone()));
+        let step = steps
+            .map(|a| a.parse::<usize>().ok())
+            .flatten()
+            .unwrap_or(0);
+        match step {
+            1 => {
+                self.view_specific_file_template(admin, sget, html, appletid, userid, ca, s, fbm)
+                    .await;
+            }
+            2 => {
+                self.create_file_template_form(admin, sget, html, appletid, userid, ca, s, fbm)
+                    .await;
+            }
+            3 => {
+                self.submit_new_file_template_form(admin, sget, html, appletid, userid, ca, s)
+                    .await;
+            }
+            _ => {
+                self.show_file_templates_list(admin, sget, html, appletid, userid, ca, s)
+                    .await;
+            }
+        }
+    }
 }
 
 impl super::AppletTrait for Ev1 {
@@ -1800,6 +2152,10 @@ impl super::AppletTrait for Ev1 {
                 self.manage_keys(admin, sget, html, appletid, userid, ca, s, fbm)
                     .await;
             }
+            Some("manage_file_templates") => {
+                self.manage_file_templates(admin, sget, html, appletid, userid, ca, s, fbm)
+                    .await;
+            }
             _ => {
                 html.body(|b| {
                     b.text("This is the desvfire ev1 applet");
@@ -1876,6 +2232,31 @@ impl super::AppletTrait for Ev1 {
                                 crate::main_config::PageDelivery::DedicatedServer => {
                                     ab.href(format!(
                                         "applet.rs?id={}&applet_action=manage_keys",
+                                        appletid
+                                    ));
+                                }
+                            };
+                            ab
+                        });
+                        b.line_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text("Modify file templates");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert(
+                                        "applet_action".to_string(),
+                                        "manage_file_templates".to_string(),
+                                    );
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!(
+                                        "applet.rs?id={}&applet_action=manage_file_templates",
                                         appletid
                                     ));
                                 }
