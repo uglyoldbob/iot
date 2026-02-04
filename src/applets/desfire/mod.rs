@@ -857,7 +857,7 @@ impl Ev1 {
                     }
                     fb.input(|i| {
                         i.type_("hidden")
-                            .name("appllication_name")
+                            .name("application_name")
                             .value(application.name.clone())
                     });
                     fb.input(|i| {
@@ -966,18 +966,26 @@ impl Ev1 {
                     if self.modify_application(ca, appletid, app).await.is_ok() {
                         html.body(|b| {
                             b.text("Application updated");
+                            b.line_break(|a| a);
                             backlinks(b, appletid, sget, s);
                             b
                         });
                     } else {
                         html.body(|b| {
                             b.text("Failed to update application");
+                            b.line_break(|a| a);
                             backlinks(b, appletid, sget, s);
                             b
                         });
                     }
+                } else {
+                    eprintln!("No application name submitted in form");
                 }
+            } else {
+                eprintln!("No form submitted");
             }
+        } else {
+            eprintln!("Not admin");
         }
     }
 
@@ -1019,12 +1027,14 @@ impl Ev1 {
                             if self.insert_new_application(ca, appletid, app).await.is_ok() {
                                 html.body(|b| {
                                     b.text("Application created");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
                             } else {
                                 html.body(|b| {
                                     b.text("Failed to create application");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
