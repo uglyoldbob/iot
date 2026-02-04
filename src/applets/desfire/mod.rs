@@ -930,6 +930,11 @@ impl Ev1 {
             CaCertificateStorage::Nowhere => Ok(()),
             CaCertificateStorage::Sqlite(p) => {
                 p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                            "UPDATE {} SET key0=NULL, key1=NULL, key2=NULL, key3=NULL, key4=NULL, key5=NULL, key6=NULL, key7=NULL, key8=NULL, key9=NULL, key10=NULL, key11=NULL, key12=NULL, key13=NULL, key14=NULL WHERE name=?1",
+                        app_table
+                    ))?;
+                    stmt.execute([app.name.to_sql().unwrap()])?;
                     for key in &app.key_ids {
                         let mut stmt = conn.prepare(&format!(
                             "UPDATE {} SET key{} = ?1 WHERE name=?2",
@@ -955,6 +960,7 @@ impl Ev1 {
         userid: i64,
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
+        mut application: CardApplication,
     ) {
         if admin {
             if let Some(form) = s.post.form() {
@@ -968,9 +974,12 @@ impl Ev1 {
                         }
                     }
 
-                    let mut app = CardApplication::default();
-                    app.key_ids = keys;
-                    if self.modify_application(ca, appletid, app).await.is_ok() {
+                    application.key_ids = keys;
+                    if self
+                        .modify_application(ca, appletid, application)
+                        .await
+                        .is_ok()
+                    {
                         html.body(|b| {
                             b.text("Application updated");
                             b.line_break(|a| a);
@@ -1164,8 +1173,17 @@ impl Ev1 {
                     .await;
             }
             4 => {
-                self.update_existing_application(admin, sget, html, appletid, userid, ca, s)
-                    .await;
+                if let Some(appname) = s.get.get("applet_data") {
+                    if let Some(app) = self
+                        .retrieve_single_application(&ca.medium, &app_table, appname.to_owned())
+                        .await
+                    {
+                        self.update_existing_application(
+                            admin, sget, html, appletid, userid, ca, s, app,
+                        )
+                        .await;
+                    }
+                }
             }
             _ => {
                 self.show_applications_list(admin, sget, html, appletid, userid, ca, s, &app_table)
