@@ -846,7 +846,14 @@ impl Ev1 {
                                 sb.option(|ob| ob.value("NULL").text("None"));
                                 for key in &keys {
                                     sb.option(|ob| {
-                                        ob.value(format!("{}", key.id)).text(key.name.clone())
+                                        ob.value(format!("{}", key.id)).text(key.name.clone());
+                                        for ak in &application.key_ids {
+                                            if ak.1 == key.id {
+                                                ob.selected(true);
+                                                break;
+                                            }
+                                        }
+                                        ob
                                     });
                                 }
                                 sb
