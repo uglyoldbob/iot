@@ -843,6 +843,7 @@ impl Ev1 {
                             fb.text(format!("Key {i}"));
                             fb.select(|sb| {
                                 sb.name(format!("key{i}"));
+                                sb.id(format!("key{i}"));
                                 sb.option(|ob| ob.value("NULL").text("None"));
                                 for key in &keys {
                                     sb.option(|ob| {
