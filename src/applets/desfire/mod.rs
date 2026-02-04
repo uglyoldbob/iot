@@ -100,6 +100,7 @@ impl<'a> TryFrom<DbEntry<'a>> for CardKey {
 #[derive(strum::EnumIter, serde::Serialize, serde::Deserialize)]
 enum FileTemplate {
     Counter(templates::Counter),
+    Bitmap(templates::Bitmap),
 }
 
 struct FileTemplateEntry {
@@ -136,6 +137,7 @@ trait FileGeneratorTrait {
 #[enum_dispatch::enum_dispatch(FileGeneratorTrait)]
 enum FileGenerator {
     Counter(templates::CounterGenerator),
+    Bitmap(templates::BitmapGenerator),
 }
 
 enum File {}
