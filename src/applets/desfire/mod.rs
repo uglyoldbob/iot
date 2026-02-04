@@ -1038,7 +1038,7 @@ impl Ev1 {
                     fb.text("Key auth method");
                     fb.line_break(|a| a);
                     fb.select(|sb| {
-                        sb.id("key_auth");
+                        sb.name("key_auth");
                         sb.option(|ob| ob.value("Native").text("Native desfire authentication"));
                         sb.option(|ob| ob.value("ISO").text("ISO 7816-4 authentication"));
                         sb
@@ -1047,7 +1047,7 @@ impl Ev1 {
                     fb.text("Key type");
                     fb.line_break(|a| a);
                     fb.select(|sb| {
-                        sb.id("key_type");
+                        sb.name("key_type");
                         sb.option(|ob| ob.value("DES").text("DES (legacy)"));
                         sb.option(|ob| ob.value("TWO_KEY_THREEDES").text("Two-key triple DES"));
                         sb.option(|ob| ob.value("TKTDES").text("Three-key triple DES"));
