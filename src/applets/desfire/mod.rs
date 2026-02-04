@@ -1037,11 +1037,23 @@ impl Ev1 {
                     fb.line_break(|a| a);
                     fb.text("Key auth method");
                     fb.line_break(|a| a);
-                    fb.input(|i| i.name("key_auth"));
+                    fb.select(|sb| {
+                        sb.id("key_auth");
+                        sb.option(|ob| ob.value("Native").text("Native desfire authentication"));
+                        sb.option(|ob| ob.value("ISO").text("ISO 7816-4 authentication"));
+                        sb
+                    });
                     fb.line_break(|a| a);
                     fb.text("Key type");
                     fb.line_break(|a| a);
-                    fb.input(|i| i.name("key_type"));
+                    fb.select(|sb| {
+                        sb.id("key_type");
+                        sb.option(|ob| ob.value("DES").text("DES (legacy)"));
+                        sb.option(|ob| ob.value("TWO_KEY_THREEDES").text("Two-key triple DES"));
+                        sb.option(|ob| ob.value("TKTDES").text("Three-key triple DES"));
+                        sb.option(|ob| ob.value("AES").text("AES-128"));
+                        sb
+                    });
                     fb.line_break(|a| a);
                     fb.input(|i| i.type_("hidden").name("applet_action").value("manage_keys"));
                     fb.line_break(|a| a);
