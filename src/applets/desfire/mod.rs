@@ -78,7 +78,7 @@ impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
 struct ApplicationBuilder {
     id: i64,
     name: String,
-    card_app_id: i64,
+    card_app_aid: Vec<u8>,
 }
 
 impl<'a> TryFrom<DbEntry<'a>> for ApplicationBuilder {
@@ -87,7 +87,7 @@ impl<'a> TryFrom<DbEntry<'a>> for ApplicationBuilder {
         Ok(Self {
             id: val.row_data.get(0)?,
             name: val.row_data.get(1)?,
-            card_app_id: val.row_data.get(2)?,
+            card_app_aid: val.row_data.get(2)?,
         })
     }
 }
@@ -773,30 +773,31 @@ impl Ev1 {
     }
 
     /// Retrieve a single applet by name
-    async fn retrieve_single_application_by_id(
+    async fn retrieve_single_application_by_aid(
         &self,
         medium: &crate::ca::CaCertificateStorage,
         app_table: &str,
-        appid: i64,
+        aid: Vec<u8>,
     ) -> Option<CardApplication> {
         let app_table2 = app_table.to_string();
         use crate::ca::CaCertificateStorage;
         match medium {
             CaCertificateStorage::Nowhere => None,
-            CaCertificateStorage::Sqlite(p) => Some(
-                p.conn(move |conn| {
-                    let mut stmt =
-                        conn.prepare(&format!("SELECT * FROM {app_table2} WHERE id=?1 LIMIT 1"))?;
-                    let data = stmt.query_row([appid], |row| {
+            CaCertificateStorage::Sqlite(p) => p
+                .conn(move |conn| {
+                    let query = format!(
+                        "SELECT * FROM {} WHERE aid=x'{}' LIMIT 1",
+                        app_table2,
+                        crate::utility::encode_hex(&aid)
+                    );
+                    conn.query_row(&query, [], |row| {
                         let dbentry = DbEntry::new(row);
                         let t: CardApplication = dbentry.try_into()?;
                         Ok(t)
-                    })?;
-                    Ok(data)
+                    })
                 })
                 .await
-                .ok()?,
-            ),
+                .ok(),
         }
     }
 
@@ -1201,14 +1202,8 @@ impl Ev1 {
                             b
                         });
                     }
-                } else {
-                    eprintln!("No application name submitted in form");
                 }
-            } else {
-                eprintln!("No form submitted");
             }
-        } else {
-            eprintln!("Not admin");
         }
     }
 
@@ -1519,12 +1514,14 @@ impl Ev1 {
                             if self.insert_new_key(ca, appletid, app).await.is_ok() {
                                 html.body(|b| {
                                     b.text("Key created");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
                             } else {
                                 html.body(|b| {
                                     b.text("Failed to create key");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
@@ -1860,12 +1857,14 @@ impl Ev1 {
                             {
                                 html.body(|b| {
                                     b.text("File template created");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
                             } else {
                                 html.body(|b| {
                                     b.text("Failed to create file template");
+                                    b.line_break(|a| a);
                                     backlinks(b, appletid, sget, s);
                                     b
                                 });
@@ -2015,12 +2014,14 @@ impl Ev1 {
                                         {
                                             html.body(|b| {
                                                 b.text("File template updated");
+                                                b.line_break(|a| a);
                                                 backlinks(b, appletid, sget, s);
                                                 b
                                             });
                                         } else {
                                             html.body(|b| {
                                                 b.text("Failed to update file template");
+                                                b.line_break(|a| a);
                                                 backlinks(b, appletid, sget, s);
                                                 b
                                             });
@@ -2122,12 +2123,12 @@ impl Ev1 {
                         .await
                     {
                         let apptablename =
-                            ca.get_applet_specific_table_name(appletid, "application_builder");
+                            ca.get_applet_specific_table_name(appletid, "card_applications");
                         if let Some(card_app) = self
-                            .retrieve_single_application_by_id(
+                            .retrieve_single_application_by_aid(
                                 &ca.medium,
                                 &apptablename,
-                                template.card_app_id,
+                                template.card_app_aid,
                             )
                             .await
                         {
@@ -2159,7 +2160,73 @@ impl Ev1 {
         s: &crate::utility::WebPageContext,
         fbm: F,
     ) {
-        if admin {}
+        if admin {
+            let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
+            let mut applications = Vec::new();
+            if let Some(a) = self
+                .retrieve_all_card_applications(&ca.medium, &app_table)
+                .await
+            {
+                applications = a;
+            }
+            html.body(|b| {
+                b.form(|fb| {
+                    fb.text("Name of application instance");
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.name("instance_name"));
+                    fb.line_break(|a| a);
+                    fb.select(|sb| {
+                        sb.name("application");
+                        for f in &applications {
+                            sb.option(|ob| {
+                                ob.value(crate::utility::encode_hex(&f.aid))
+                                    .text(f.name.clone())
+                            });
+                        }
+                        sb
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("applet_action")
+                            .value("manage_application_instances")
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.type_("hidden").name("step").value("3"));
+                    fb.line_break(|a| a);
+                    fb.button(|b| b.text("Finish"));
+                    fbm(fb);
+                    fb
+                })
+            });
+        }
+    }
+
+    async fn insert_new_application_instance(
+        &self,
+        ca: &mut Ca,
+        appletid: i64,
+        name: String,
+        aid: Vec<u8>,
+    ) -> Result<(), ()> {
+        let table = ca.get_applet_specific_table_name(appletid, "application_builder");
+        use crate::ca::CaCertificateStorage;
+        use async_sqlite::rusqlite::ToSql;
+        match &ca.medium {
+            CaCertificateStorage::Nowhere => Ok(()),
+            CaCertificateStorage::Sqlite(p) => {
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "INSERT INTO {table} (name, card_application_aid) VALUES (?1, ?2)"
+                    ))?;
+                    stmt.execute([name.to_sql().unwrap(), aid.to_sql().unwrap()])?;
+                    Ok(())
+                })
+                .await
+                .map_err(|_| ())?;
+                Ok(())
+            }
+        }
     }
 
     async fn submit_new_application_instance_form(
@@ -2172,7 +2239,40 @@ impl Ev1 {
         ca: &mut Ca,
         s: &crate::utility::WebPageContext,
     ) {
-        if admin {}
+        if admin {
+            if let Some(form) = s.post.form() {
+                if let Some(name) = form.get_first("instance_name") {
+                    if let Some(application) = form.get_first("application") {
+                        if let Ok(aid) = crate::utility::decode_hex(application) {
+                            if self
+                                .insert_new_application_instance(
+                                    ca,
+                                    appletid,
+                                    name.to_string(),
+                                    aid,
+                                )
+                                .await
+                                .is_ok()
+                            {
+                                html.body(|b| {
+                                    b.text("Application instance created");
+                                    b.line_break(|a| a);
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            } else {
+                                html.body(|b| {
+                                    b.text("Failed to create application instance");
+                                    b.line_break(|a| a);
+                                    backlinks(b, appletid, sget, s);
+                                    b
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     async fn show_application_instance_list(
@@ -2195,7 +2295,11 @@ impl Ev1 {
                 let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
                 for app in list {
                     if let Some(application) = self
-                        .retrieve_single_application_by_id(&ca.medium, &app_table, app.card_app_id)
+                        .retrieve_single_application_by_aid(
+                            &ca.medium,
+                            &app_table,
+                            app.card_app_aid.clone(),
+                        )
                         .await
                     {
                         if let Some(fb) = app.get_file_builders(appletid, ca, self).await {
@@ -2250,6 +2354,25 @@ impl Ev1 {
                     b.line_break(|a| a);
                 }
                 b.thematic_break(|a| a);
+                b.anchor(|ab| {
+                    ab.text(format!("Create new application instance"));
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            sget.insert("step".to_string(), 2.to_string());
+                            let a = sget
+                                .iter()
+                                .map(|a| format!("{}={}", a.0, a.1))
+                                .collect::<Vec<String>>()
+                                .join("&");
+                            ab.href(format!("?{a}"));
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            ab.href(format!("applet.rs?id={}&action=manage_application_instances&step=2", appletid));
+                        }
+                    };
+                    ab
+                });
+                b.line_break(|a|a);
                 backlinks(b, appletid, sget, s);
                 b
             });
@@ -2378,9 +2501,9 @@ impl super::AppletTrait for Ev1 {
                         },
                     ),
                     (
-                        "card_application_id".to_string(),
+                        "card_application_aid".to_string(),
                         AppletTableField {
-                            ty: FieldType::Integer,
+                            ty: FieldType::Blob,
                             primary_key: false,
                             default: None,
                         },
