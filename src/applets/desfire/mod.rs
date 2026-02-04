@@ -4,6 +4,7 @@ mod templates;
 
 use std::collections::HashMap;
 
+use async_sqlite::rusqlite::ToSql;
 use rand::RngCore;
 
 use crate::ca::{Ca, CertAttribute, DbEntry};
@@ -71,6 +72,101 @@ impl<'a> TryFrom<DbEntry<'a>> for CardApplication {
             name: val.row_data.get(1)?,
             key_ids,
         })
+    }
+}
+
+struct ApplicationBuilder {
+    id: i64,
+    name: String,
+    card_app_id: i64,
+}
+
+impl<'a> TryFrom<DbEntry<'a>> for ApplicationBuilder {
+    type Error = async_sqlite::rusqlite::Error;
+    fn try_from(val: DbEntry<'a>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: val.row_data.get(0)?,
+            name: val.row_data.get(1)?,
+            card_app_id: val.row_data.get(2)?,
+        })
+    }
+}
+
+struct ApplicationReference {
+    id: i64,
+    name: String,
+    app: CardApplication,
+    files: HashMap<u8, FileGenerator>,
+}
+
+struct ApplicationBuilderFile {
+    id: i64,
+    file_number: u8,
+    file_template_id: i64,
+}
+
+impl<'a> TryFrom<DbEntry<'a>> for ApplicationBuilderFile {
+    type Error = async_sqlite::rusqlite::Error;
+    fn try_from(val: DbEntry<'a>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: val.row_data.get(0)?,
+            file_number: val.row_data.get(2)?,
+            file_template_id: val.row_data.get(3)?,
+        })
+    }
+}
+
+impl ApplicationBuilder {
+    async fn get_file_builders(
+        &self,
+        appletid: i64,
+        ca: &mut Ca,
+        ev1: &Ev1,
+    ) -> Option<HashMap<u8, FileGenerator>> {
+        let tablename = ca.get_applet_specific_table_name(appletid, "application_builder_files");
+        use crate::ca::CaCertificateStorage;
+        let id = self.id;
+        let mut hm = HashMap::new();
+        if let Some(abfs) = match &ca.medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!(
+                        "SELECT * FROM {tablename} WHERE application_instance_id=?1"
+                    ))?;
+                    let rows = stmt.query_map([id.to_sql().unwrap()], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: ApplicationBuilderFile = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    let mut data = Vec::new();
+                    for r in rows {
+                        if let Ok(r) = r {
+                            data.push(r);
+                        }
+                    }
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        } {
+            for abf in abfs {
+                let ftid = abf.file_template_id;
+                let ft_table_name = ca.get_applet_specific_table_name(appletid, "file_templates");
+                if let Some(ftempd) = ev1
+                    .retrieve_specific_file_template(&ca.medium, &ft_table_name, ftid)
+                    .await
+                {
+                    if let Ok(ftemp) = toml::from_str(&ftempd.definition) {
+                        let ftemp: FileTemplate = ftemp;
+                        let a = ftemp.generate();
+                        hm.insert(abf.file_number, a);
+                    }
+                }
+            }
+        }
+        Some(hm)
     }
 }
 
@@ -664,6 +760,34 @@ impl Ev1 {
                     let mut stmt =
                         conn.prepare(&format!("SELECT * FROM {app_table2} WHERE name=?1 LIMIT 1"))?;
                     let data = stmt.query_row([appname], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: CardApplication = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
+    /// Retrieve a single applet by name
+    async fn retrieve_single_application_by_id(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+        appid: i64,
+    ) -> Option<CardApplication> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt =
+                        conn.prepare(&format!("SELECT * FROM {app_table2} WHERE id=?1 LIMIT 1"))?;
+                    let data = stmt.query_row([appid], |row| {
                         let dbentry = DbEntry::new(row);
                         let t: CardApplication = dbentry.try_into()?;
                         Ok(t)
@@ -1914,6 +2038,274 @@ impl Ev1 {
             }
         }
     }
+
+    /// Retrieve a specific file template
+    async fn retrieve_specific_application_instance(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+        id: i64,
+    ) -> Option<ApplicationBuilder> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt =
+                        conn.prepare(&format!("SELECT * FROM {app_table2} WHERE id=?1 LIMIT 1"))?;
+                    let data = stmt.query_row([id], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: ApplicationBuilder = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
+    /// Retrieve all file templates
+    async fn retrieve_all_application_instances(
+        &self,
+        medium: &crate::ca::CaCertificateStorage,
+        app_table: &str,
+    ) -> Option<Vec<ApplicationBuilder>> {
+        let app_table2 = app_table.to_string();
+        use crate::ca::CaCertificateStorage;
+        match medium {
+            CaCertificateStorage::Nowhere => None,
+            CaCertificateStorage::Sqlite(p) => Some(
+                p.conn(move |conn| {
+                    let mut stmt = conn.prepare(&format!("SELECT * FROM {app_table2}"))?;
+                    let rows = stmt.query_map([], |row| {
+                        let dbentry = DbEntry::new(row);
+                        let t: ApplicationBuilder = dbentry.try_into()?;
+                        Ok(t)
+                    })?;
+                    let mut data = Vec::new();
+                    for r in rows {
+                        if let Ok(r) = r {
+                            data.push(r);
+                        }
+                    }
+                    Ok(data)
+                })
+                .await
+                .ok()?,
+            ),
+        }
+    }
+
+    async fn view_specific_application_instance<
+        F: FnOnce(&mut html::forms::builders::FormBuilder),
+    >(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {
+            if let Some(template_id) = s.get.get("applet_data") {
+                if let Ok(id) = template_id.parse::<i64>() {
+                    let tablename =
+                        ca.get_applet_specific_table_name(appletid, "application_builder");
+                    if let Some(template) = self
+                        .retrieve_specific_application_instance(&ca.medium, &tablename, id)
+                        .await
+                    {
+                        let apptablename =
+                            ca.get_applet_specific_table_name(appletid, "application_builder");
+                        if let Some(card_app) = self
+                            .retrieve_single_application_by_id(
+                                &ca.medium,
+                                &apptablename,
+                                template.card_app_id,
+                            )
+                            .await
+                        {
+                            html.body(|b| {
+                                b.text(format!("NAME: {}", template.name));
+                                b.line_break(|a| a);
+                                b.text(format!("Application {}", card_app.name));
+                                b.line_break(|a| a);
+                                backlinks(b, appletid, sget, s);
+                                b
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn create_application_instance_form<
+        F: FnOnce(&mut html::forms::builders::FormBuilder),
+    >(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {}
+    }
+
+    async fn submit_new_application_instance_form(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) {
+        if admin {}
+    }
+
+    async fn show_application_instance_list(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+    ) {
+        if admin {
+            let key_table = ca.get_applet_specific_table_name(appletid, "application_builder");
+            let list = self
+                .retrieve_all_application_instances(&ca.medium, &key_table)
+                .await;
+            let mut full_app_instance_list = Vec::new();
+            if let Some(list) = list {
+                let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
+                for app in list {
+                    if let Some(application) = self
+                        .retrieve_single_application_by_id(&ca.medium, &app_table, app.card_app_id)
+                        .await
+                    {
+                        if let Some(fb) = app.get_file_builders(appletid, ca, self).await {
+                            let a = ApplicationReference {
+                                id: app.id,
+                                name: app.name.clone(),
+                                app: application,
+                                files: fb,
+                            };
+                            full_app_instance_list.push(a);
+                        }
+                    }
+                }
+            }
+            html.body(|b| {
+                for item in full_app_instance_list {
+                    b.thematic_break(|a| a);
+                    b.text(format!("Instance {}", item.name));
+                    b.line_break(|a|a);
+                    b.text(format!("Uses application {}", item.app.name));
+                    b.line_break(|a|a);
+                    for f in &item.files {
+                        b.text(format!("File {}", f.0));
+                        b.line_break(|a|a);
+                    }
+                    b.anchor(|ab| {
+                        ab.text("Modify");
+                        for f in &item.files {
+                            ab.text(format!("File {}", f.0));
+                            ab.line_break(|a|a);
+                        }
+                        match s.delivery {
+                            crate::main_config::PageDelivery::Cgi => {
+                                sget.insert("applet_data".to_string(), format!("{}", item.id));
+                                sget.insert("step".to_string(), 1.to_string());
+                                let a = sget
+                                    .iter()
+                                    .map(|a| format!("{}={}", a.0, a.1))
+                                    .collect::<Vec<String>>()
+                                    .join("&");
+                                ab.href(format!("?{a}"));
+                            }
+                            crate::main_config::PageDelivery::DedicatedServer => {
+                                ab.href(format!(
+                                    "applet.rs?id={}&action=manage_application_instances&step=1&applet_data={}",
+                                    appletid, item.id
+                                ));
+                            }
+                        };
+                        ab
+                    });
+                    b.line_break(|a| a);
+                }
+                b.thematic_break(|a| a);
+                backlinks(b, appletid, sget, s);
+                b
+            });
+        }
+    }
+
+    async fn manage_application_instances<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        let steps = s
+            .post
+            .form()
+            .and_then(|f| f.get_first("step").map(|a| a.to_string()))
+            .or(s.get.get("step").map(|a| a.clone()));
+        let step = steps
+            .map(|a| a.parse::<usize>().ok())
+            .flatten()
+            .unwrap_or(0);
+        match step {
+            1 => {
+                self.view_specific_application_instance(
+                    admin, sget, html, appletid, userid, ca, s, fbm,
+                )
+                .await;
+            }
+            2 => {
+                self.create_application_instance_form(
+                    admin, sget, html, appletid, userid, ca, s, fbm,
+                )
+                .await;
+            }
+            3 => {
+                self.submit_new_application_instance_form(
+                    admin, sget, html, appletid, userid, ca, s,
+                )
+                .await;
+            }
+            4 => {
+                if admin {
+                    if let Some(form) = s.post.form() {}
+                }
+            }
+            _ => {
+                self.show_application_instance_list(admin, sget, html, appletid, userid, ca, s)
+                    .await;
+            }
+        }
+    }
 }
 
 impl super::AppletTrait for Ev1 {
@@ -1965,6 +2357,72 @@ impl super::AppletTrait for Ev1 {
                         default: None,
                     },
                 )],
+            },
+            AppletTable {
+                name: "application_builder".to_string(),
+                fields: vec![
+                    (
+                        "id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: true,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "name".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Text,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "card_application_id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                ],
+            },
+            AppletTable {
+                name: "application_builder_files".to_string(),
+                fields: vec![
+                    (
+                        "id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: true,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "application_instance_id".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "file_number".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                    (
+                        "file_template".to_string(),
+                        AppletTableField {
+                            ty: FieldType::Integer,
+                            primary_key: false,
+                            default: None,
+                        },
+                    ),
+                ],
             },
             AppletTable {
                 name: "file_templates".to_string(),
@@ -2243,6 +2701,10 @@ impl super::AppletTrait for Ev1 {
                 self.manage_file_templates(admin, sget, html, appletid, userid, ca, s, fbm)
                     .await;
             }
+            Some("manage_application_instances") => {
+                self.manage_application_instances(admin, sget, html, appletid, userid, ca, s, fbm)
+                    .await;
+            }
             _ => {
                 html.body(|b| {
                     b.text("This is the desvfire ev1 applet");
@@ -2344,6 +2806,31 @@ impl super::AppletTrait for Ev1 {
                                 crate::main_config::PageDelivery::DedicatedServer => {
                                     ab.href(format!(
                                         "applet.rs?id={}&applet_action=manage_file_templates",
+                                        appletid
+                                    ));
+                                }
+                            };
+                            ab
+                        });
+                        b.line_break(|a| a);
+                        b.anchor(|ab| {
+                            ab.text("Modify application instances");
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    sget.insert(
+                                        "applet_action".to_string(),
+                                        "manage_application_instances".to_string(),
+                                    );
+                                    let a = sget
+                                        .iter()
+                                        .map(|a| format!("{}={}", a.0, a.1))
+                                        .collect::<Vec<String>>()
+                                        .join("&");
+                                    ab.href(format!("?{a}"));
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    ab.href(format!(
+                                        "applet.rs?id={}&applet_action=manage_application_instances",
                                         appletid
                                     ));
                                 }
