@@ -2115,11 +2115,11 @@ impl Ev1 {
     ) {
         if admin {
             if let Some(template_id) = s.get.get("applet_data") {
-                if let Ok(id) = template_id.parse::<i64>() {
+                if let Ok(template_id) = template_id.parse::<i64>() {
                     let tablename =
                         ca.get_applet_specific_table_name(appletid, "application_builder");
                     if let Some(template) = self
-                        .retrieve_specific_application_instance(&ca.medium, &tablename, id)
+                        .retrieve_specific_application_instance(&ca.medium, &tablename, template_id)
                         .await
                     {
                         let apptablename =
@@ -2136,6 +2136,30 @@ impl Ev1 {
                                 b.text(format!("NAME: {}", template.name));
                                 b.line_break(|a| a);
                                 b.text(format!("Application {}", card_app.name));
+                                b.line_break(|a| a);
+                                todo!("LIST CURRENT FILES");
+                                b.anchor(|ab| {
+                                    ab.text(format!("Add a file"));
+                                    match s.delivery {
+                                        crate::main_config::PageDelivery::Cgi => {
+                                            sget.insert("step".to_string(), 4.to_string());
+                                            sget.insert("new_file_number".to_string(), todo!().to_string());
+                                            let a = sget
+                                                .iter()
+                                                .map(|a| format!("{}={}", a.0, a.1))
+                                                .collect::<Vec<String>>()
+                                                .join("&");
+                                            ab.href(format!("?{a}"));
+                                        }
+                                        crate::main_config::PageDelivery::DedicatedServer => {
+                                            ab.href(format!(
+                                                "applet.rs?id={}&action=manage_file_templates&step=4",
+                                                appletid
+                                            ));
+                                        }
+                                    };
+                                    ab
+                                });
                                 b.line_break(|a| a);
                                 backlinks(b, appletid, sget, s);
                                 b
@@ -2162,6 +2186,7 @@ impl Ev1 {
     ) {
         if admin {
             let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
+            let file_number = s.get.get("new_file_number").map(|a|a.to_owned()).unwrap_or(0.to_string());
             let mut applications = Vec::new();
             if let Some(a) = self
                 .retrieve_all_card_applications(&ca.medium, &app_table)
@@ -2184,6 +2209,12 @@ impl Ev1 {
                             });
                         }
                         sb
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("new_file_number")
+                            .value(file_number)
                     });
                     fb.line_break(|a| a);
                     fb.input(|i| {
@@ -2379,6 +2410,77 @@ impl Ev1 {
         }
     }
 
+    async fn application_instance_new_file_form<
+        F: FnOnce(&mut html::forms::builders::FormBuilder),
+    >(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {
+            let table = ca.get_applet_specific_table_name(appletid, "file_templates");
+            let mut files = Vec::new();
+            let tfiles = self.retrieve_all_file_templates(&ca.medium, &table).await;
+            if let Some(f) = tfiles {
+                files = f;
+            }
+            html.body(|b| {
+                b.form(|fb| {
+                    fb.select(|sb| {
+                        sb.name("file");
+                        for f in &files {
+                            sb.option(|ob| {
+                                ob.value(f.name.clone())
+                                    .text(f.name.clone())
+                            });
+                        }
+                        sb
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| {
+                        i.type_("hidden")
+                            .name("applet_action")
+                            .value("manage_application_instances")
+                    });
+                    fb.line_break(|a| a);
+                    fb.input(|i| i.type_("hidden").name("step").value("5"));
+                    fb.line_break(|a| a);
+                    fb.button(|b| b.text("Save"));
+                    fbm(fb);
+                    fb
+                })
+            });
+        }
+    }
+
+    async fn application_instance_insert_new_file<
+        F: FnOnce(&mut html::forms::builders::FormBuilder),
+    >(
+        &self,
+        admin: bool,
+        mut sget: HashMap<String, String>,
+        html: &mut html::root::builders::HtmlBuilder,
+        appletid: i64,
+        userid: i64,
+        ca: &mut Ca,
+        s: &crate::utility::WebPageContext,
+        fbm: F,
+    ) {
+        if admin {
+            if let Some(form) = s.post.form() {
+                if let Some(file) = form.get_first("file") {
+                    
+                }
+            }
+        }
+    }
+
     async fn manage_application_instances<F: FnOnce(&mut html::forms::builders::FormBuilder)>(
         &self,
         admin: bool,
@@ -2419,9 +2521,14 @@ impl Ev1 {
                 .await;
             }
             4 => {
-                if admin {
-                    if let Some(form) = s.post.form() {}
-                }
+                self.application_instance_new_file_form(admin, sget, html, appletid, userid, ca, s, fbm
+                )
+                .await;
+            }
+            5 => {
+                self.application_instance_insert_new_file(admin, sget, html, appletid, userid, ca, s, fbm
+                )
+                .await;
             }
             _ => {
                 self.show_application_instance_list(admin, sget, html, appletid, userid, ca, s)
