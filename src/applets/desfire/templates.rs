@@ -40,6 +40,10 @@ impl super::FileGeneratorTrait for CounterGenerator {
     fn generate(&self) -> super::File {
         todo!()
     }
+
+    fn description(&self) -> String {
+        "Counter".to_string()
+    }
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -107,5 +111,9 @@ impl super::FileGeneratorTrait for BitmapGenerator {
 
     fn generate(&self) -> super::File {
         todo!()
+    }
+
+    fn description(&self) -> String {
+        "Bitmap".to_string()
     }
 }

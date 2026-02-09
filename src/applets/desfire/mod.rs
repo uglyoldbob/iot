@@ -120,6 +120,7 @@ impl ApplicationBuilder {
     async fn get_file_builders(
         &self,
         appletid: i64,
+        app_builder_id: i64,
         ca: &mut Ca,
         ev1: &Ev1,
     ) -> Option<HashMap<u8, FileGenerator>> {
@@ -134,7 +135,7 @@ impl ApplicationBuilder {
                     let mut stmt = conn.prepare(&format!(
                         "SELECT * FROM {tablename} WHERE application_instance_id=?1"
                     ))?;
-                    let rows = stmt.query_map([id.to_sql().unwrap()], |row| {
+                    let rows = stmt.query_map([app_builder_id.to_sql().unwrap()], |row| {
                         let dbentry = DbEntry::new(row);
                         let t: ApplicationBuilderFile = dbentry.try_into()?;
                         Ok(t)
@@ -228,6 +229,8 @@ trait FileGeneratorTrait {
     fn apply_form_data(&mut self, data: url_encoded_data::UrlEncodedData);
     /// Generate the file
     fn generate(&self) -> File;
+    /// User readable description
+    fn description(&self) -> String;
 }
 
 #[enum_dispatch::enum_dispatch(FileGeneratorTrait)]
@@ -2128,16 +2131,29 @@ impl Ev1 {
                             .retrieve_single_application_by_aid(
                                 &ca.medium,
                                 &apptablename,
-                                template.card_app_aid,
+                                template.card_app_aid.clone(),
                             )
                             .await
                         {
+                            let mut files = Vec::new();
+                            if let Some(f) = template
+                                .get_file_builders(appletid, template_id, ca, self)
+                                .await
+                            {
+                                let mut v: Vec<_> = f.into_iter().collect();
+                                v.sort_by(|x, y| x.0.cmp(&y.0));
+                                files = v;
+                            }
                             html.body(|b| {
                                 b.text(format!("NAME: {}", template.name));
                                 b.line_break(|a| a);
                                 b.text(format!("Application {}", card_app.name));
                                 b.line_break(|a| a);
-                                todo!("LIST CURRENT FILES");
+                                for f in files {
+                                    b.thematic_break(|a|a );
+                                    b.text(format!("File {}: {}", f.0, f.1.description()));
+                                }
+                                b.thematic_break(|a|a );
                                 b.anchor(|ab| {
                                     ab.text(format!("Add a file"));
                                     match s.delivery {
@@ -2186,7 +2202,11 @@ impl Ev1 {
     ) {
         if admin {
             let app_table = ca.get_applet_specific_table_name(appletid, "card_applications");
-            let file_number = s.get.get("new_file_number").map(|a|a.to_owned()).unwrap_or(0.to_string());
+            let file_number = s
+                .get
+                .get("new_file_number")
+                .map(|a| a.to_owned())
+                .unwrap_or(0.to_string());
             let mut applications = Vec::new();
             if let Some(a) = self
                 .retrieve_all_card_applications(&ca.medium, &app_table)
@@ -2211,11 +2231,7 @@ impl Ev1 {
                         sb
                     });
                     fb.line_break(|a| a);
-                    fb.input(|i| {
-                        i.type_("hidden")
-                            .name("new_file_number")
-                            .value(file_number)
-                    });
+                    fb.input(|i| i.type_("hidden").name("new_file_number").value(file_number));
                     fb.line_break(|a| a);
                     fb.input(|i| {
                         i.type_("hidden")
@@ -2333,7 +2349,7 @@ impl Ev1 {
                         )
                         .await
                     {
-                        if let Some(fb) = app.get_file_builders(appletid, ca, self).await {
+                        if let Some(fb) = app.get_file_builders(appletid, app.id, ca, self).await {
                             let a = ApplicationReference {
                                 id: app.id,
                                 name: app.name.clone(),
@@ -2435,10 +2451,7 @@ impl Ev1 {
                     fb.select(|sb| {
                         sb.name("file");
                         for f in &files {
-                            sb.option(|ob| {
-                                ob.value(f.name.clone())
-                                    .text(f.name.clone())
-                            });
+                            sb.option(|ob| ob.value(f.name.clone()).text(f.name.clone()));
                         }
                         sb
                     });
@@ -2474,9 +2487,7 @@ impl Ev1 {
     ) {
         if admin {
             if let Some(form) = s.post.form() {
-                if let Some(file) = form.get_first("file") {
-                    
-                }
+                if let Some(file) = form.get_first("file") {}
             }
         }
     }
@@ -2521,12 +2532,14 @@ impl Ev1 {
                 .await;
             }
             4 => {
-                self.application_instance_new_file_form(admin, sget, html, appletid, userid, ca, s, fbm
+                self.application_instance_new_file_form(
+                    admin, sget, html, appletid, userid, ca, s, fbm,
                 )
                 .await;
             }
             5 => {
-                self.application_instance_insert_new_file(admin, sget, html, appletid, userid, ca, s, fbm
+                self.application_instance_insert_new_file(
+                    admin, sget, html, appletid, userid, ca, s, fbm,
                 )
                 .await;
             }
