@@ -2145,10 +2145,10 @@ impl Ev1 {
                                 files = v;
                             }
                             let mut expected = 0;
-                            for &num in &files {
+                            for num in &files {
                                 if num.0 == expected {
                                     expected += 1;
-                                } else if num > expected.0 {
+                                } else if num.0 > expected {
                                     break;
                                 }
                             }
