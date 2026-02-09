@@ -532,29 +532,11 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
     }
 }
 
-/// The main page for a certificate authority
-async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
-    use crate::applets::AppletTrait;
-    let mut admin = false;
-    let mut user = None;
-    let cs = s.user_certs.all_certs();
-    for cert in cs {
-        if user.is_none() {
-            let a: Vec<String> = cert
-                .tbs_certificate
-                .subject
-                .0
-                .iter()
-                .map(|l| l.to_string())
-                .collect();
-            let a = a.join(",");
-            user = Some(a);
-        }
-        if ca.is_admin(cert).await {
-            admin = true;
-        }
-    }
-
+async fn handle_ca_main_admin_page(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    html: &mut html::root::builders::HtmlBuilder,
+) -> WebResponse {
     let mut applets = Vec::new();
     if let Some(a) = ca.medium.retrieve_all_applets().await {
         for applet in a {
@@ -562,15 +544,39 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
         }
     }
 
-    let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
-        .body(|b| {
-            if admin {
-                b.text("You are admin").line_break(|a| a);
-            }
-            if let Some(u) = &user {
-                b.text(format!("Welcome {}", u)).line_break(|a| a);
-            }
+    html.body(|b| {
+        b.division(|d| {
+            d.class("container");
+            d.header(|h| {
+                h.division(|logo_div| {
+                    logo_div.class("logo");
+                    logo_div.division(|logo_icon| {
+                        logo_icon.division(|d| d.class("logo-icon").text("🔐"));
+                        logo_icon.division(|d| d.class("logo-text")
+                            .heading_1(|h|h.text("Certificate Authority"))
+                            .paragraph(|p|p.text("Admin Portal")));
+                        logo_icon
+                    });
+                    logo_div
+                });
+                h.division(|header_actions| {
+                    header_actions.anchor(|a| a.href("#notifications").class("notification-badge").text("🔔"));
+                    header_actions.division(|user_profile| {
+                        user_profile.class("user-profile")
+                            .division(|user_avatar| {
+                                user_avatar.text("AD")
+                            })
+                            .division(|div| {
+                                div.division(|div| div.style("font-weight: 600; font-size: 14px;").text("Admin User"))
+                                    .division(|div|div.style("font-size: 12px; color: #718096;").text("Super Admin"))
+                            })
+                    });
+                    header_actions
+                });
+                h
+            });
+            d
+        });
             match &ca.config.sign_method {
                 CertificateSigningMethod::Https(_m) => {
                     match s.delivery {
@@ -651,7 +657,7 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
                 }
             }
             b.line_break(|lb| lb);
-            if admin {
+            if true {
                 match s.delivery {
                     crate::main_config::PageDelivery::Cgi => {
                         b.anchor(|ab| {
@@ -773,6 +779,168 @@ async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
     WebResponse {
         response: hyper::http::Response::from_parts(response, body),
         cookie: s.logincookie.clone(),
+    }
+}
+
+async fn handle_ca_main_user_page(
+    ca: &mut Ca,
+    s: &WebPageContext,
+    html: &mut html::root::builders::HtmlBuilder,
+    user: Option<String>,
+) -> WebResponse {
+    html.body(|b| {
+            if let Some(u) = &user {
+                b.text(format!("Welcome {}", u)).line_break(|a| a);
+            }
+            match &ca.config.sign_method {
+                CertificateSigningMethod::Https(_m) => {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as der");
+                                ab.href("?action=download_ca&type=der");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as der");
+                                ab.href("ca/get_ca.rs?type=der");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
+                    b.line_break(|lb| lb);
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as pem");
+                                ab.href("?action=download_ca&type=pem");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download CA certificate as pem");
+                                ab.href("ca/get_ca.rs?type=pem");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
+                    b.line_break(|lb| lb);
+                }
+                CertificateSigningMethod::Ssh(_m) => {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            b.anchor(|ab| {
+                                ab.text("Download SSH CA certificate");
+                                ab.href("?action=download_ca");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            b.anchor(|ab| {
+                                ab.text("Download SSH CA certificate");
+                                ab.href("ca/get_ca.rs");
+                                ab.target("_blank");
+                                ab
+                            });
+                        }
+                    }
+                    b.line_break(|lb| lb);
+                }
+            }
+            match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    b.anchor(|ab| {
+                        ab.text("Request a signature on a certificate");
+                        ab.href("?action=request_signature");
+                        ab
+                    });
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    b.anchor(|ab| {
+                        ab.text("Request a signature on a certificate");
+                        ab.href("ca/request.rs");
+                        ab
+                    });
+                }
+            }
+            b.line_break(|lb| lb);
+            let name = ca.public_names.first().unwrap();
+            let intenturl = match s.delivery {
+                crate::main_config::PageDelivery::Cgi => {
+                    format!("{}{}/rust-iot.cgi", name.domain, name.subdomain)
+                }
+                crate::main_config::PageDelivery::DedicatedServer => {
+                    format!("{}{}/register_android.rs", name.domain, name.subdomain)
+                }
+            };
+            b.anchor(|ab| {
+                let package = "com.uglyoldbob.RustIotNfc";
+                let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
+                let url = urlencoding::encode(url);
+                let scheme = "registerscheme";
+                let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
+                ab.href(format!("intent://{intenturl}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
+                ab.text("Open in android app");
+                ab
+            });
+            b.line_break(|lb| lb);
+            b
+        });
+    let html = html.build();
+
+    let response = hyper::Response::new("dummy");
+    let (response, _dummybody) = response.into_parts();
+    let body = http_body_util::Full::new(hyper::body::Bytes::from(html.to_string()));
+    WebResponse {
+        response: hyper::http::Response::from_parts(response, body),
+        cookie: s.logincookie.clone(),
+    }
+}
+
+/// The main page for a certificate authority
+async fn handle_ca_main_page(ca: &mut Ca, s: &WebPageContext) -> WebResponse {
+    use crate::applets::AppletTrait;
+    let mut admin = false;
+    let mut user = None;
+    let cs = s.user_certs.all_certs();
+    for cert in cs {
+        if user.is_none() {
+            let a: Vec<String> = cert
+                .tbs_certificate
+                .subject
+                .0
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
+            let a = a.join(",");
+            user = Some(a);
+        }
+        if ca.is_admin(cert).await {
+            admin = true;
+        }
+    }
+
+    let mut html = html::root::Html::builder();
+    html.head(|h| {
+        generic_head(h, s, ca)
+            .title(|t| t.text(ca.config.common_name.to_owned()))
+            .meta(|m| {
+                m.name("viewport")
+                    .content("width=device-width, initial-scale=1.0")
+            })
+    });
+    if admin {
+        handle_ca_main_admin_page(ca, s, &mut html).await
+    } else {
+        handle_ca_main_user_page(ca, s, &mut html, user).await
     }
 }
 
