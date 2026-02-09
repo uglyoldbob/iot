@@ -562,7 +562,7 @@ async fn handle_ca_main_admin_page(
                     header_actions.division(|user_profile| {
                         user_profile.class("user-profile")
                             .division(|user_avatar| {
-                                user_avatar.text("AD")
+                                user_avatar.class("user-avatar").text("AD")
                             })
                             .division(|div| {
                                 div.division(|div| div.style("font-weight: 600; font-size: 14px;").text("Admin User"))
