@@ -550,16 +550,14 @@ async fn handle_ca_main_admin_page(
             d.header(|h| {
                 h.division(|logo_div| {
                     logo_div.class("logo");
-                    logo_div.division(|logo_icon| {
-                        logo_icon.division(|d| d.class("logo-icon").text("🔐"));
-                        logo_icon.division(|d| d.class("logo-text")
-                            .heading_1(|h|h.text("Certificate Authority"))
-                            .paragraph(|p|p.text("Admin Portal")));
-                        logo_icon
-                    });
+                    logo_div.division(|d| d.class("logo-icon").text("🔐"));
+                    logo_div.division(|d| d.class("logo-text")
+                        .heading_1(|h|h.text("Certificate Authority"))
+                        .paragraph(|p|p.text("Admin Portal")));
                     logo_div
                 });
                 h.division(|header_actions| {
+                    header_actions.class("header-actions");
                     header_actions.anchor(|a| a.href("#notifications").class("notification-badge").text("🔔"));
                     header_actions.division(|user_profile| {
                         user_profile.class("user-profile")
