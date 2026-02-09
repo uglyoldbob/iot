@@ -575,6 +575,51 @@ async fn handle_ca_main_admin_page(
             });
             d
         });
+        b.division(|main_div| {
+            main_div.aside(|sidebar| {
+                sidebar.navigation(|nav| {
+                    nav.division(|nav_section| {
+                        nav_section.class("nav-section")
+                            .heading_3(|a| a.text("Dashboard"))
+                            .anchor(|a| 
+                                a.href("#overview")
+                                 .class("nav-item active")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("📊")))
+                    });
+                    nav.division(|nav_section| {
+                        nav_section.class("nav-section")
+                            .heading_3(|a| a.text("Certificate Operations"))
+                            .anchor(|a| 
+                                a.href("#csr-queue")
+                                 .class("nav-item")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("📝"))
+                                 .text("CSR Queue")
+                                 .span(|s| 
+                                    s.class("nav-badge").text("8")))
+                    });
+                    nav.division(|nav_section| {
+                        nav_section.class("nav-section")
+                            .heading_3(|a| a.text("Certificate Authority"))
+                            .anchor(|a| 
+                                a.href("#ca-info")
+                                 .class("nav-item")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("🏛️"))
+                                 .text("CA Information"))
+                            .anchor(|a| 
+                                a.href("#download-certs")
+                                 .class("nav-item")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("⬇️"))
+                                 .text("Download Certificates"))
+                    });
+                    nav
+                })
+            });
+            main_div
+        });
             match &ca.config.sign_method {
                 CertificateSigningMethod::Https(_m) => {
                     match s.delivery {
