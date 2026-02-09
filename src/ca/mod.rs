@@ -576,7 +576,9 @@ async fn handle_ca_main_admin_page(
             d
         });
         b.division(|main_div| {
+            main_div.class("main-content");
             main_div.aside(|sidebar| {
+                sidebar.class("sidebar");
                 sidebar.navigation(|nav| {
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
@@ -585,7 +587,8 @@ async fn handle_ca_main_admin_page(
                                 a.href("#overview")
                                  .class("nav-item active")
                                  .span(|s| 
-                                    s.class("nav-icon").text("📊")))
+                                    s.class("nav-icon").text("📊"))
+                                 .text("Overview"))
                     });
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
@@ -615,8 +618,36 @@ async fn handle_ca_main_admin_page(
                                     s.class("nav-icon").text("⬇️"))
                                  .text("Download Certificates"))
                     });
+                    nav.division(|nav_section| {
+                        nav_section.class("nav-section")
+                            .heading_3(|a| a.text("System"))
+                            .anchor(|a| 
+                                a.href("#audit")
+                                 .class("nav-item")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("📜"))
+                                 .text("Audit Logs"))
+                            .anchor(|a| 
+                                a.href("#settings")
+                                 .class("nav-item")
+                                 .span(|s| 
+                                    s.class("nav-icon").text("⚙️"))
+                                 .text("Settings"))
+                    });
                     nav
                 })
+            });
+            main_div.main(|main_content| {
+                main_content.class("content-area");
+                main_content.division(|overview| {
+                    overview.class("page-header")
+                        .heading_2(|h2| h2.class("page-title").text("Dashboard Overview"))
+                        .anchor(|a| a.href("#csr-queue").class("btn btn-primary")
+                            .span(|s| s.text("📝"))
+                            .text("View CSR Queue")
+                        )
+                });
+                main_content
             });
             main_div
         });
