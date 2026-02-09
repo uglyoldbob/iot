@@ -2168,7 +2168,8 @@ impl Ev1 {
                                     match s.delivery {
                                         crate::main_config::PageDelivery::Cgi => {
                                             sget.insert("step".to_string(), 4.to_string());
-                                            sget.insert("new_file_number".to_string(), next_id.to_string());
+                                            sget.insert("application_instance_id".to_string(), template_id.to_string());
+                                            sget.insert("file_number".to_string(), next_id.to_string());
                                             let a = sget
                                                 .iter()
                                                 .map(|a| format!("{}={}", a.0, a.1))
@@ -2178,8 +2179,9 @@ impl Ev1 {
                                         }
                                         crate::main_config::PageDelivery::DedicatedServer => {
                                             ab.href(format!(
-                                                "applet.rs?id={}&action=manage_file_templates&step=4",
-                                                appletid
+                                                "applet.rs?id={}&action=manage_file_templates&step=4&application_instance_id={}",
+                                                appletid,
+                                                template_id
                                             ));
                                         }
                                     };
@@ -2449,35 +2451,51 @@ impl Ev1 {
         fbm: F,
     ) {
         if admin {
-            let table = ca.get_applet_specific_table_name(appletid, "file_templates");
-            let mut files = Vec::new();
-            let tfiles = self.retrieve_all_file_templates(&ca.medium, &table).await;
-            if let Some(f) = tfiles {
-                files = f;
+            if let Some(file_number) = s.get.get("file_number") {
+                if let Some(application_instance_id) = s.get.get("application_instance_id") {
+                    let table = ca.get_applet_specific_table_name(appletid, "file_templates");
+                    let mut files = Vec::new();
+                    let tfiles = self.retrieve_all_file_templates(&ca.medium, &table).await;
+                    if let Some(f) = tfiles {
+                        files = f;
+                    }
+                    html.body(|b| {
+                        b.form(|fb| {
+                            fb.select(|sb| {
+                                sb.name("file");
+                                for f in &files {
+                                    sb.option(|ob| ob.value(f.id.to_string()).text(f.name.clone()));
+                                }
+                                sb
+                            });
+                            fb.line_break(|a| a);
+                            fb.input(|i| {
+                                i.type_("hidden")
+                                    .name("applet_action")
+                                    .value("manage_application_instances")
+                            });
+                            fb.line_break(|a| a);
+                            fb.input(|i| {
+                                i.type_("hidden")
+                                    .name("application_instance_id")
+                                    .value(application_instance_id.to_string())
+                            });
+                            fb.line_break(|a| a);
+                            fb.input(|i| {
+                                i.type_("hidden")
+                                    .name("file_number")
+                                    .value(file_number.to_string())
+                            });
+                            fb.line_break(|a| a);
+                            fb.input(|i| i.type_("hidden").name("step").value("5"));
+                            fb.line_break(|a| a);
+                            fb.button(|b| b.text("Save"));
+                            fbm(fb);
+                            fb
+                        })
+                    });
+                }
             }
-            html.body(|b| {
-                b.form(|fb| {
-                    fb.select(|sb| {
-                        sb.name("file");
-                        for f in &files {
-                            sb.option(|ob| ob.value(f.name.clone()).text(f.name.clone()));
-                        }
-                        sb
-                    });
-                    fb.line_break(|a| a);
-                    fb.input(|i| {
-                        i.type_("hidden")
-                            .name("applet_action")
-                            .value("manage_application_instances")
-                    });
-                    fb.line_break(|a| a);
-                    fb.input(|i| i.type_("hidden").name("step").value("5"));
-                    fb.line_break(|a| a);
-                    fb.button(|b| b.text("Save"));
-                    fbm(fb);
-                    fb
-                })
-            });
         }
     }
 
@@ -2496,7 +2514,60 @@ impl Ev1 {
     ) {
         if admin {
             if let Some(form) = s.post.form() {
-                if let Some(file) = form.get_first("file") {}
+                if let Some(ai_id) = form.get_first("application_instance_id") {
+                    if let Ok(ai_id) = ai_id.parse::<i64>() {
+                        if let Some(file_num) = form.get_first("file_number") {
+                            if let Ok(file_num) = file_num.parse::<i64>() {
+                                if let Some(file) = form.get_first("file") {
+                                    if let Ok(file_template) = file.parse::<i64>() {
+                                        let table = ca.get_applet_specific_table_name(
+                                            appletid,
+                                            "application_builder_files",
+                                        );
+                                        use crate::ca::CaCertificateStorage;
+                                        use async_sqlite::rusqlite::ToSql;
+                                        let r: Result<(), ()> = match &ca.medium {
+                                            CaCertificateStorage::Nowhere => Ok(()),
+                                            CaCertificateStorage::Sqlite(p) => {
+                                                p.conn(move |conn| {
+                                                    let mut stmt = conn.prepare(&format!(
+                                                        "INSERT INTO {table} (application_instance_id, file_number, file_template) VALUES (?1, ?2, ?3)"
+                                                    ))?;
+                                                    stmt.execute([
+                                                        ai_id.to_sql().unwrap(),
+                                                        file_num.to_sql().unwrap(),
+                                                        file_template.to_sql().unwrap()])?;
+                                                    Ok(())
+                                                })
+                                                .await
+                                                .map_err(|_| ());
+                                                Ok(())
+                                            }
+                                        };
+                                        match r {
+                                            Ok(_) => {
+                                                html.body(|b| {
+                                                    b.text("Added file to application instance");
+                                                    b.line_break(|a| a);
+                                                    backlinks(b, appletid, sget, s);
+                                                    b
+                                                });
+                                            }
+                                            Err(_) => {
+                                                html.body(|b| {
+                                                    b.text("Failed to add file to application instance");
+                                                    b.line_break(|a| a);
+                                                    backlinks(b, appletid, sget, s);
+                                                    b
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
