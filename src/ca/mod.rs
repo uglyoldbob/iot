@@ -544,6 +544,10 @@ async fn handle_ca_main_admin_page(
         }
     }
 
+    let quantity_pending_csr = 8;
+    let issued_certificates = 1247;
+    let issued_in_last_month = 32;
+
     html.body(|b| {
         b.division(|d| {
             d.class("container");
@@ -583,54 +587,54 @@ async fn handle_ca_main_admin_page(
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
                             .heading_3(|a| a.text("Dashboard"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#overview")
                                  .class("nav-item active")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("📊"))
                                  .text("Overview"))
                     });
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
                             .heading_3(|a| a.text("Certificate Operations"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#csr-queue")
                                  .class("nav-item")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("📝"))
                                  .text("CSR Queue")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-badge").text("8")))
                     });
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
                             .heading_3(|a| a.text("Certificate Authority"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#ca-info")
                                  .class("nav-item")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("🏛️"))
                                  .text("CA Information"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#download-certs")
                                  .class("nav-item")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("⬇️"))
                                  .text("Download Certificates"))
                     });
                     nav.division(|nav_section| {
                         nav_section.class("nav-section")
                             .heading_3(|a| a.text("System"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#audit")
                                  .class("nav-item")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("📜"))
                                  .text("Audit Logs"))
-                            .anchor(|a| 
+                            .anchor(|a|
                                 a.href("#settings")
                                  .class("nav-item")
-                                 .span(|s| 
+                                 .span(|s|
                                     s.class("nav-icon").text("⚙️"))
                                  .text("Settings"))
                     });
@@ -646,6 +650,55 @@ async fn handle_ca_main_admin_page(
                             .span(|s| s.text("📝"))
                             .text("View CSR Queue")
                         )
+                });
+                main_content.division(|dashboard_div| {
+                    dashboard_div.class("stats-grid");
+                    dashboard_div.division(|grid| {
+                        grid.class("stat-card");
+                        grid.division(|d| {
+                            d.class("stat-header");
+                            d.division(|div| {
+                                div.division(|div| {
+                                    div.class("stat-label").text("Pending CSRs")
+                                });
+                                div.division(|div| {
+                                    div.class("stat-value").text(quantity_pending_csr.to_string())
+                                });
+                                if (quantity_pending_csr > 0) {
+                                    div.division(|div| {
+                                        div.class("stat-trend warning").text("⚠️ Requires action")
+                                    });
+                                }
+                                div
+                            });
+                            d.division(|div| div.class("stat-icon").text("📝"));
+                            d
+                        });
+                        grid
+                    });
+                    dashboard_div.division(|grid| {
+                        grid.class("stat-card");
+                        grid.division(|d| {
+                            d.class("stat-header");
+                            d.division(|div| {
+                                div.division(|div| {
+                                    div.class("stat-label").text("Certificates Issued")
+                                });
+                                div.division(|div| {
+                                    div.class("stat-value").text(issued_certificates.to_string())
+                                });
+                                if (issued_in_last_month > 0) {
+                                    div.division(|div|
+                                        div.class("stat-trend").text(format!("↑ +{issued_in_last_month} this month")));
+                                }
+                                div
+                            });
+                            d.division(|div| div.class("stat-icon").text("✅"));
+                            d
+                        });
+                        grid
+                    });
+                    dashboard_div
                 });
                 main_content
             });
