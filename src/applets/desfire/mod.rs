@@ -2144,6 +2144,15 @@ impl Ev1 {
                                 v.sort_by(|x, y| x.0.cmp(&y.0));
                                 files = v;
                             }
+                            let mut expected = 0;
+                            for &num in &files {
+                                if num.0 == expected {
+                                    expected += 1;
+                                } else if num > expected.0 {
+                                    break;
+                                }
+                            }
+                            let next_id = expected;
                             html.body(|b| {
                                 b.text(format!("NAME: {}", template.name));
                                 b.line_break(|a| a);
@@ -2159,7 +2168,7 @@ impl Ev1 {
                                     match s.delivery {
                                         crate::main_config::PageDelivery::Cgi => {
                                             sget.insert("step".to_string(), 4.to_string());
-                                            sget.insert("new_file_number".to_string(), todo!().to_string());
+                                            sget.insert("new_file_number".to_string(), next_id.to_string());
                                             let a = sget
                                                 .iter()
                                                 .map(|a| format!("{}={}", a.0, a.1))
