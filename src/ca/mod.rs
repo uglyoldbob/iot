@@ -545,8 +545,13 @@ async fn handle_ca_main_admin_page(
     }
 
     let quantity_pending_csr = 8;
+    let quantity_approved_csr = 15;
+    let quantity_rejected_csr = 3;
+    let quantity_total_csr = 26;
     let issued_certificates = 1247;
     let issued_in_last_month = 32;
+    let active_certificates = 1189;
+    let expiring_in_thrity_days = 23;
 
     html.body(|b| {
         b.division(|d| {
@@ -698,7 +703,425 @@ async fn handle_ca_main_admin_page(
                         });
                         grid
                     });
+                    dashboard_div.division(|grid| {
+                        grid.class("stat-card");
+                        grid.division(|d| {
+                            d.class("stat-header");
+                            d.division(|div| {
+                                div.division(|div| {
+                                    div.class("stat-label").text("Active Certificates")
+                                });
+                                div.division(|div| {
+                                    div.class("stat-value").text(active_certificates.to_string())
+                                });
+                                div.division(|div|
+                                    div.class("stat-trend").text(format!("{:.02}%", 100.0 * active_certificates as f32 / issued_certificates as f32)));
+                                div
+                            });
+                            d.division(|div| div.class("stat-icon").text("🔒"));
+                            d
+                        });
+                        grid
+                    });
+                    dashboard_div.division(|grid| {
+                        grid.class("stat-card");
+                        grid.division(|d| {
+                            d.class("stat-header");
+                            d.division(|div| {
+                                div.division(|div| {
+                                    div.class("stat-label").text("Expiring (30 days)")
+                                });
+                                div.division(|div| {
+                                    div.class("stat-value").text(expiring_in_thrity_days.to_string())
+                                });
+                                if (expiring_in_thrity_days > 0) {
+                                    div.division(|div|
+                                        div.class("stat-trend warning").text("⚠️ Action needed"));
+                                }
+                                div
+                            });
+                            d.division(|div| div.class("stat-icon").text("⏰"));
+                            d
+                        });
+                        grid
+                    });
                     dashboard_div
+                });
+                main_content.division(|overview| {
+                    overview.class("section-header").id("csr-queue")
+                        .heading_3(|h3| h3.class("section-title").text("Certificate Signing Requests"))
+                });
+                main_content.division(|csr_tabs| {
+                    csr_tabs.class("tabs-container");
+                    csr_tabs.input(|i| i.type_("radio").name("tab").id("tab1").class("tab-radio").checked(""));
+                    csr_tabs.input(|i| i.type_("radio").name("tab").id("tab2").class("tab-radio"));
+                    csr_tabs.input(|i| i.type_("radio").name("tab").id("tab3").class("tab-radio"));
+                    csr_tabs.input(|i| i.type_("radio").name("tab").id("tab4").class("tab-radio"));
+                    csr_tabs.division(|tabs| {
+                        tabs.class("tabs");
+                        tabs.label(|l| l.for_("tab1").class("tab-label").text(format!("Pending ({})", quantity_pending_csr)));
+                        tabs.label(|l| l.for_("tab2").class("tab-label").text(format!("Approved ({})", quantity_approved_csr)));
+                        tabs.label(|l| l.for_("tab3").class("tab-label").text(format!("Rejected ({})", quantity_rejected_csr)));
+                        tabs.label(|l| l.for_("tab4").class("tab-label").text(format!("All ({})", quantity_total_csr)));
+                        tabs
+                    });
+                    csr_tabs.division(|cdiv| {
+                        cdiv.class("tab-contents");
+                        cdiv.division(|tab1| {
+                            tab1.class("tab-content tab-content-1");
+                            tab1.division(|filter| {
+                                filter.class("filter-bar");
+                                filter.division(|search| {
+                                    search.class("search-box");
+                                    search.span(|s| s.class("search-icon").text("🔍"));
+                                    search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requester..."));
+                                    search
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("All Types"));
+                                    s.option(|o| o.text("SSL/TLS"));
+                                    s.option(|o| o.text("Code Signing"));
+                                    s.option(|o| o.text("Email (S/MIME)"));
+                                    s.option(|o| o.text("Client Authentication"));
+                                    s
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("All Priority"));
+                                    s.option(|o| o.text("High Priority"));
+                                    s.option(|o| o.text("Normal Priority"));
+                                    s
+                                });
+                                filter
+                            });
+                            tab1.table(|table| {
+                                table.class("data-table");
+                                table.table_head(|th| {
+                                    th.table_row(|tr| {
+                                        tr.table_header(|th| th.text("CSR ID"));
+                                        tr.table_header(|th| th.text("Requester"));
+                                        tr.table_header(|th| th.text("Certificate Details"));
+                                        tr.table_header(|th| th.text("Type"));
+                                        tr.table_header(|th| th.text("Priority"));
+                                        tr.table_header(|th| th.text("Requested"));
+                                        tr.table_header(|th| th.text("Status"));
+                                        tr.table_header(|th| th.text("Actions"));
+                                        tr
+                                    });
+                                    th
+                                });
+                                table.table_body(|body| {
+                                    body.table_row(|tr| {
+                                        tr.table_cell(|c| {
+                                            c.division(|d| d.class("request-id").text("CSR-2026-0247"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("requestor-info");
+                                                d.division(|d| d.class("requestor-name").text("John Smith"));
+                                                d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("cert-details");
+                                                d.division(|d| d.class("cert-cn").text("api.newproject.com"));
+                                                d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("SSL/TLS")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.span(|s| s.class("priority-badge priority-high").text("HIGH"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("2 hours ago")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.span(|s| s.class("status-badge status-pending").text("Pending"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("action-buttons");
+                                                d.anchor(|a|a.href("#csr-review-model").class("action-btn").text("Review"));
+                                                d.anchor(|a|a.href("#approve").class("action-btn approve").text("Approve"));
+                                                d.anchor(|a|a.href("#reject").class("action-btn reject").text("Reject"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr
+                                    });
+                                    body
+                                });
+                                table
+                            });
+                            tab1
+                        });
+                        cdiv.division(|tab1| {
+                            tab1.class("tab-content tab-content-2");
+                            tab1.division(|filter| {
+                                filter.class("filter-bar");
+                                filter.division(|search| {
+                                    search.class("search-box");
+                                    search.span(|s| s.class("search-icon").text("🔍"));
+                                    search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requester..."));
+                                    search
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("All Types"));
+                                    s.option(|o| o.text("SSL/TLS"));
+                                    s.option(|o| o.text("Code Signing"));
+                                    s.option(|o| o.text("Email (S/MIME)"));
+                                    s.option(|o| o.text("Client Authentication"));
+                                    s
+                                });
+                                filter
+                            });
+                            tab1.table(|table| {
+                                table.class("data-table");
+                                table.table_head(|th| {
+                                    th.table_row(|tr| {
+                                        tr.table_header(|th| th.text("CSR ID"));
+                                        tr.table_header(|th| th.text("Requester"));
+                                        tr.table_header(|th| th.text("Certificate Details"));
+                                        tr.table_header(|th| th.text("Type"));
+                                        tr.table_header(|th| th.text("Approved Date"));
+                                        tr.table_header(|th| th.text("Status"));
+                                        tr.table_header(|th| th.text("Actions"));
+                                        tr
+                                    });
+                                    th
+                                });
+                                table.table_body(|body| {
+                                    body.table_row(|tr| {
+                                        tr.table_cell(|c| {
+                                            c.division(|d| d.class("request-id").text("CSR-2026-0247"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("requestor-info");
+                                                d.division(|d| d.class("requestor-name").text("John Smith"));
+                                                d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("cert-details");
+                                                d.division(|d| d.class("cert-cn").text("api.newproject.com"));
+                                                d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("SSL/TLS")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("Feb 8, 2026")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.span(|s| s.class("status-badge status-pending").text("Approved"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("action-buttons");
+                                                d.anchor(|a|a.href("#view-cert").class("action-btn").text("View Certificate"));
+                                                d.anchor(|a|a.href("#download").class("action-btn").text("Download"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr
+                                    });
+                                    body
+                                });
+                                table
+                            });
+                            tab1
+                        });
+                        cdiv.division(|tab1| {
+                            tab1.class("tab-content tab-content-3");
+                            tab1.division(|filter| {
+                                filter.class("filter-bar");
+                                filter.division(|search| {
+                                    search.class("search-box");
+                                    search.span(|s| s.class("search-icon").text("🔍"));
+                                    search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requester..."));
+                                    search
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("All Types"));
+                                    s.option(|o| o.text("SSL/TLS"));
+                                    s.option(|o| o.text("Code Signing"));
+                                    s.option(|o| o.text("Email (S/MIME)"));
+                                    s.option(|o| o.text("Client Authentication"));
+                                    s
+                                });
+                                filter
+                            });
+                            tab1.table(|table| {
+                                table.class("data-table");
+                                table.table_head(|th| {
+                                    th.table_row(|tr| {
+                                        tr.table_header(|th| th.text("CSR ID"));
+                                        tr.table_header(|th| th.text("Requester"));
+                                        tr.table_header(|th| th.text("Certificate Details"));
+                                        tr.table_header(|th| th.text("Type"));
+                                        tr.table_header(|th| th.text("Rejected Date"));
+                                        tr.table_header(|th| th.text("Reason"));
+                                        tr.table_header(|th| th.text("Status"));
+                                        tr
+                                    });
+                                    th
+                                });
+                                table.table_body(|body| {
+                                    body.table_row(|tr| {
+                                        tr.table_cell(|c| {
+                                            c.division(|d| d.class("request-id").text("CSR-2026-0247"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("requestor-info");
+                                                d.division(|d| d.class("requestor-name").text("John Smith"));
+                                                d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("cert-details");
+                                                d.division(|d| d.class("cert-cn").text("api.newproject.com"));
+                                                d.division(|d| d.class("cert-san").text("Unauthorized domain"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("SSL/TLS")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("Feb 8, 2026")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.style("font-size: 12px; color: #e53e3e;").text("Invalid domain ownership")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.span(|s|s.class("status-badge status-rejected").text("Rejected"))
+                                        });
+                                        tr
+                                    });
+                                    body
+                                });
+                                table
+                            });
+                            tab1
+                        });
+                        cdiv.division(|tab1| {
+                            tab1.class("tab-content tab-content-4");
+                            tab1.division(|filter| {
+                                filter.class("filter-bar");
+                                filter.division(|search| {
+                                    search.class("search-box");
+                                    search.span(|s| s.class("search-icon").text("🔍"));
+                                    search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requester..."));
+                                    search
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("All Types"));
+                                    s.option(|o| o.text("SSL/TLS"));
+                                    s.option(|o| o.text("Code Signing"));
+                                    s.option(|o| o.text("Email (S/MIME)"));
+                                    s.option(|o| o.text("Client Authentication"));
+                                    s
+                                });
+                                filter.select(|s| {
+                                    s.class("filter-select");
+                                    s.option(|o| o.text("Pending"));
+                                    s.option(|o| o.text("Approved"));
+                                    s.option(|o| o.text("Rejected"));
+                                    s
+                                });
+                                filter
+                            });
+                            tab1.table(|table| {
+                                table.class("data-table");
+                                table.table_head(|th| {
+                                    th.table_row(|tr| {
+                                        tr.table_header(|th| th.text("CSR ID"));
+                                        tr.table_header(|th| th.text("Requester"));
+                                        tr.table_header(|th| th.text("Certificate Details"));
+                                        tr.table_header(|th| th.text("Type"));
+                                        tr.table_header(|th| th.text("Date"));
+                                        tr.table_header(|th| th.text("Status"));
+                                        tr.table_header(|th| th.text("Actions"));
+                                        tr
+                                    });
+                                    th
+                                });
+                                table.table_body(|body| {
+                                    body.table_row(|tr| {
+                                        tr.table_cell(|c| {
+                                            c.division(|d| d.class("request-id").text("CSR-2026-0247"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("requestor-info");
+                                                d.division(|d| d.class("requestor-name").text("John Smith"));
+                                                d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("cert-details");
+                                                d.division(|d| d.class("cert-cn").text("api.newproject.com"));
+                                                d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("SSL/TLS")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.text("Feb 7, 2026")
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.span(|s| s.class("status-badge status-pending").text("Pending"))
+                                        });
+                                        tr.table_cell(|c| {
+                                            c.division(|d| {
+                                                d.class("action-buttons");
+                                                d.anchor(|a|a.href("#csr-review-model").class("action-btn").text("Review"));
+                                                d
+                                            });
+                                            c
+                                        });
+                                        tr
+                                    });
+                                    body
+                                });
+                                table
+                            });
+                            tab1
+                        });
+                        cdiv
+                    });
+                    csr_tabs
                 });
                 main_content
             });
