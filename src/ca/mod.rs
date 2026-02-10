@@ -1123,6 +1123,114 @@ async fn handle_ca_main_admin_page(
                     });
                     csr_tabs
                 });
+                main_content.division(|overview| {
+                    overview.class("section-header").style("margin-top: 48px;").id("ca-info")
+                        .heading_3(|h3| h3.class("section-title").text("Certificate Authority Information"))
+                });
+                main_content.division(|card| {
+                    card.class("ca-card");
+                    card.division(|hdr| {
+                        hdr.class("ca-header");
+                        hdr.division(|d| {
+                            d.division(|d2| {
+                                d2.class("ca-name").text("Root CA");
+                                d2
+                            });
+                            d.division(|d2| {
+                                d2.class("ca-type").text("Root Certificate Authority");
+                                d2
+                            });
+                            d
+                        });
+                        hdr.span(|s| s.class("ca-status active").text("ACTIVE"));
+                        hdr
+                    });
+                    card.division(|info| {
+                        info.class("ca-info");
+                        info.division(|d2| {
+                            d2.class("ca-info-item");
+                            d2.division(|d3| {
+                                d3.class("ca-info-label").text("Subject DN")
+                            });
+                            d2.division(|d3| {
+                                d3.class("ca-info-value").text("CN=Company Root CA, O=Company Inc, C=US")
+                            });
+                            d2
+                        });
+                        info.division(|d2| {
+                            d2.class("ca-info-item");
+                            d2.division(|d3| {
+                                d3.class("ca-info-label").text("Serial number")
+                            });
+                            d2.division(|d3| {
+                                d3.class("ca-info-value").text("4A:3F:82:91:BC:7E:05:23")
+                            });
+                            d2
+                        });
+                        info.division(|d2| {
+                            d2.class("ca-info-item");
+                            d2.division(|d3| {
+                                d3.class("ca-info-label").text("Valid Until")
+                            });
+                            d2.division(|d3| {
+                                d3.class("ca-info-value").text("December 31, 2035")
+                            });
+                            d2
+                        });
+                        info.division(|d2| {
+                            d2.class("ca-info-item");
+                            d2.division(|d3| {
+                                d3.class("ca-info-label").text("Certificates issued")
+                            });
+                            d2.division(|d3| {
+                                d3.class("ca-info-value").text(issued_certificates.to_string())
+                            });
+                            d2
+                        });
+                        info
+                    });
+                    card.details(|d| {
+                        d.summary(|s|s.text("View Additional Details"));
+                        d.division(|d2| {
+                            d2.style("padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;");
+                            d2.division(|d3| {
+                                d3.style("margin-bottom: 12px;");
+                                d3.strong(|s| s.text("Key Algorithm")).text(" RSA 4096-bit").line_break(|a|a);
+                                d3.strong(|s| s.text("Signature Algorithm")).text(" SHA384WithRSA").line_break(|a|a);
+                                d3.strong(|s| s.text("Issued On:")).text(" January 1, 2025").line_break(|a|a);
+                                d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(" A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90");
+                                d3
+                            });
+                            d2
+                        });
+                        d
+                    });
+                    card.division(|d| {
+                        d.class("download-section").id("download-certs");
+                        d.heading_4(|h| h.text("📥 Download CA Certificate"));
+                        d.division(|d2| {
+                            d2.class("download-buttons");
+                            d2.anchor(|a| {
+                                a.href("TODO").class("btn btn-success").download("").text("Download PEM Format");
+                                a.span(|s| s.text("📄"));
+                                a
+                            });
+                            d2.anchor(|a| {
+                                a.href("TODO").class("btn btn-success").download("").text("Download DER Format");
+                                a.span(|s| s.text("📄"));
+                                a
+                            });
+                            d2.anchor(|a| {
+                                a.href("TODO").class("btn btn-secondary").download("").text("Download Certificate Chain (PEM)");
+                                a.span(|s| s.text("🔗"));
+                                a
+                            });
+                            d2
+                        });
+                        d
+                    });
+                    card
+                });
                 main_content
             });
             main_div
