@@ -567,7 +567,6 @@ async fn handle_ca_main_admin_page(
                 });
                 h.division(|header_actions| {
                     header_actions.class("header-actions");
-                    header_actions.anchor(|a| a.href("#notifications").class("notification-badge").text("🔔"));
                     header_actions.division(|user_profile| {
                         user_profile.class("user-profile")
                             .division(|user_avatar| {
