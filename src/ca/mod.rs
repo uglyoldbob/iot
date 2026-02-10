@@ -1689,6 +1689,117 @@ AQEBBQADggEPADCCAQoCggEBAMxvK8p2IqK3d8JKLm9vPqRsT7eH6nW+4xYzN...")
             });
             d
         });
+        b.division(|d| {
+            d.class("modal").id("reject-modal");
+            d.division(|d2| {
+                d2.class("modal-content");
+                d2.division(|d3| {
+                    d3.class("modal-header");
+                    d3.heading_2(|h|h.text("Reject Certificate Signing Request"));
+                    d3.anchor(|a| a.href("#").class("close-btn").text("&times;"));
+                    d3
+                });
+                d2.division(|d3| {
+                    d3.class("modal-body");
+                    d3.division(|d4| {
+                        d4.class("info-box");
+                        d4.division(|d5| {
+                            d5.class("info-box-title");
+                            d5.span(|s| s.text("⚠️")).text("Confirm Rejection");
+                            d5
+                        });
+                        d4.division(|d5| {
+                            d5.class("info-box-content");
+                            d5.text("You are about to reject the following CSR. This action cannot be undone.");
+                            d5
+                        });
+                        d4
+                    });
+                    d3.form(|f| {
+                        f.method("post").action("todo");
+                        f.input(|i| i.type_("hidden").name("csr_id").value("CSR-2-26-0247"));
+                        f.division(|d4| {
+                            d4.style("background: #f7fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;");
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("CSR ID"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("CSR-2026-0247");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Common Name"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("api.newproject.com");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Requestor"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("John Smith (john.smith@company.com)");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Certificate Type"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("SSL/TLS Server Authentication");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4
+                        });
+                        f.division(|d5| {
+                            d5.class("form-group");
+                            d5.label(|l|l.text("Rejection Reason").span(|s| s.style("color: #e53e3e;")));
+                            d5.select(|s| {
+                                s.option(|o| o.value("").text("-- Select Reason --"));
+                                s.option(|o| o.value("invalid_doman").text("Invalid domain ownership"));
+                                s
+                            });
+                            d5
+                        });
+                        f.division(|d5| {
+                            d5.class("form-group");
+                            d5.label(|l| l.text("Detailed Explanation"));
+                            d5.text_area(|ta| ta.name("notes").rows(3).placeholder("Provide a detailed explanation for the rejection. This will be sent to the requestor."));
+                            d5
+                        });
+                        f.division(|d| {
+                            d.class("modal-footer");
+                            d.anchor(|a| a.href("#").class("btn btn-secondary").text("Cancel"));
+                            d.button(|b| {
+                                b.type_("submit")
+                                 .name("action")
+                                 .value("reject")
+                                 .class("btn btn-primary")
+                                 .style("background: #fed7d7; color: #742a2a;")
+                                 .span(|s|s.text("❌"))
+                                 .text("Reject CSR")
+                            });
+                            d
+                        });
+                        f
+                    });
+                    d3
+                });
+                d2
+            });
+            d
+        });
             match &ca.config.sign_method {
                 CertificateSigningMethod::Https(_m) => {
                     match s.delivery {
