@@ -797,7 +797,7 @@ async fn handle_ca_main_admin_page(
                                     table.table_head(|th| {
                                         th.table_row(|tr| {
                                             tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requester"));
+                                            tr.table_header(|th| th.text("Requestor"));
                                             tr.table_header(|th| th.text("Certificate Details"));
                                             tr.table_header(|th| th.text("Type"));
                                             tr.table_header(|th| th.text("Priority"));
@@ -847,8 +847,8 @@ async fn handle_ca_main_admin_page(
                                                 c.division(|d| {
                                                     d.class("action-buttons");
                                                     d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
-                                                    d.anchor(|a|a.href("#approve").class("action-btn approve").text("Approve"));
-                                                    d.anchor(|a|a.href("#reject").class("action-btn reject").text("Reject"));
+                                                    d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
+                                                    d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
                                                     d
                                                 });
                                                 c
@@ -887,7 +887,7 @@ async fn handle_ca_main_admin_page(
                                     table.table_head(|th| {
                                         th.table_row(|tr| {
                                             tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requester"));
+                                            tr.table_header(|th| th.text("Requestor"));
                                             tr.table_header(|th| th.text("Certificate Details"));
                                             tr.table_header(|th| th.text("Type"));
                                             tr.table_header(|th| th.text("Approved Date"));
@@ -972,7 +972,7 @@ async fn handle_ca_main_admin_page(
                                     table.table_head(|th| {
                                         th.table_row(|tr| {
                                             tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requester"));
+                                            tr.table_header(|th| th.text("Requestor"));
                                             tr.table_header(|th| th.text("Certificate Details"));
                                             tr.table_header(|th| th.text("Type"));
                                             tr.table_header(|th| th.text("Rejected Date"));
@@ -1058,7 +1058,7 @@ async fn handle_ca_main_admin_page(
                                     table.table_head(|th| {
                                         th.table_row(|tr| {
                                             tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requester"));
+                                            tr.table_header(|th| th.text("Requestor"));
                                             tr.table_header(|th| th.text("Certificate Details"));
                                             tr.table_header(|th| th.text("Type"));
                                             tr.table_header(|th| th.text("Date"));
@@ -1103,7 +1103,7 @@ async fn handle_ca_main_admin_page(
                                             tr.table_cell(|c| {
                                                 c.division(|d| {
                                                     d.class("action-buttons");
-                                                    d.anchor(|a|a.href("#csr-review-model").class("action-btn").text("Review"));
+                                                    d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
                                                     d
                                                 });
                                                 c
@@ -1546,6 +1546,138 @@ AQEBBQADggEPADCCAQoCggEBAMxvK8p2IqK3d8JKLm9vPqRsT7eH6nW+4xYzN...")
                                  .value("approve")
                                  .class("btn btn-primary")
                                  .text("Approve CSR")
+                            });
+                            d
+                        });
+                        f
+                    });
+                    d3
+                });
+                d2
+            });
+            d
+        });
+        b.division(|d| {
+            d.class("modal").id("approve-modal");
+            d.division(|d2| {
+                d2.class("modal-content");
+                d2.division(|d3| {
+                    d3.class("modal-header");
+                    d3.heading_2(|h|h.text("Approve Certificate Signing Request"));
+                    d3.anchor(|a| a.href("#").class("close-btn").text("&times;"));
+                    d3
+                });
+                d2.division(|d3| {
+                    d3.class("modal-body");
+                    d3.division(|d4| {
+                        d4.class("info-box");
+                        d4.division(|d5| {
+                            d5.class("info-box-title");
+                            d5.span(|s| s.text("✅")).text("Confirm Approval");
+                            d5
+                        });
+                        d4.division(|d5| {
+                            d5.class("info-box-content");
+                            d5.text("You are about to approve and issue a certificate for the following CSR:");
+                            d5
+                        });
+                        d4
+                    });
+                    d3.form(|f| {
+                        f.method("post").action("todo");
+                        f.input(|i| i.type_("hidden").name("csr_id").value("CSR-2-26-0247"));
+                        f.division(|d4| {
+                            d4.style("background: #f7fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;");
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("CSR ID"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("CSR-2026-0247");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Common Name"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("api.newproject.com");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Requestor"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("John Smith (john.smith@company.com)");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.style("margin-bottom: 12px;");
+                                d5.strong(|s|s.style("color: #718096; font-size: 12px; text-transform: uppercase;").text("Certificate Type"));
+                                d5.division(|d6| {
+                                    d6.style("color: #1a202c; font-weight: 600;");
+                                    d6.text("SSL/TLS Server Authentication");
+                                    d6
+                                });
+                                d5
+                            });
+                            d4
+                        });
+                        f.division(|d5| {
+                            d5.class("form-group");
+                            d5.label(|l|l.text("Issuing CA"));
+                            d5.select(|s| {
+                                s.name("issuing_ca");
+                                s.option(|o|o.text("Root CA"));
+                                s
+                            });
+                            d5
+                        });
+                        f.division(|d4| {
+                            d4.class("form-grid");
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Validity Period"));
+                                d5.select(|s| {
+                                    s.name("validity");
+                                    s.option(|o|o.text("90 days"));
+                                    s.option(|o|o.text("1 year"));
+                                    s.option(|o|o.text("2 years").selected(true));
+                                    s.option(|o|o.text("3 years"));
+                                    s
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Key Usage"));
+                                d5.input(|i| i.type_("text").value("Digital Signature, Key Encipherment").readonly(""));
+                                d5
+                            });
+                            d4
+                        });
+                        f.division(|d5| {
+                            d5.class("form-group");
+                            d5.label(|l| l.text("Admin Notes (Optional)"));
+                            d5.text_area(|ta| ta.name("notes").rows(3).placeholder("Add any notes about this approval..."));
+                            d5
+                        });
+                        f.division(|d| {
+                            d.class("modal-footer");
+                            d.anchor(|a| a.href("#").class("btn btn-secondary").text("Cancel"));
+                            d.button(|b| {
+                                b.type_("submit")
+                                 .name("action")
+                                 .value("approve")
+                                 .class("btn btn-primary")
+                                 .text("Approve and Issue Certificate")
                             });
                             d
                         });

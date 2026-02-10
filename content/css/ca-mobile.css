@@ -506,18 +506,18 @@ header {
     font-weight: 600;
 }
 
-.requester-info {
+.requestor-info {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.requester-name {
+.requestor-name {
     font-weight: 600;
     color: #1a202c;
 }
 
-.requester-email {
+.requestor-email {
     font-size: 13px;
     color: #718096;
 }
