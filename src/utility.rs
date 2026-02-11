@@ -33,6 +33,13 @@ pub fn encode_hex(d: &[u8]) -> String {
     serhex.join("")
 }
 
+/// Encode a vec of bytes to a hex string with no : seperator
+pub fn display_hex(d: &[u8]) -> String {
+    let serhex: Vec<String> = d.iter().map(|e| format!("{:02x}", e)).collect();
+    serhex.join(":")
+}
+
+
 /// Generate a password of the specified length
 pub fn generate_password(len: usize) -> String {
     use rand::Rng;

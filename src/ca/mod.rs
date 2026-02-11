@@ -532,6 +532,39 @@ async fn pki_main_page2(s: WebPageContext) -> WebResponse {
     }
 }
 
+/// Parse the public key and return a string that describes the key
+fn public_key_readable(pk: x509_cert::spki::SubjectPublicKeyInfoOwned) -> String {
+    use der::referenced::OwnedToRef;
+    use der::Encode;
+    let oid = pk.algorithm.oid;
+    let oid = cert_common::oid::Oid::from(oid);
+    if oid == *cert_common::oid::OID_PKCS1_RSA_ENCRYPTION {
+        let rsa = rsa::RsaPublicKey::try_from(pk.owned_to_ref()).ok();
+        if let Some(rsa) = rsa {
+            use rsa::traits::PublicKeyParts;
+            let rsa: rsa::RsaPublicKey = rsa;
+            format!("RSA {}-bit", rsa.n().bits())
+        } else {
+            "Unknown".to_string()
+        }
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+/// Describe the signature algorithm in human readable fashion
+fn signature_readable(sig: &x509_cert::spki::AlgorithmIdentifierOwned) -> String {
+    let oid = sig.oid;
+    let oid = cert_common::oid::Oid::from(oid);
+    if oid == *cert_common::oid::OID_PKCS1_SHA1_RSA_ENCRYPTION {
+        "SHA1 with RSA".to_string()
+    } else if oid == *cert_common::oid::OID_PKCS1_SHA256_RSA_ENCRYPTION {
+        "SHA256 with RSA".to_string()
+    } else {
+        "Unknown".to_string()
+    }
+}
+
 async fn handle_ca_main_admin_page(
     ca: &mut Ca,
     s: &WebPageContext,
@@ -1144,33 +1177,54 @@ async fn handle_ca_main_admin_page(
                         });
                         card.division(|info| {
                             info.class("ca-info");
+                            let name = ca.root_ca_cert()
+                                .ok()
+                                .and_then(|r| r.x509_cert().ok())
+                                .map(|c| {
+                                    let mut v = Vec::new();
+                                    for n in &c.tbs_certificate.subject.0 {
+                                        v.push(n.to_string());
+                                    }
+                                    v.join(", ")
+                                })
+                                .unwrap_or("Unknown".to_string());
                             info.division(|d2| {
                                 d2.class("ca-info-item");
                                 d2.division(|d3| {
                                     d3.class("ca-info-label").text("Subject DN")
                                 });
                                 d2.division(|d3| {
-                                    d3.class("ca-info-value").text("CN=Company Root CA, O=Company Inc, C=US")
+                                    d3.class("ca-info-value").text(name)
                                 });
                                 d2
                             });
+                            let serial = ca.root_ca_cert()
+                                .ok()
+                                .and_then(|r| r.x509_cert().ok())
+                                .map(|c| crate::utility::display_hex(c.tbs_certificate.serial_number.as_bytes()))
+                                .unwrap_or("Unknown".to_string());
                             info.division(|d2| {
                                 d2.class("ca-info-item");
                                 d2.division(|d3| {
                                     d3.class("ca-info-label").text("Serial number")
                                 });
                                 d2.division(|d3| {
-                                    d3.class("ca-info-value").text("4A:3F:82:91:BC:7E:05:23")
+                                    d3.class("ca-info-value").text(serial)
                                 });
                                 d2
                             });
+                            let valid_until = ca.root_ca_cert()
+                                .ok()
+                                .and_then(|r| r.x509_cert().ok())
+                                .map(|c| c.tbs_certificate.validity.not_after.to_date_time().to_string())
+                                .unwrap_or("Unknown".to_string());
                             info.division(|d2| {
                                 d2.class("ca-info-item");
                                 d2.division(|d3| {
                                     d3.class("ca-info-label").text("Valid Until")
                                 });
                                 d2.division(|d3| {
-                                    d3.class("ca-info-value").text("December 31, 2035")
+                                    d3.class("ca-info-value").text(valid_until)
                                 });
                                 d2
                             });
@@ -1192,10 +1246,31 @@ async fn handle_ca_main_admin_page(
                                 d2.style("padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;");
                                 d2.division(|d3| {
                                     d3.style("margin-bottom: 12px;");
-                                    d3.strong(|s| s.text("Key Algorithm")).text(" RSA 4096-bit").line_break(|a|a);
-                                    d3.strong(|s| s.text("Signature Algorithm")).text(" SHA384WithRSA").line_break(|a|a);
-                                    d3.strong(|s| s.text("Issued On:")).text(" January 1, 2025").line_break(|a|a);
-                                    d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(" A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90");
+                                    let key = ca.root_ca_cert()
+                                        .ok()
+                                        .and_then(|r| r.x509_cert().ok())
+                                        .map(|c| public_key_readable(c.tbs_certificate.subject_public_key_info))
+                                        .unwrap_or("Unknown".to_string());
+                                    let fingerprint = ca.root_ca_cert()
+                                        .ok()
+                                        .and_then(|r| r.x509_cert().ok())
+                                        .and_then(|c| c.tbs_certificate.subject_public_key_info.fingerprint_bytes().ok())
+                                        .map(|d| crate::utility::display_hex(&d))
+                                        .unwrap_or("Unknown".to_string());
+                                    let signature = ca.root_ca_cert()
+                                        .ok()
+                                        .and_then(|r| r.x509_cert().ok())
+                                        .map(|c| signature_readable(&c.tbs_certificate.signature))
+                                        .unwrap_or("Unknown".to_string());
+                                    let issued = ca.root_ca_cert()
+                                        .ok()
+                                        .and_then(|r| r.x509_cert().ok())
+                                        .map(|c| c.tbs_certificate.validity.not_before.to_date_time().to_string())
+                                        .unwrap_or("Unknown".to_string());
+                                    d3.strong(|s| s.text("Key Algorithm")).text(format!(" {key}")).line_break(|a|a);
+                                    d3.strong(|s| s.text("Signature Algorithm")).text(format!(" {signature}")).line_break(|a|a);
+                                    d3.strong(|s| s.text("Issued On:")).text(format!(" {issued}")).line_break(|a|a);
+                                    d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(format!(" {fingerprint}"));
                                     d3
                                 });
                                 d2
@@ -1261,69 +1336,6 @@ async fn handle_ca_main_admin_page(
             });
             d
         });
-            match &ca.config.sign_method {
-                CertificateSigningMethod::Https(_m) => {
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as der");
-                                ab.href("?action=download_ca&type=der");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as der");
-                                ab.href("ca/get_ca.rs?type=der");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as pem");
-                                ab.href("?action=download_ca&type=pem");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as pem");
-                                ab.href("ca/get_ca.rs?type=pem");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                }
-                CertificateSigningMethod::Ssh(_m) => {
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download SSH CA certificate");
-                                ab.href("?action=download_ca");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download SSH CA certificate");
-                                ab.href("ca/get_ca.rs");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                }
-            }
             match s.delivery {
                 crate::main_config::PageDelivery::Cgi => {
                     b.anchor(|ab| {
