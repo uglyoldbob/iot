@@ -686,7 +686,7 @@ async fn handle_ca_main_admin_page(
                                         s.class("nav-icon").text("📝"))
                                     .text("CSR Queue")
                                     .span(|s|
-                                        s.class("nav-badge").text("8")))
+                                        s.class("nav-badge").text(quantity_pending_csr.to_string())))
                         });
                         nav.division(|nav_section| {
                             nav_section.class("nav-section")
@@ -703,22 +703,6 @@ async fn handle_ca_main_admin_page(
                                     .span(|s|
                                         s.class("nav-icon").text("⬇️"))
                                     .text("Download Certificates"))
-                        });
-                        nav.division(|nav_section| {
-                            nav_section.class("nav-section")
-                                .heading_3(|a| a.text("System"))
-                                .anchor(|a|
-                                    a.href("#audit")
-                                    .class("nav-item")
-                                    .span(|s|
-                                        s.class("nav-icon").text("📜"))
-                                    .text("Audit Logs"))
-                                .anchor(|a|
-                                    a.href("#settings")
-                                    .class("nav-item")
-                                    .span(|s|
-                                        s.class("nav-icon").text("⚙️"))
-                                    .text("Settings"))
                         });
                         nav
                     })
@@ -828,440 +812,143 @@ async fn handle_ca_main_admin_page(
                         overview.class("section-header").id("csr-queue")
                             .heading_3(|h3| h3.class("section-title").text("Certificate Signing Requests"))
                     });
-                    main_content.division(|csr_tabs| {
-                        csr_tabs.class("tabs-container");
-                        csr_tabs.input(|i| i.type_("radio").name("tab").id("tab1").class("tab-radio").checked(""));
-                        csr_tabs.input(|i| i.type_("radio").name("tab").id("tab2").class("tab-radio"));
-                        csr_tabs.input(|i| i.type_("radio").name("tab").id("tab3").class("tab-radio"));
-                        csr_tabs.input(|i| i.type_("radio").name("tab").id("tab4").class("tab-radio"));
-                        csr_tabs.division(|tabs| {
-                            tabs.class("tabs");
-                            tabs.label(|l| l.for_("tab1").class("tab-label").text(format!("Pending ({})", quantity_pending_csr)));
-                            tabs.label(|l| l.for_("tab2").class("tab-label").text(format!("Approved ({})", quantity_approved_csr)));
-                            tabs.label(|l| l.for_("tab3").class("tab-label").text(format!("Rejected ({})", quantity_rejected_csr)));
-                            tabs.label(|l| l.for_("tab4").class("tab-label").text(format!("All ({})", quantity_total_csr)));
-                            tabs
+                    main_content.table(|table| {
+                        table.class("data-table");
+                        table.table_head(|th| {
+                            th.table_row(|tr| {
+                                tr.table_header(|th| th.text("CSR ID"));
+                                tr.table_header(|th| th.text("Requestor"));
+                                tr.table_header(|th| th.text("Certificate Details"));
+                                tr.table_header(|th| th.text("Type"));
+                                tr.table_header(|th| th.text("Actions"));
+                                tr
+                            });
+                            th
                         });
-                        csr_tabs.division(|cdiv| {
-                            cdiv.class("tab-contents");
-                            cdiv.division(|tab1| {
-                                tab1.class("tab-content tab-content-1");
-                                tab1.division(|filter| {
-                                    filter.class("filter-bar");
-                                    filter.division(|search| {
-                                        search.class("search-box");
-                                        search.span(|s| s.class("search-icon").text("🔍"));
-                                        search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requestor..."));
-                                        search
+                        table.table_body(|body| {
+                            for csr in csr_list {
+                                let sn = {
+                                    let asdf : Vec<String> = csr.0.sn.chunks(4).map(|c| {
+                                        let serhex: Vec<String> = c.iter().map(|e| format!("{:02x}", e)).collect();
+                                        serhex.join(":")
+                                    }).collect();
+                                    asdf.join("<br >")
+                                };
+                                body.table_row(|tr| {
+                                    tr.table_cell(|c| {
+                                        c.division(|d| d.class("request-id").text(sn))
                                     });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("All Types"));
-                                        s.option(|o| o.text("SSL/TLS"));
-                                        s.option(|o| o.text("Code Signing"));
-                                        s.option(|o| o.text("Email (S/MIME)"));
-                                        s.option(|o| o.text("Client Authentication"));
-                                        s
-                                    });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("All Priority"));
-                                        s.option(|o| o.text("High Priority"));
-                                        s.option(|o| o.text("Normal Priority"));
-                                        s
-                                    });
-                                    filter
-                                });
-                                tab1.table(|table| {
-                                    table.class("data-table");
-                                    table.table_head(|th| {
-                                        th.table_row(|tr| {
-                                            tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requestor"));
-                                            tr.table_header(|th| th.text("Certificate Details"));
-                                            tr.table_header(|th| th.text("Type"));
-                                            tr.table_header(|th| th.text("Priority"));
-                                            tr.table_header(|th| th.text("Requested"));
-                                            tr.table_header(|th| th.text("Status"));
-                                            tr.table_header(|th| th.text("Actions"));
-                                            tr
+                                    tr.table_cell(|c| {
+                                        c.division(|d| {
+                                            d.class("requestor-info");
+                                            d.division(|d| d.class("requestor-name").text(csr.0.name));
+                                            d.division(|d| d.class("requestor-email").text(csr.0.email));
+                                            d.division(|d| d.class("requestor-email").text(csr.0.phone));
+                                            d
                                         });
-                                        th
+                                        c
                                     });
-                                    table.table_body(|body| {
-                                        for csr in csr_list {
-                                            let sn = {
-                                                let asdf : Vec<String> = csr.0.sn.chunks(4).map(|c| {
-                                                    let serhex: Vec<String> = c.iter().map(|e| format!("{:02x}", e)).collect();
-                                                    serhex.join(":")
-                                                }).collect();
-                                                asdf.join("<br >")
-                                            };
-                                            body.table_row(|tr| {
-                                                tr.table_cell(|c| {
-                                                    c.division(|d| d.class("request-id").text(sn))
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.division(|d| {
-                                                        d.class("requestor-info");
-                                                        d.division(|d| d.class("requestor-name").text(csr.0.name));
-                                                        d.division(|d| d.class("requestor-email").text(csr.0.email));
-                                                        d.division(|d| d.class("requestor-email").text(csr.0.phone));
-                                                        d
-                                                    });
-                                                    c
-                                                });
-                                                let x509 = {
-                                                    use der::DecodePem;
-                                                    let csr = x509_cert::request::CertReq::from_pem(&csr.0.cert);
-                                                    csr
-                                                };
-                                                eprintln!("X509 cert is {:?}", x509);
-                                                let cn_v = x509.as_ref().map(|x| {
-                                                    let mut v = Some("Unprocessed".to_string());
-                                                    for a in &x.info.subject.0 {
-                                                        for attr in a.0.iter() {
-                                                            let oid: cert_common::oid::Oid = attr.oid.into();
-                                                            if oid == *cert_common::oid::OID_CERT_COMMON_NAME {
-                                                                if let Ok(s) = attr.value.decode_as::<der::asn1::Utf8StringRef>() {
-                                                                    v = Some(s.to_string());
-                                                                    break;
-                                                                }
-                                                                if let Ok(s) = attr.value.decode_as::<der::asn1::PrintableStringRef>() {
-                                                                    v = Some(s.to_string());
-                                                                    break;
-                                                                }
-                                                                v = Some(format!("{:?}", attr.value));
-                                                                break;
-                                                            }
-                                                        }
+                                    let x509 = {
+                                        use der::DecodePem;
+                                        let csr = x509_cert::request::CertReq::from_pem(&csr.0.cert);
+                                        csr
+                                    };
+                                    eprintln!("X509 cert is {:?}", x509);
+                                    let cn_v = x509.as_ref().map(|x| {
+                                        let mut v = Some("Unprocessed".to_string());
+                                        for a in &x.info.subject.0 {
+                                            for attr in a.0.iter() {
+                                                let oid: cert_common::oid::Oid = attr.oid.into();
+                                                if oid == *cert_common::oid::OID_CERT_COMMON_NAME {
+                                                    if let Ok(s) = attr.value.decode_as::<der::asn1::Utf8StringRef>() {
+                                                        v = Some(s.to_string());
+                                                        break;
                                                     }
-                                                    v
-                                                }).ok().flatten().unwrap_or("Invalid x509?".to_string());
-                                                let san: String = x509.as_ref().map(|x| {
-                                                    let mut vr = Vec::new();
-                                                    for attr in x.info.attributes.iter() {
-                                                        let oid: cert_common::oid::Oid = attr.oid.into();
-                                                        if oid == *cert_common::oid::OID_CERT_ALTERNATIVE_NAME {
-                                                            use der::Decode;
-                                                            for value in attr.values.iter() {
-                                                                if let Ok(s) = value.decode_as::<der::asn1::Utf8StringRef>() {
-                                                                    vr.push(s.to_string());
-                                                                }
-                                                                if let Ok(s) = value.decode_as::<der::asn1::PrintableStringRef>() {
-                                                                    vr.push(s.to_string());
-                                                                }
-                                                                if let Ok(s) = value.decode_as::<der::asn1::Ia5String>() {
-                                                                    vr.push(s.to_string());
-                                                                }
-                                                                if let Ok(s) = value.decode_as::<der::asn1::TeletexString>() {
-                                                                    vr.push(s.to_string());
-                                                                }
-                                                            }
-                                                        }
+                                                    if let Ok(s) = attr.value.decode_as::<der::asn1::PrintableStringRef>() {
+                                                        v = Some(s.to_string());
+                                                        break;
                                                     }
-                                                    vr.join("<br >")
-                                                })
-                                                    .ok()
-                                                    .unwrap_or(String::new());
-                                                tr.table_cell(|c| {
-                                                    c.division(|d| {
-                                                        d.class("cert-details");
-                                                        d.division(|d| d.class("cert-cn").text(cn_v));
-                                                        d.division(|d| d.class("cert-san").text(san));
-                                                        d
-                                                    });
-                                                    c
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.text("SSL/TLS")
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.span(|s| s.class("priority-badge priority-high").text("HIGH"))
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.text("2 hours ago")
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.span(|s| s.class("status-badge status-pending").text("Pending"))
-                                                });
-                                                tr.table_cell(|c| {
-                                                    c.division(|d| {
-                                                        d.class("action-buttons");
-                                                        d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
-                                                        d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
-                                                        d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
-                                                        d
-                                                    });
-                                                    c
-                                                });
-                                                tr
-                                            });
+                                                    v = Some(format!("{:?}", attr.value));
+                                                    break;
+                                                }
+                                            }
                                         }
-                                        body
-                                    });
-                                    table
-                                });
-                                tab1
-                            });
-                            cdiv.division(|tab1| {
-                                tab1.class("tab-content tab-content-2");
-                                tab1.division(|filter| {
-                                    filter.class("filter-bar");
-                                    filter.division(|search| {
-                                        search.class("search-box");
-                                        search.span(|s| s.class("search-icon").text("🔍"));
-                                        search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requestor..."));
-                                        search
-                                    });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("All Types"));
-                                        s.option(|o| o.text("SSL/TLS"));
-                                        s.option(|o| o.text("Code Signing"));
-                                        s.option(|o| o.text("Email (S/MIME)"));
-                                        s.option(|o| o.text("Client Authentication"));
-                                        s
-                                    });
-                                    filter
-                                });
-                                tab1.table(|table| {
-                                    table.class("data-table");
-                                    table.table_head(|th| {
-                                        th.table_row(|tr| {
-                                            tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requestor"));
-                                            tr.table_header(|th| th.text("Certificate Details"));
-                                            tr.table_header(|th| th.text("Type"));
-                                            tr.table_header(|th| th.text("Approved Date"));
-                                            tr.table_header(|th| th.text("Status"));
-                                            tr.table_header(|th| th.text("Actions"));
-                                            tr
+                                        v
+                                    }).ok().flatten().unwrap_or("Invalid x509?".to_string());
+                                    let san: String = x509.as_ref().map(|x| {
+                                        let mut vr = Vec::new();
+                                        for attr in x.info.attributes.iter() {
+                                            let oid: cert_common::oid::Oid = attr.oid.into();
+                                            if oid == *cert_common::oid::OID_CERT_ALTERNATIVE_NAME {
+                                                use der::Decode;
+                                                for value in attr.values.iter() {
+                                                    if let Ok(s) = value.decode_as::<der::asn1::Utf8StringRef>() {
+                                                        vr.push(s.to_string());
+                                                    }
+                                                    if let Ok(s) = value.decode_as::<der::asn1::PrintableStringRef>() {
+                                                        vr.push(s.to_string());
+                                                    }
+                                                    if let Ok(s) = value.decode_as::<der::asn1::Ia5String>() {
+                                                        vr.push(s.to_string());
+                                                    }
+                                                    if let Ok(s) = value.decode_as::<der::asn1::TeletexString>() {
+                                                        vr.push(s.to_string());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        vr.join("<br >")
+                                    })
+                                        .ok()
+                                        .unwrap_or(String::new());
+                                    let usage = x509.as_ref().map(|x| {
+                                        let mut usage = Vec::new();
+                                        for attr in x.info.attributes.iter() {
+                                            for p in attr.values.iter() {
+                                                let pa = cert_common::CsrAttribute::with_oid_and_any(
+                                                    Oid::from_const(attr.oid),
+                                                    p.to_owned(),
+                                                );
+                                                if let Some(pa) = pa {
+                                                    if let cert_common::CsrAttribute::ExtendedKeyUsage(ek) = pa {
+                                                        for key_use in ek {
+                                                            usage.push(format!("{:?}", key_use));
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        usage.join("<br >")
+                                    }).unwrap_or(String::new());
+
+                                    tr.table_cell(|c| {
+                                        c.division(|d| {
+                                            d.class("cert-details");
+                                            d.division(|d| d.class("cert-cn").text(cn_v));
+                                            d.division(|d| d.class("cert-san").text(san));
+                                            d
                                         });
-                                        th
+                                        c
                                     });
-                                    table.table_body(|body| {
-                                        body.table_row(|tr| {
-                                            tr.table_cell(|c| {
-                                                c.division(|d| d.class("request-id").text("CSR-2026-0247"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("requestor-info");
-                                                    d.division(|d| d.class("requestor-name").text("John Smith"));
-                                                    d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("cert-details");
-                                                    d.division(|d| d.class("cert-cn").text("api.newproject.com"));
-                                                    d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("SSL/TLS")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("Feb 8, 2026")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.span(|s| s.class("status-badge status-pending").text("Approved"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("action-buttons");
-                                                    d.anchor(|a|a.href("#view-cert").class("action-btn").text("View Certificate"));
-                                                    d.anchor(|a|a.href("#download").class("action-btn").text("Download"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr
+                                    tr.table_cell(|c| {
+                                        c.text(usage)
+                                    });
+                                    tr.table_cell(|c| {
+                                        c.division(|d| {
+                                            d.class("action-buttons");
+                                            d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
+                                            d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
+                                            d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
+                                            d
                                         });
-                                        body
+                                        c
                                     });
-                                    table
+                                    tr
                                 });
-                                tab1
-                            });
-                            cdiv.division(|tab1| {
-                                tab1.class("tab-content tab-content-3");
-                                tab1.division(|filter| {
-                                    filter.class("filter-bar");
-                                    filter.division(|search| {
-                                        search.class("search-box");
-                                        search.span(|s| s.class("search-icon").text("🔍"));
-                                        search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requestor..."));
-                                        search
-                                    });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("All Types"));
-                                        s.option(|o| o.text("SSL/TLS"));
-                                        s.option(|o| o.text("Code Signing"));
-                                        s.option(|o| o.text("Email (S/MIME)"));
-                                        s.option(|o| o.text("Client Authentication"));
-                                        s
-                                    });
-                                    filter
-                                });
-                                tab1.table(|table| {
-                                    table.class("data-table");
-                                    table.table_head(|th| {
-                                        th.table_row(|tr| {
-                                            tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requestor"));
-                                            tr.table_header(|th| th.text("Certificate Details"));
-                                            tr.table_header(|th| th.text("Type"));
-                                            tr.table_header(|th| th.text("Rejected Date"));
-                                            tr.table_header(|th| th.text("Reason"));
-                                            tr.table_header(|th| th.text("Status"));
-                                            tr
-                                        });
-                                        th
-                                    });
-                                    table.table_body(|body| {
-                                        body.table_row(|tr| {
-                                            tr.table_cell(|c| {
-                                                c.division(|d| d.class("request-id").text("CSR-2026-0247"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("requestor-info");
-                                                    d.division(|d| d.class("requestor-name").text("John Smith"));
-                                                    d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("cert-details");
-                                                    d.division(|d| d.class("cert-cn").text("api.newproject.com"));
-                                                    d.division(|d| d.class("cert-san").text("Unauthorized domain"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("SSL/TLS")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("Feb 8, 2026")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.style("font-size: 12px; color: #e53e3e;").text("Invalid domain ownership")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.span(|s|s.class("status-badge status-rejected").text("Rejected"))
-                                            });
-                                            tr
-                                        });
-                                        body
-                                    });
-                                    table
-                                });
-                                tab1
-                            });
-                            cdiv.division(|tab1| {
-                                tab1.class("tab-content tab-content-4");
-                                tab1.division(|filter| {
-                                    filter.class("filter-bar");
-                                    filter.division(|search| {
-                                        search.class("search-box");
-                                        search.span(|s| s.class("search-icon").text("🔍"));
-                                        search.input(|i| i.type_("text").placeholder("Search by CSR ID, Common Name, or requestor..."));
-                                        search
-                                    });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("All Types"));
-                                        s.option(|o| o.text("SSL/TLS"));
-                                        s.option(|o| o.text("Code Signing"));
-                                        s.option(|o| o.text("Email (S/MIME)"));
-                                        s.option(|o| o.text("Client Authentication"));
-                                        s
-                                    });
-                                    filter.select(|s| {
-                                        s.class("filter-select");
-                                        s.option(|o| o.text("Pending"));
-                                        s.option(|o| o.text("Approved"));
-                                        s.option(|o| o.text("Rejected"));
-                                        s
-                                    });
-                                    filter
-                                });
-                                tab1.table(|table| {
-                                    table.class("data-table");
-                                    table.table_head(|th| {
-                                        th.table_row(|tr| {
-                                            tr.table_header(|th| th.text("CSR ID"));
-                                            tr.table_header(|th| th.text("Requestor"));
-                                            tr.table_header(|th| th.text("Certificate Details"));
-                                            tr.table_header(|th| th.text("Type"));
-                                            tr.table_header(|th| th.text("Date"));
-                                            tr.table_header(|th| th.text("Status"));
-                                            tr.table_header(|th| th.text("Actions"));
-                                            tr
-                                        });
-                                        th
-                                    });
-                                    table.table_body(|body| {
-                                        body.table_row(|tr| {
-                                            tr.table_cell(|c| {
-                                                c.division(|d| d.class("request-id").text("CSR-2026-0247"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("requestor-info");
-                                                    d.division(|d| d.class("requestor-name").text("John Smith"));
-                                                    d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("cert-details");
-                                                    d.division(|d| d.class("cert-cn").text("api.newproject.com"));
-                                                    d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("SSL/TLS")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("Feb 7, 2026")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.span(|s| s.class("status-badge status-pending").text("Pending"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("action-buttons");
-                                                    d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
-                                                    d
-                                                });
-                                                c
-                                            });
-                                            tr
-                                        });
-                                        body
-                                    });
-                                    table
-                                });
-                                tab1
-                            });
-                            cdiv
+                            }
+                            body
                         });
-                        csr_tabs
+                        table
                     });
                     main_content.division(|overview| {
                         overview.class("section-header").style("margin-top: 48px;").id("ca-info")
