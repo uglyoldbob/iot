@@ -4046,6 +4046,155 @@ impl Ca {
         }
     }
 
+    /// Get the number of non-revoked certificates
+    pub async fn count_nonrevoked_certs(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p.conn(move |conn| {
+                        conn.query_row("SELECT COUNT(*) from certs LEFT JOIN revoked on certs.id=revoked.id WHERE revoked.reason IS NULL", 
+                        [],
+                        |r| r.get(0)
+                    )
+                    }).await.expect("Failed");
+                val
+            }
+        }
+    }
+
+    /// Get the number of pending csr
+    pub async fn count_pending_csr(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p
+                    .conn(move |conn| {
+                        conn.query_row("SELECT COUNT(*) from csr WHERE done <> 1", [], |r| r.get(0))
+                    })
+                    .await
+                    .expect("Failed");
+                val
+            }
+        }
+    }
+
+    /// Returns the count of active and expiring soon certificates
+    pub async fn count_active_and_expiring_soon_certs(
+        &self,
+        within: std::time::Duration,
+    ) -> (i64, i64) {
+        let total = self.count_issued_certs().await;
+        let mut active = 0;
+        let mut expiring_soon = 0;
+        self.certificate_processing(total, 0, |c| {
+            let t1 = c.cert.tbs_certificate.validity.not_before.to_system_time();
+            let t3 = c.cert.tbs_certificate.validity.not_after.to_system_time();
+            let t2 = t3 - within;
+            let now = std::time::SystemTime::now();
+            if now.duration_since(t1).is_ok() && t3.duration_since(now).is_ok() {
+                if c.revoked.is_none() {
+                    active += 1;
+                }
+            }
+            if now > t2 && now < t3 {
+                expiring_soon += 1;
+            }
+        })
+        .await;
+        (active, expiring_soon)
+    }
+
+    /// Returns the count of recently issued certificates
+    pub async fn count_recently_issued_certs(&self, within: std::time::Duration) -> i64 {
+        let total = self.count_issued_certs().await;
+        let mut a = 0;
+        self.certificate_processing(total, 0, |c| {
+            let t1 = c.cert.tbs_certificate.validity.not_before.to_system_time();
+            let t3 = c.cert.tbs_certificate.validity.not_after.to_system_time();
+            let t2 = t3 - within;
+            let now = std::time::SystemTime::now();
+            if now > t1 {
+                if let Ok(d) = now.duration_since(t1) {
+                    if d < within {
+                        a += 1;
+                    }
+                }
+            }
+        })
+        .await;
+        a
+    }
+
+    /// Get the number of rejected csr
+    pub async fn count_rejected_csr(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            "SELECT COUNT(*) from csr WHERE done = 1 AND rejection IS NOT NULL",
+                            [],
+                            |r| r.get(0),
+                        )
+                    })
+                    .await
+                    .expect("Failed");
+                val
+            }
+        }
+    }
+
+    /// Get the number of csr
+    pub async fn count_all_csr(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p
+                    .conn(move |conn| conn.query_row("SELECT COUNT(*) from csr", [], |r| r.get(0)))
+                    .await
+                    .expect("Failed");
+                val
+            }
+        }
+    }
+
+    /// Get the number of rejected csr
+    pub async fn count_approved_csr(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p
+                    .conn(move |conn| {
+                        conn.query_row(
+                            "SELECT COUNT(*) from csr WHERE done = 1 AND rejection IS NULL",
+                            [],
+                            |r| r.get(0),
+                        )
+                    })
+                    .await
+                    .expect("Failed");
+                val
+            }
+        }
+    }
+
+    /// Get the number of issued certificates
+    pub async fn count_issued_certs(&self) -> i64 {
+        match &self.medium {
+            CaCertificateStorage::Nowhere => 0,
+            CaCertificateStorage::Sqlite(p) => {
+                let val = p
+                    .conn(move |conn| {
+                        conn.query_row("SELECT COUNT(*) from certs", [], |r| r.get(0))
+                    })
+                    .await
+                    .expect("Failed");
+                val
+            }
+        }
+    }
+
     /// Add the specified user to the specified applet group
     pub async fn add_user_by_serial_to_applet_group(
         &mut self,
@@ -4561,57 +4710,65 @@ impl Ca {
                                 &format!("SELECT certs.*, revoked.*, serials.serial from certs LEFT JOIN revoked ON certs.id = revoked.id LEFT JOIN serials ON certs.id=serials.id LIMIT {} OFFSET {}", num_results, offset),
                             )
                             .unwrap();
-                        let mut rows = stmt.query([]).unwrap();
+                        let r2 = stmt.query([]);
+                        let mut rows = r2.unwrap();
                         let mut index = 0;
                         while let Ok(Some(r)) = rows.next() {
-                            let id: i64 = r.get(0).unwrap();
-                            let der: Vec<u8> = r.get(1).unwrap();
-                            let date: Option<String> = r.get(3).ok();
-                            let reason: Option<u32> = r.get(4).ok();
-                            let serial: Vec<u8> = r.get(5).unwrap();
-                            let revoked = if let Some(date) = date {
-                                if let Some(reason) = reason {
-                                    match reason {
-                                        0 => Some(ocsp::response::CrlReason::OcspRevokeUnspecified),
-                                        1 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokeKeyCompromise)
+                            if let (Some(id), Some(der), date, reason, Some(serial)) = (r.get(0).ok(),
+                            r.get(1).ok(),
+                            r.get(3).ok(),
+                            r.get(4).ok(),
+                            r.get(5).ok()
+                            ) {
+                                let id : i64 = id;
+                                let der: Vec<u8> = der;
+                                let date: Option<String> = date;
+                                let reason : Option<u32> = reason;
+                                let serial: Vec<u8> = serial;
+                                let revoked = if let Some(date) = date {
+                                    if let Some(reason) = reason {
+                                        match reason {
+                                            0 => Some(ocsp::response::CrlReason::OcspRevokeUnspecified),
+                                            1 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokeKeyCompromise)
+                                            }
+                                            2 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokeCaCompromise)
+                                            }
+                                            3 => Some(ocsp::response::CrlReason::OcspRevokeAffChanged),
+                                            4 => Some(ocsp::response::CrlReason::OcspRevokeSuperseded),
+                                            5 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokeCessOperation)
+                                            }
+                                            6 => Some(ocsp::response::CrlReason::OcspRevokeCertHold),
+                                            8 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokeRemoveFromCrl)
+                                            }
+                                            9 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokePrivWithdrawn)
+                                            }
+                                            10 => {
+                                                Some(ocsp::response::CrlReason::OcspRevokeAaCompromise)
+                                            }
+                                            _ => None,
                                         }
-                                        2 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokeCaCompromise)
-                                        }
-                                        3 => Some(ocsp::response::CrlReason::OcspRevokeAffChanged),
-                                        4 => Some(ocsp::response::CrlReason::OcspRevokeSuperseded),
-                                        5 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokeCessOperation)
-                                        }
-                                        6 => Some(ocsp::response::CrlReason::OcspRevokeCertHold),
-                                        8 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokeRemoveFromCrl)
-                                        }
-                                        9 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokePrivWithdrawn)
-                                        }
-                                        10 => {
-                                            Some(ocsp::response::CrlReason::OcspRevokeAaCompromise)
-                                        }
-                                        _ => None,
+                                    } else {
+                                        None
                                     }
                                 } else {
                                     None
-                                }
-                            } else {
-                                None
-                            };
-                            let cert: x509_cert::Certificate =
-                                x509_cert::Certificate::from_der(&der).unwrap();
-                            let ci = CertificateInfo {
-                                id,
-                                cert,
-                                serial,
-                                revoked,
-                            };
-                            s.send(ci).unwrap();
-                            index += 1;
+                                };
+                                let cert: x509_cert::Certificate =
+                                    x509_cert::Certificate::from_der(&der).unwrap();
+                                let ci = CertificateInfo {
+                                    id,
+                                    cert,
+                                    serial,
+                                    revoked,
+                                };
+                                s.send(ci).unwrap();
+                                index += 1;
+                            }
                         }
                         Ok(counti)
                     })

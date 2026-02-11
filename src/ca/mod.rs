@@ -565,6 +565,44 @@ fn signature_readable(sig: &x509_cert::spki::AlgorithmIdentifierOwned) -> String
     }
 }
 
+fn general_name_to_string(n: &x509_cert::ext::pkix::name::GeneralName) -> Option<String> {
+    match n {
+        x509_cert::ext::pkix::name::GeneralName::OtherName(_a) => {
+            Some("OtherName unparsed".to_string())
+            //return Err(());
+        }
+        x509_cert::ext::pkix::name::GeneralName::Rfc822Name(_a) => {
+            Some("Rfc822Name unparsed".to_string())
+            //return Err(());
+        }
+        x509_cert::ext::pkix::name::GeneralName::DnsName(a) => {
+            let s: &str = a.as_ref();
+            Some(s.to_string())
+        }
+        x509_cert::ext::pkix::name::GeneralName::DirectoryName(_a) => {
+            Some("DirectoryName unparsed".to_string())
+            //return Err(());
+        }
+        x509_cert::ext::pkix::name::GeneralName::EdiPartyName(_a) => {
+            Some("EdiPartyName unparsed".to_string())
+            //return Err(());
+        }
+        x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(a) => {
+            let s: &str = a.as_ref();
+            Some(s.to_string())
+        }
+        x509_cert::ext::pkix::name::GeneralName::IpAddress(a) => {
+            String::from_utf8(a.as_bytes().to_vec())
+                .map_err(|_| ())
+                .ok()
+        }
+        x509_cert::ext::pkix::name::GeneralName::RegisteredId(_a) => {
+            Some("RegisteredId unparsed".to_string())
+            //return Err(());
+        }
+    }
+}
+
 async fn handle_ca_main_admin_page(
     ca: &mut Ca,
     s: &WebPageContext,
@@ -577,14 +615,23 @@ async fn handle_ca_main_admin_page(
         }
     }
 
-    let quantity_pending_csr = 8;
-    let quantity_approved_csr = 15;
-    let quantity_rejected_csr = 3;
-    let quantity_total_csr = 26;
-    let issued_certificates = 1247;
-    let issued_in_last_month = 32;
-    let active_certificates = 1189;
-    let expiring_in_thrity_days = 23;
+    let quantity_pending_csr = ca.count_pending_csr().await;
+    let quantity_approved_csr = ca.count_approved_csr().await;
+    let quantity_rejected_csr = ca.count_rejected_csr().await;
+    let quantity_total_csr = ca.count_all_csr().await;
+    let issued_certificates = ca.count_issued_certs().await;
+    let (active_certificates, expiring_in_thrity_days) = ca
+        .count_active_and_expiring_soon_certs(std::time::Duration::from_secs(30 * 86400))
+        .await;
+    let issued_in_last_month = ca
+        .count_recently_issued_certs(std::time::Duration::from_secs(30 * 86400))
+        .await;
+
+    let mut csr_list: Vec<(CsrRequest, Vec<u8>)> = Vec::new();
+    ca.csr_processing(|_index, csr, serial| {
+        csr_list.push((csr, serial));
+    })
+    .await;
 
     html.body(|b| {
         b.division(|d| {
@@ -842,52 +889,115 @@ async fn handle_ca_main_admin_page(
                                         th
                                     });
                                     table.table_body(|body| {
-                                        body.table_row(|tr| {
-                                            tr.table_cell(|c| {
-                                                c.division(|d| d.class("request-id").text("CSR-2026-0247"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("requestor-info");
-                                                    d.division(|d| d.class("requestor-name").text("John Smith"));
-                                                    d.division(|d| d.class("requestor-email").text("John.Smith@example.com"));
-                                                    d
+                                        for csr in csr_list {
+                                            let sn = {
+                                                let asdf : Vec<String> = csr.0.sn.chunks(4).map(|c| {
+                                                    let serhex: Vec<String> = c.iter().map(|e| format!("{:02x}", e)).collect();
+                                                    serhex.join(":")
+                                                }).collect();
+                                                asdf.join("<br >")
+                                            };
+                                            body.table_row(|tr| {
+                                                tr.table_cell(|c| {
+                                                    c.division(|d| d.class("request-id").text(sn))
                                                 });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("cert-details");
-                                                    d.division(|d| d.class("cert-cn").text("api.newproject.com"));
-                                                    d.division(|d| d.class("cert-san").text("*.api.newproject.com, www.newproject.com"));
-                                                    d
+                                                tr.table_cell(|c| {
+                                                    c.division(|d| {
+                                                        d.class("requestor-info");
+                                                        d.division(|d| d.class("requestor-name").text(csr.0.name));
+                                                        d.division(|d| d.class("requestor-email").text(csr.0.email));
+                                                        d.division(|d| d.class("requestor-email").text(csr.0.phone));
+                                                        d
+                                                    });
+                                                    c
                                                 });
-                                                c
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("SSL/TLS")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.span(|s| s.class("priority-badge priority-high").text("HIGH"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.text("2 hours ago")
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.span(|s| s.class("status-badge status-pending").text("Pending"))
-                                            });
-                                            tr.table_cell(|c| {
-                                                c.division(|d| {
-                                                    d.class("action-buttons");
-                                                    d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
-                                                    d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
-                                                    d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
-                                                    d
+                                                let x509 = {
+                                                    use der::DecodePem;
+                                                    let csr = x509_cert::request::CertReq::from_pem(&csr.0.cert);
+                                                    csr
+                                                };
+                                                eprintln!("X509 cert is {:?}", x509);
+                                                let cn_v = x509.as_ref().map(|x| {
+                                                    let mut v = Some("Unprocessed".to_string());
+                                                    for a in &x.info.subject.0 {
+                                                        for attr in a.0.iter() {
+                                                            let oid: cert_common::oid::Oid = attr.oid.into();
+                                                            if oid == *cert_common::oid::OID_CERT_COMMON_NAME {
+                                                                if let Ok(s) = attr.value.decode_as::<der::asn1::Utf8StringRef>() {
+                                                                    v = Some(s.to_string());
+                                                                    break;
+                                                                }
+                                                                if let Ok(s) = attr.value.decode_as::<der::asn1::PrintableStringRef>() {
+                                                                    v = Some(s.to_string());
+                                                                    break;
+                                                                }
+                                                                v = Some(format!("{:?}", attr.value));
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    v
+                                                }).ok().flatten().unwrap_or("Invalid x509?".to_string());
+                                                let san: String = x509.as_ref().map(|x| {
+                                                    let mut vr = Vec::new();
+                                                    for attr in x.info.attributes.iter() {
+                                                        let oid: cert_common::oid::Oid = attr.oid.into();
+                                                        if oid == *cert_common::oid::OID_CERT_ALTERNATIVE_NAME {
+                                                            use der::Decode;
+                                                            for value in attr.values.iter() {
+                                                                if let Ok(s) = value.decode_as::<der::asn1::Utf8StringRef>() {
+                                                                    vr.push(s.to_string());
+                                                                }
+                                                                if let Ok(s) = value.decode_as::<der::asn1::PrintableStringRef>() {
+                                                                    vr.push(s.to_string());
+                                                                }
+                                                                if let Ok(s) = value.decode_as::<der::asn1::Ia5String>() {
+                                                                    vr.push(s.to_string());
+                                                                }
+                                                                if let Ok(s) = value.decode_as::<der::asn1::TeletexString>() {
+                                                                    vr.push(s.to_string());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    vr.join("<br >")
+                                                })
+                                                    .ok()
+                                                    .unwrap_or(String::new());
+                                                tr.table_cell(|c| {
+                                                    c.division(|d| {
+                                                        d.class("cert-details");
+                                                        d.division(|d| d.class("cert-cn").text(cn_v));
+                                                        d.division(|d| d.class("cert-san").text(san));
+                                                        d
+                                                    });
+                                                    c
                                                 });
-                                                c
+                                                tr.table_cell(|c| {
+                                                    c.text("SSL/TLS")
+                                                });
+                                                tr.table_cell(|c| {
+                                                    c.span(|s| s.class("priority-badge priority-high").text("HIGH"))
+                                                });
+                                                tr.table_cell(|c| {
+                                                    c.text("2 hours ago")
+                                                });
+                                                tr.table_cell(|c| {
+                                                    c.span(|s| s.class("status-badge status-pending").text("Pending"))
+                                                });
+                                                tr.table_cell(|c| {
+                                                    c.division(|d| {
+                                                        d.class("action-buttons");
+                                                        d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
+                                                        d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
+                                                        d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
+                                                        d
+                                                    });
+                                                    c
+                                                });
+                                                tr
                                             });
-                                            tr
-                                        });
+                                        }
                                         body
                                     });
                                     table

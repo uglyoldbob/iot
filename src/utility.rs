@@ -39,7 +39,6 @@ pub fn display_hex(d: &[u8]) -> String {
     serhex.join(":")
 }
 
-
 /// Generate a password of the specified length
 pub fn generate_password(len: usize) -> String {
     use rand::Rng;

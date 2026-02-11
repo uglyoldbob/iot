@@ -70,7 +70,7 @@ git = "https://github.com/uglyoldbob/smartcard.git"
 optional = true
 
 [dependencies.cert-common]
-version = "0.2.5"
+version = "0.2.6"
 git = "https://github.com/uglyoldbob/cert-common.git"
 features = [ "egui" ]
 
@@ -134,6 +134,10 @@ features = ["derive"]
 [dependencies.service]
 version = "0.2.0"
 features = ["async", "serde", "prompt", "egui-prompt"]
+
+[dependencies.spki]
+version = "0.7.3"
+features = ["fingerprint"]
 
 [dependencies.ssh-key]
 version = "0.6.7"
