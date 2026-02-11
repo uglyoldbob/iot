@@ -603,6 +603,186 @@ fn general_name_to_string(n: &x509_cert::ext::pkix::name::GeneralName) -> Option
     }
 }
 
+fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: &WebPageContext, ca: &mut Ca, issued_certificates: i64) {
+    main_content.division(|overview| {
+        overview.class("section-header").style("margin-top: 48px;").id("ca-info")
+            .heading_3(|h3| h3.class("section-title").text("Certificate Authority Information"))
+    });
+    main_content.division(|card| {
+        card.class("ca-card");
+        card.division(|hdr| {
+            hdr.class("ca-header");
+            hdr.division(|d| {
+                d.division(|d2| {
+                    d2.class("ca-name").text("Root CA");
+                    d2
+                });
+                d.division(|d2| {
+                    d2.class("ca-type").text("Root Certificate Authority");
+                    d2
+                });
+                d
+            });
+            hdr.span(|s| s.class("ca-status active").text("ACTIVE"));
+            hdr
+        });
+        card.division(|info| {
+            info.class("ca-info");
+            let name = ca.root_ca_cert()
+                .ok()
+                .and_then(|r| r.x509_cert().ok())
+                .map(|c| {
+                    let mut v = Vec::new();
+                    for n in &c.tbs_certificate.subject.0 {
+                        v.push(n.to_string());
+                    }
+                    v.join(", ")
+                })
+                .unwrap_or("Unknown".to_string());
+            info.division(|d2| {
+                d2.class("ca-info-item");
+                d2.division(|d3| {
+                    d3.class("ca-info-label").text("Subject DN")
+                });
+                d2.division(|d3| {
+                    d3.class("ca-info-value").text(name)
+                });
+                d2
+            });
+            let serial = ca.root_ca_cert()
+                .ok()
+                .and_then(|r| r.x509_cert().ok())
+                .map(|c| crate::utility::display_hex(c.tbs_certificate.serial_number.as_bytes()))
+                .unwrap_or("Unknown".to_string());
+            info.division(|d2| {
+                d2.class("ca-info-item");
+                d2.division(|d3| {
+                    d3.class("ca-info-label").text("Serial number")
+                });
+                d2.division(|d3| {
+                    d3.class("ca-info-value").text(serial)
+                });
+                d2
+            });
+            let valid_until = ca.root_ca_cert()
+                .ok()
+                .and_then(|r| r.x509_cert().ok())
+                .map(|c| c.tbs_certificate.validity.not_after.to_date_time().to_string())
+                .unwrap_or("Unknown".to_string());
+            info.division(|d2| {
+                d2.class("ca-info-item");
+                d2.division(|d3| {
+                    d3.class("ca-info-label").text("Valid Until")
+                });
+                d2.division(|d3| {
+                    d3.class("ca-info-value").text(valid_until)
+                });
+                d2
+            });
+            info.division(|d2| {
+                d2.class("ca-info-item");
+                d2.division(|d3| {
+                    d3.class("ca-info-label").text("Certificates issued")
+                });
+                d2.division(|d3| {
+                    d3.class("ca-info-value").text(issued_certificates.to_string())
+                });
+                d2
+            });
+            info
+        });
+        card.details(|d| {
+            d.summary(|s|s.text("View Additional Details"));
+            d.division(|d2| {
+                d2.style("padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;");
+                d2.division(|d3| {
+                    d3.style("margin-bottom: 12px;");
+                    let key = ca.root_ca_cert()
+                        .ok()
+                        .and_then(|r| r.x509_cert().ok())
+                        .map(|c| public_key_readable(c.tbs_certificate.subject_public_key_info))
+                        .unwrap_or("Unknown".to_string());
+                    let fingerprint = ca.root_ca_cert()
+                        .ok()
+                        .and_then(|r| r.x509_cert().ok())
+                        .and_then(|c| c.tbs_certificate.subject_public_key_info.fingerprint_bytes().ok())
+                        .map(|d| crate::utility::display_hex(&d))
+                        .unwrap_or("Unknown".to_string());
+                    let signature = ca.root_ca_cert()
+                        .ok()
+                        .and_then(|r| r.x509_cert().ok())
+                        .map(|c| signature_readable(&c.tbs_certificate.signature))
+                        .unwrap_or("Unknown".to_string());
+                    let issued = ca.root_ca_cert()
+                        .ok()
+                        .and_then(|r| r.x509_cert().ok())
+                        .map(|c| c.tbs_certificate.validity.not_before.to_date_time().to_string())
+                        .unwrap_or("Unknown".to_string());
+                    d3.strong(|s| s.text("Key Algorithm")).text(format!(" {key}")).line_break(|a|a);
+                    d3.strong(|s| s.text("Signature Algorithm")).text(format!(" {signature}")).line_break(|a|a);
+                    d3.strong(|s| s.text("Issued On:")).text(format!(" {issued}")).line_break(|a|a);
+                    d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(format!(" {fingerprint}"));
+                    d3
+                });
+                d2
+            });
+            d
+        });
+        card.division(|d| {
+            d.class("download-section").id("download-certs");
+            d.heading_4(|h| h.text("📥 Download CA Certificate"));
+            d.division(|d2| {
+                d2.class("download-buttons");
+                d2.anchor(|a| {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            a.href("?action=download_ca&type=pem");
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            a.href("ca/get_ca.rs?type=pem");
+                        }
+                    }
+                    a.target("_blank");
+                    a.class("btn btn-success").download("").text("Download PEM Format");
+                    a.span(|s| s.text("📄"));
+                    a
+                });
+                d2.anchor(|a| {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            a.href("?action=download_ca&type=der");
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            a.href("ca/get_ca.rs?type=der");
+                        }
+                    }
+                    a.target("_blank");
+                    a.class("btn btn-success").download("").text("Download DER Format");
+                    a.span(|s| s.text("📄"));
+                    a
+                });
+                d2.anchor(|a| {
+                    match s.delivery {
+                        crate::main_config::PageDelivery::Cgi => {
+                            a.href("?action=download_ca&type=pem");
+                        }
+                        crate::main_config::PageDelivery::DedicatedServer => {
+                            a.href("ca/get_ca.rs?type=pem");
+                        }
+                    }
+                    a.target("_blank");
+                    a.class("btn btn-secondary").download("").text("Download Certificate Chain (PEM)");
+                    a.span(|s| s.text("🔗"));
+                    a
+                });
+                d2
+            });
+            d
+        });
+        card
+    });
+}
+
 async fn handle_ca_main_admin_page(
     ca: &mut Ca,
     s: &WebPageContext,
@@ -1052,183 +1232,7 @@ async fn handle_ca_main_admin_page(
                         });
                         table
                     });
-                    main_content.division(|overview| {
-                        overview.class("section-header").style("margin-top: 48px;").id("ca-info")
-                            .heading_3(|h3| h3.class("section-title").text("Certificate Authority Information"))
-                    });
-                    main_content.division(|card| {
-                        card.class("ca-card");
-                        card.division(|hdr| {
-                            hdr.class("ca-header");
-                            hdr.division(|d| {
-                                d.division(|d2| {
-                                    d2.class("ca-name").text("Root CA");
-                                    d2
-                                });
-                                d.division(|d2| {
-                                    d2.class("ca-type").text("Root Certificate Authority");
-                                    d2
-                                });
-                                d
-                            });
-                            hdr.span(|s| s.class("ca-status active").text("ACTIVE"));
-                            hdr
-                        });
-                        card.division(|info| {
-                            info.class("ca-info");
-                            let name = ca.root_ca_cert()
-                                .ok()
-                                .and_then(|r| r.x509_cert().ok())
-                                .map(|c| {
-                                    let mut v = Vec::new();
-                                    for n in &c.tbs_certificate.subject.0 {
-                                        v.push(n.to_string());
-                                    }
-                                    v.join(", ")
-                                })
-                                .unwrap_or("Unknown".to_string());
-                            info.division(|d2| {
-                                d2.class("ca-info-item");
-                                d2.division(|d3| {
-                                    d3.class("ca-info-label").text("Subject DN")
-                                });
-                                d2.division(|d3| {
-                                    d3.class("ca-info-value").text(name)
-                                });
-                                d2
-                            });
-                            let serial = ca.root_ca_cert()
-                                .ok()
-                                .and_then(|r| r.x509_cert().ok())
-                                .map(|c| crate::utility::display_hex(c.tbs_certificate.serial_number.as_bytes()))
-                                .unwrap_or("Unknown".to_string());
-                            info.division(|d2| {
-                                d2.class("ca-info-item");
-                                d2.division(|d3| {
-                                    d3.class("ca-info-label").text("Serial number")
-                                });
-                                d2.division(|d3| {
-                                    d3.class("ca-info-value").text(serial)
-                                });
-                                d2
-                            });
-                            let valid_until = ca.root_ca_cert()
-                                .ok()
-                                .and_then(|r| r.x509_cert().ok())
-                                .map(|c| c.tbs_certificate.validity.not_after.to_date_time().to_string())
-                                .unwrap_or("Unknown".to_string());
-                            info.division(|d2| {
-                                d2.class("ca-info-item");
-                                d2.division(|d3| {
-                                    d3.class("ca-info-label").text("Valid Until")
-                                });
-                                d2.division(|d3| {
-                                    d3.class("ca-info-value").text(valid_until)
-                                });
-                                d2
-                            });
-                            info.division(|d2| {
-                                d2.class("ca-info-item");
-                                d2.division(|d3| {
-                                    d3.class("ca-info-label").text("Certificates issued")
-                                });
-                                d2.division(|d3| {
-                                    d3.class("ca-info-value").text(issued_certificates.to_string())
-                                });
-                                d2
-                            });
-                            info
-                        });
-                        card.details(|d| {
-                            d.summary(|s|s.text("View Additional Details"));
-                            d.division(|d2| {
-                                d2.style("padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;");
-                                d2.division(|d3| {
-                                    d3.style("margin-bottom: 12px;");
-                                    let key = ca.root_ca_cert()
-                                        .ok()
-                                        .and_then(|r| r.x509_cert().ok())
-                                        .map(|c| public_key_readable(c.tbs_certificate.subject_public_key_info))
-                                        .unwrap_or("Unknown".to_string());
-                                    let fingerprint = ca.root_ca_cert()
-                                        .ok()
-                                        .and_then(|r| r.x509_cert().ok())
-                                        .and_then(|c| c.tbs_certificate.subject_public_key_info.fingerprint_bytes().ok())
-                                        .map(|d| crate::utility::display_hex(&d))
-                                        .unwrap_or("Unknown".to_string());
-                                    let signature = ca.root_ca_cert()
-                                        .ok()
-                                        .and_then(|r| r.x509_cert().ok())
-                                        .map(|c| signature_readable(&c.tbs_certificate.signature))
-                                        .unwrap_or("Unknown".to_string());
-                                    let issued = ca.root_ca_cert()
-                                        .ok()
-                                        .and_then(|r| r.x509_cert().ok())
-                                        .map(|c| c.tbs_certificate.validity.not_before.to_date_time().to_string())
-                                        .unwrap_or("Unknown".to_string());
-                                    d3.strong(|s| s.text("Key Algorithm")).text(format!(" {key}")).line_break(|a|a);
-                                    d3.strong(|s| s.text("Signature Algorithm")).text(format!(" {signature}")).line_break(|a|a);
-                                    d3.strong(|s| s.text("Issued On:")).text(format!(" {issued}")).line_break(|a|a);
-                                    d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(format!(" {fingerprint}"));
-                                    d3
-                                });
-                                d2
-                            });
-                            d
-                        });
-                        card.division(|d| {
-                            d.class("download-section").id("download-certs");
-                            d.heading_4(|h| h.text("📥 Download CA Certificate"));
-                            d.division(|d2| {
-                                d2.class("download-buttons");
-                                d2.anchor(|a| {
-                                    match s.delivery {
-                                        crate::main_config::PageDelivery::Cgi => {
-                                            a.href("?action=download_ca&type=pem");
-                                        }
-                                        crate::main_config::PageDelivery::DedicatedServer => {
-                                            a.href("ca/get_ca.rs?type=pem");
-                                        }
-                                    }
-                                    a.target("_blank");
-                                    a.class("btn btn-success").download("").text("Download PEM Format");
-                                    a.span(|s| s.text("📄"));
-                                    a
-                                });
-                                d2.anchor(|a| {
-                                    match s.delivery {
-                                        crate::main_config::PageDelivery::Cgi => {
-                                            a.href("?action=download_ca&type=der");
-                                        }
-                                        crate::main_config::PageDelivery::DedicatedServer => {
-                                            a.href("ca/get_ca.rs?type=der");
-                                        }
-                                    }
-                                    a.target("_blank");
-                                    a.class("btn btn-success").download("").text("Download DER Format");
-                                    a.span(|s| s.text("📄"));
-                                    a
-                                });
-                                d2.anchor(|a| {
-                                    match s.delivery {
-                                        crate::main_config::PageDelivery::Cgi => {
-                                            a.href("?action=download_ca&type=pem");
-                                        }
-                                        crate::main_config::PageDelivery::DedicatedServer => {
-                                            a.href("ca/get_ca.rs?type=pem");
-                                        }
-                                    }
-                                    a.target("_blank");
-                                    a.class("btn btn-secondary").download("").text("Download Certificate Chain (PEM)");
-                                    a.span(|s| s.text("🔗"));
-                                    a
-                                });
-                                d2
-                            });
-                            d
-                        });
-                        card
-                    });
+                    certificate_info(main_content, s, ca, issued_certificates);
                     main_content
                 });
                 main_div
@@ -1273,112 +1277,173 @@ async fn handle_ca_main_user_page(
     html: &mut html::root::builders::HtmlBuilder,
     user: Option<String>,
 ) -> WebResponse {
+    let issued_certificates = ca.count_issued_certs().await;
     html.body(|b| {
-            if let Some(u) = &user {
-                b.text(format!("Welcome {}", u)).line_break(|a| a);
-            }
-            match &ca.config.sign_method {
-                CertificateSigningMethod::Https(_m) => {
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as der");
-                                ab.href("?action=download_ca&type=der");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as der");
-                                ab.href("ca/get_ca.rs?type=der");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as pem");
-                                ab.href("?action=download_ca&type=pem");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download CA certificate as pem");
-                                ab.href("ca/get_ca.rs?type=pem");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                }
-                CertificateSigningMethod::Ssh(_m) => {
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text("Download SSH CA certificate");
-                                ab.href("?action=download_ca");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text("Download SSH CA certificate");
-                                ab.href("ca/get_ca.rs");
-                                ab.target("_blank");
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                }
-            }
-            match s.delivery {
-                crate::main_config::PageDelivery::Cgi => {
-                    b.anchor(|ab| {
-                        ab.text("Request a signature on a certificate");
-                        ab.href("?action=request_signature");
-                        ab
+        b.division(|d| {
+            d.class("container");
+            d.header(|h| {
+                h.division(|logo_div| {
+                    logo_div.class("logo");
+                    logo_div.division(|d| d.class("logo-icon").text("🔐"));
+                    logo_div.division(|d| d.class("logo-text")
+                        .heading_1(|h|h.text("Certificate Authority"))
+                        .paragraph(|p|p.text("User Portal")));
+                    logo_div
+                });
+                h.division(|header_actions| {
+                    header_actions.class("header-actions");
+                    header_actions.division(|user_profile| {
+                        user_profile.class("user-profile")
+                            .division(|user_avatar| {
+                                user_avatar.class("user-avatar").text("AD")
+                            })
+                            .division(|div| {
+                                div.division(|div| div.style("font-weight: 600; font-size: 14px;").text("User Name"))
+                                    .division(|div|div.style("font-size: 12px; color: #718096;").text("User"))
+                            })
                     });
-                }
-                crate::main_config::PageDelivery::DedicatedServer => {
-                    b.anchor(|ab| {
-                        ab.text("Request a signature on a certificate");
-                        ab.href("ca/request.rs");
-                        ab
-                    });
-                }
-            }
-            b.line_break(|lb| lb);
-            let name = ca.public_names.first().unwrap();
-            let intenturl = match s.delivery {
-                crate::main_config::PageDelivery::Cgi => {
-                    format!("{}{}/rust-iot.cgi", name.domain, name.subdomain)
-                }
-                crate::main_config::PageDelivery::DedicatedServer => {
-                    format!("{}{}/register_android.rs", name.domain, name.subdomain)
-                }
-            };
-            b.anchor(|ab| {
-                let package = "com.uglyoldbob.RustIotNfc";
-                let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
-                let url = urlencoding::encode(url);
-                let scheme = "registerscheme";
-                let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
-                ab.href(format!("intent://{intenturl}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
-                ab.text("Open in android app");
-                ab
+                    header_actions
+                });
+                h
             });
-            b.line_break(|lb| lb);
-            b
+            d.division(|main_div| {
+                main_div.class("main-content");
+                main_div.aside(|sidebar| {
+                    sidebar.class("sidebar");
+                    sidebar.navigation(|nav| {
+                        nav.division(|nav_section| {
+                            nav_section.class("nav-section")
+                                .heading_3(|a| a.text("Certificate Authority"))
+                                .anchor(|a|
+                                    a.href("#ca-info")
+                                    .class("nav-item")
+                                    .span(|s|
+                                        s.class("nav-icon").text("🏛️"))
+                                    .text("CA Information"))
+                                .anchor(|a|
+                                    a.href("#download-certs")
+                                    .class("nav-item")
+                                    .span(|s|
+                                        s.class("nav-icon").text("⬇️"))
+                                    .text("Download Certificates"))
+                        });
+                        nav
+                    })
+                });
+                main_div.main(|main_content| {
+                    main_content.class("content-area");
+                    certificate_info(main_content, s, ca, issued_certificates);
+                    main_content
+                });
+                main_div
+            });
+            d
         });
+        if let Some(u) = &user {
+            b.text(format!("Welcome {}", u)).line_break(|a| a);
+        }
+        match &ca.config.sign_method {
+            CertificateSigningMethod::Https(_m) => {
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Download CA certificate as der");
+                            ab.href("?action=download_ca&type=der");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Download CA certificate as der");
+                            ab.href("ca/get_ca.rs?type=der");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                }
+                b.line_break(|lb| lb);
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Download CA certificate as pem");
+                            ab.href("?action=download_ca&type=pem");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Download CA certificate as pem");
+                            ab.href("ca/get_ca.rs?type=pem");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                }
+                b.line_break(|lb| lb);
+            }
+            CertificateSigningMethod::Ssh(_m) => {
+                match s.delivery {
+                    crate::main_config::PageDelivery::Cgi => {
+                        b.anchor(|ab| {
+                            ab.text("Download SSH CA certificate");
+                            ab.href("?action=download_ca");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                    crate::main_config::PageDelivery::DedicatedServer => {
+                        b.anchor(|ab| {
+                            ab.text("Download SSH CA certificate");
+                            ab.href("ca/get_ca.rs");
+                            ab.target("_blank");
+                            ab
+                        });
+                    }
+                }
+                b.line_break(|lb| lb);
+            }
+        }
+        match s.delivery {
+            crate::main_config::PageDelivery::Cgi => {
+                b.anchor(|ab| {
+                    ab.text("Request a signature on a certificate");
+                    ab.href("?action=request_signature");
+                    ab
+                });
+            }
+            crate::main_config::PageDelivery::DedicatedServer => {
+                b.anchor(|ab| {
+                    ab.text("Request a signature on a certificate");
+                    ab.href("ca/request.rs");
+                    ab
+                });
+            }
+        }
+        b.line_break(|lb| lb);
+        let name = ca.public_names.first().unwrap();
+        let intenturl = match s.delivery {
+            crate::main_config::PageDelivery::Cgi => {
+                format!("{}{}/rust-iot.cgi", name.domain, name.subdomain)
+            }
+            crate::main_config::PageDelivery::DedicatedServer => {
+                format!("{}{}/register_android.rs", name.domain, name.subdomain)
+            }
+        };
+        b.anchor(|ab| {
+            let package = "com.uglyoldbob.RustIotNfc";
+            let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
+            let url = urlencoding::encode(url);
+            let scheme = "registerscheme";
+            let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
+            ab.href(format!("intent://{intenturl}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
+            ab.text("Open in android app");
+            ab
+        });
+        b.line_break(|lb| lb);
+        b
+    });
     let html = html.build();
 
     let response = hyper::Response::new("dummy");
