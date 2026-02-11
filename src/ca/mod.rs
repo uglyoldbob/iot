@@ -719,50 +719,65 @@ async fn handle_ca_main_admin_page(
                     });
                     main_content.division(|dashboard_div| {
                         dashboard_div.class("stats-grid");
-                        dashboard_div.division(|grid| {
-                            grid.class("stat-card");
-                            grid.division(|d| {
-                                d.class("stat-header");
-                                d.division(|div| {
-                                    div.division(|div| {
-                                        div.class("stat-label").text("Pending CSRs")
-                                    });
-                                    div.division(|div| {
-                                        div.class("stat-value").text(quantity_pending_csr.to_string())
-                                    });
-                                    if (quantity_pending_csr > 0) {
+                        dashboard_div.anchor(|a| {
+                            a.href("#csr-queue");
+                            a.division(|grid| {
+                                grid.class("stat-card");
+                                grid.division(|d| {
+                                    d.class("stat-header");
+                                    d.division(|div| {
                                         div.division(|div| {
-                                            div.class("stat-trend warning").text("⚠️ Requires action")
+                                            div.class("stat-label").text("Pending CSRs")
                                         });
-                                    }
-                                    div
+                                        div.division(|div| {
+                                            div.class("stat-value").text(quantity_pending_csr.to_string())
+                                        });
+                                        if (quantity_pending_csr > 0) {
+                                            div.division(|div| {
+                                                div.class("stat-trend warning").text("⚠️ Requires action")
+                                            });
+                                        }
+                                        div
+                                    });
+                                    d.division(|div| div.class("stat-icon").text("📝"));
+                                    d
                                 });
-                                d.division(|div| div.class("stat-icon").text("📝"));
-                                d
+                                grid
                             });
-                            grid
+                            a
                         });
-                        dashboard_div.division(|grid| {
-                            grid.class("stat-card");
-                            grid.division(|d| {
-                                d.class("stat-header");
-                                d.division(|div| {
-                                    div.division(|div| {
-                                        div.class("stat-label").text("Certificates Issued")
+                        dashboard_div.anchor(|a| {
+                            match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    a.href("?action=view_all_certs");
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    a.href("ca/view_all_certs.rs");
+                                }
+                            }
+                            a.division(|grid| {
+                                grid.class("stat-card");
+                                grid.division(|d| {
+                                    d.class("stat-header");
+                                    d.division(|div| {
+                                        div.division(|div| {
+                                            div.class("stat-label").text("Certificates Issued")
+                                        });
+                                        div.division(|div| {
+                                            div.class("stat-value").text(issued_certificates.to_string())
+                                        });
+                                        if (issued_in_last_month > 0) {
+                                            div.division(|div|
+                                                div.class("stat-trend").text(format!("↑ +{issued_in_last_month} this month")));
+                                        }
+                                        div
                                     });
-                                    div.division(|div| {
-                                        div.class("stat-value").text(issued_certificates.to_string())
-                                    });
-                                    if (issued_in_last_month > 0) {
-                                        div.division(|div|
-                                            div.class("stat-trend").text(format!("↑ +{issued_in_last_month} this month")));
-                                    }
-                                    div
+                                    d.division(|div| div.class("stat-icon").text("✅"));
+                                    d
                                 });
-                                d.division(|div| div.class("stat-icon").text("✅"));
-                                d
+                                grid
                             });
-                            grid
+                            a
                         });
                         dashboard_div.division(|grid| {
                             grid.class("stat-card");
@@ -936,7 +951,20 @@ async fn handle_ca_main_admin_page(
                                     tr.table_cell(|c| {
                                         c.division(|d| {
                                             d.class("action-buttons");
-                                            d.anchor(|a|a.href("#csr-review-modal").class("action-btn").text("Review"));
+                                            d.anchor(|a| {
+                                                a.class("action-btn");
+                                                match s.delivery {
+                                                    crate::main_config::PageDelivery::Cgi => a.href(format!(
+                                                        "?action=list_pending_requests&serial={}",
+                                                        crate::utility::encode_hex(&csr.1)
+                                                    )),
+                                                    crate::main_config::PageDelivery::DedicatedServer => {
+                                                        a.href(format!("list.rs?serial={}", crate::utility::encode_hex(&csr.1)))
+                                                    }
+                                                };
+                                                a.text("Review");
+                                                a
+                                            });
                                             d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
                                             d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
                                             d
@@ -1163,23 +1191,6 @@ async fn handle_ca_main_admin_page(
                         b.anchor(|ab| {
                             ab.text("List pending requests");
                             ab.href("ca/list.rs");
-                            ab
-                        });
-                    }
-                }
-                b.line_break(|lb| lb);
-                match s.delivery {
-                    crate::main_config::PageDelivery::Cgi => {
-                        b.anchor(|ab| {
-                            ab.text("List all certificates");
-                            ab.href("?action=view_all_certs");
-                            ab
-                        });
-                    }
-                    crate::main_config::PageDelivery::DedicatedServer => {
-                        b.anchor(|ab| {
-                            ab.text("List all certificates");
-                            ab.href("ca/view_all_certs.rs");
                             ab
                         });
                     }
