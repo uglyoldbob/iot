@@ -678,15 +678,53 @@ async fn handle_ca_main_admin_page(
                         });
                         nav.division(|nav_section| {
                             nav_section.class("nav-section")
-                                .heading_3(|a| a.text("Certificate Operations"))
-                                .anchor(|a|
-                                    a.href("#csr-queue")
-                                    .class("nav-item")
-                                    .span(|s|
-                                        s.class("nav-icon").text("📝"))
-                                    .text("CSR Queue")
-                                    .span(|s|
-                                        s.class("nav-badge").text(quantity_pending_csr.to_string())))
+                                .heading_3(|a| a.text("Certificate Operations"));
+                            nav_section.anchor(|a|
+                                a.href("#csr-queue")
+                                .class("nav-item")
+                                .span(|s|
+                                    s.class("nav-icon").text("📝"))
+                                .text("CSR Queue")
+                                .span(|s|
+                                    s.class("nav-badge").text(quantity_pending_csr.to_string())));
+                            nav_section.anchor(|a| {
+                                match s.delivery {
+                                    crate::main_config::PageDelivery::Cgi => {
+                                        a.href("?action=request_signature");
+                                    }
+                                    crate::main_config::PageDelivery::DedicatedServer => {
+                                        a.href("ca/request.rs");
+                                    }
+                                }
+                                a.class("nav-item");
+                                a.span(|s|
+                                    s.class("nav-icon").text("📝"));
+                                a.text("Create a new CSR");
+                                a
+                            });
+                            let name = ca.public_names.first().unwrap();
+                            let intenturl = match s.delivery {
+                                crate::main_config::PageDelivery::Cgi => {
+                                    format!("{}{}/rust-iot.cgi", name.domain, name.subdomain)
+                                }
+                                crate::main_config::PageDelivery::DedicatedServer => {
+                                    format!("{}{}/register_android.rs", name.domain, name.subdomain)
+                                }
+                            };
+                            nav_section.anchor(|a| {
+                                let package = "com.uglyoldbob.RustIotNfc";
+                                let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
+                                let url = urlencoding::encode(url);
+                                let scheme = "registerscheme";
+                                let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
+                                a.href(format!("intent://{intenturl}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
+                                a.class("nav-item");
+                                a.span(|s|
+                                    s.class("nav-icon").text("📱"));
+                                a.text("Open in Android App");
+                                a
+                            });
+                            nav_section
                         });
                         nav.division(|nav_section| {
                             nav_section.class("nav-section")
@@ -1197,23 +1235,6 @@ async fn handle_ca_main_admin_page(
             });
             d
         });
-            match s.delivery {
-                crate::main_config::PageDelivery::Cgi => {
-                    b.anchor(|ab| {
-                        ab.text("Request a signature on a certificate");
-                        ab.href("?action=request_signature");
-                        ab
-                    });
-                }
-                crate::main_config::PageDelivery::DedicatedServer => {
-                    b.anchor(|ab| {
-                        ab.text("Request a signature on a certificate");
-                        ab.href("ca/request.rs");
-                        ab
-                    });
-                }
-            }
-            b.line_break(|lb| lb);
             if true {
                 match s.delivery {
                     crate::main_config::PageDelivery::Cgi => {
@@ -1233,26 +1254,6 @@ async fn handle_ca_main_admin_page(
                 }
                 b.line_break(|lb| lb);
             }
-            let name = ca.public_names.first().unwrap();
-            let intenturl = match s.delivery {
-                crate::main_config::PageDelivery::Cgi => {
-                    format!("{}{}/rust-iot.cgi", name.domain, name.subdomain)
-                }
-                crate::main_config::PageDelivery::DedicatedServer => {
-                    format!("{}{}/register_android.rs", name.domain, name.subdomain)
-                }
-            };
-            b.anchor(|ab| {
-                let package = "com.uglyoldbob.RustIotNfc";
-                let url = "https://play.google.com/store/apps/details?id=com.uglyoldbob.RustIotNfc";
-                let url = urlencoding::encode(url);
-                let scheme = "registerscheme";
-                let others = "action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;";
-                ab.href(format!("intent://{intenturl}#Intent;scheme={scheme};package={package};{others}S.browser_fallback_url={url};end"));
-                ab.text("Open in android app");
-                ab
-            });
-            b.line_break(|lb| lb);
             b
         });
     let html = html.build();
