@@ -671,7 +671,7 @@ async fn handle_ca_main_admin_page(
                                 .heading_3(|a| a.text("Dashboard"))
                                 .anchor(|a|
                                     a.href("#overview")
-                                    .class("nav-item active")
+                                    .class("nav-item")
                                     .span(|s|
                                         s.class("nav-icon").text("📊"))
                                     .text("Overview"))
@@ -704,6 +704,42 @@ async fn handle_ca_main_admin_page(
                                         s.class("nav-icon").text("⬇️"))
                                     .text("Download Certificates"))
                         });
+                        if !applets.is_empty() {
+                            nav.division(|nav_section| {
+                                nav_section.class("nav-section")
+                                    .heading_3(|a| a.text("Applets"));
+                                for applet in applets {
+                                    nav_section.anchor(|a| {
+                                        match s.delivery {
+                                            crate::main_config::PageDelivery::Cgi => {
+                                                a.href(format!("?action=view_applet&id={}", applet.0));
+                                            }
+                                            crate::main_config::PageDelivery::DedicatedServer => {
+                                                a.href(format!("ca/view_applet.rs?id={}", applet.0));
+                                            }
+                                        }
+                                        a.class("nav-item");
+                                        a.text(applet.1.name().to_string());
+                                        a
+                                    });
+                                }
+                                nav_section.anchor(|a| {
+                                    match s.delivery {
+                                        crate::main_config::PageDelivery::Cgi => {
+                                            a.href("?action=add_applet");
+                                        }
+                                        crate::main_config::PageDelivery::DedicatedServer => {
+                                            a.href("ca/add_applet.rs");
+                                        }
+                                    }
+                                    a.class("nav-item");
+                                    a.span(|s| s.class("nav-icon").text("➕"));
+                                    a.text("Add a new applet");
+                                    a
+                                });
+                                nav_section
+                            });
+                        }
                         nav
                     })
                 });
@@ -1182,23 +1218,6 @@ async fn handle_ca_main_admin_page(
                 match s.delivery {
                     crate::main_config::PageDelivery::Cgi => {
                         b.anchor(|ab| {
-                            ab.text("List pending requests");
-                            ab.href("?action=list_pending_requests");
-                            ab
-                        });
-                    }
-                    crate::main_config::PageDelivery::DedicatedServer => {
-                        b.anchor(|ab| {
-                            ab.text("List pending requests");
-                            ab.href("ca/list.rs");
-                            ab
-                        });
-                    }
-                }
-                b.line_break(|lb| lb);
-                match s.delivery {
-                    crate::main_config::PageDelivery::Cgi => {
-                        b.anchor(|ab| {
                             ab.text("Refresh certificate search");
                             ab.href("?action=refresh_certificate_search");
                             ab
@@ -1208,23 +1227,6 @@ async fn handle_ca_main_admin_page(
                         b.anchor(|ab| {
                             ab.text("Refresh certificate search");
                             ab.href("ca/refresh_certificate_search.rs");
-                            ab
-                        });
-                    }
-                }
-                b.line_break(|lb| lb);
-                match s.delivery {
-                    crate::main_config::PageDelivery::Cgi => {
-                        b.anchor(|ab| {
-                            ab.text("Add an applet");
-                            ab.href("?action=add_applet");
-                            ab
-                        });
-                    }
-                    crate::main_config::PageDelivery::DedicatedServer => {
-                        b.anchor(|ab| {
-                            ab.text("Add an applet");
-                            ab.href("ca/add_applet.rs");
                             ab
                         });
                     }
@@ -1251,28 +1253,6 @@ async fn handle_ca_main_admin_page(
                 ab
             });
             b.line_break(|lb| lb);
-            if !applets.is_empty() {
-                b.text("List of applets").line_break(|lb| lb);
-                for app in applets {
-                    match s.delivery {
-                        crate::main_config::PageDelivery::Cgi => {
-                            b.anchor(|ab| {
-                                ab.text(format!("APP: {}", app.1.name()));
-                                ab.href(format!("?action=view_applet&id={}", app.0));
-                                ab
-                            });
-                        }
-                        crate::main_config::PageDelivery::DedicatedServer => {
-                            b.anchor(|ab| {
-                                ab.text(format!("APP: {}", app.1.name()));
-                                ab.href(format!("ca/view_applet.rs?id={}", app.0));
-                                ab
-                            });
-                        }
-                    }
-                    b.line_break(|lb| lb);
-                }
-            }
             b
         });
     let html = html.build();
