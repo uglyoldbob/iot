@@ -35,6 +35,7 @@ pub struct AppletTable {
 }
 
 /// The main trait for each individual applet to implement
+#[allow(async_fn_in_trait)]
 #[enum_dispatch::enum_dispatch]
 pub trait AppletTrait {
     /// Get the applet name

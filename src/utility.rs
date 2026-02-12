@@ -93,8 +93,8 @@ pub struct DroppingProcess {
 
 impl Drop for DroppingProcess {
     fn drop(&mut self) {
-        self.c.kill();
-        self.c.wait();
+        let _ = self.c.kill();
+        let _ = self.c.wait();
     }
 }
 

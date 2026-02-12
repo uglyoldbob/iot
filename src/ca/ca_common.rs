@@ -2455,8 +2455,11 @@ impl PkiConfigurationEnumAnswers {
     pub fn get_username(&self) -> Option<String> {
         match self {
             PkiConfigurationEnumAnswers::Pki(config) => config.service.username.clone(),
-            PkiConfigurationEnumAnswers::AddedCa(config) => None,
-            PkiConfigurationEnumAnswers::Ca { pki_name, config } => config
+            PkiConfigurationEnumAnswers::AddedCa(_config) => None,
+            PkiConfigurationEnumAnswers::Ca {
+                pki_name: _,
+                config,
+            } => config
                 .service
                 .as_ref()
                 .map(|s| s.username.clone())
@@ -2975,6 +2978,8 @@ pub enum CaLoadError {
     GeneralSettingsMissing,
     /// Failed to create admin certificate using external provider
     AdminCreationExternalFailed(String),
+    /// Failed to validate the storage
+    FailedToValidateStorage,
 }
 
 impl From<&CertificateLoadingError> for CaLoadError {
@@ -3328,7 +3333,7 @@ impl PkiInstance {
                         name,
                         instance,
                     } => {
-                        Pki::handle_local_ca_configuration(
+                        let _ = Pki::handle_local_ca_configuration(
                             &mut pki.all_ca,
                             &name,
                             &instance,
@@ -3340,8 +3345,8 @@ impl PkiInstance {
                         .await;
                     }
                     crate::main_config::ExtendedConfiguration::ExtraPkiRemoteCaInstance {
-                        name,
-                        instance,
+                        name: _,
+                        instance: _,
                     } => {}
                 }
             }
@@ -5517,7 +5522,10 @@ impl Ca {
             .build()
             .await
             .map_err(|e| CaLoadError::StorageError(e))?;
-        medium.validate().await;
+        medium
+            .validate()
+            .await
+            .map_err(|_e| CaLoadError::FailedToValidateStorage)?;
         Ok(Self {
             public_names: settings.public_names.clone(),
             database: settings.database.clone(),

@@ -126,7 +126,7 @@ async fn run_command(
                 .unwrap_or_default()
                 .to_bytes();
             let b = b.as_ref();
-            if let Some(ct) = resp.response.headers().get("Content-Type") {
+            if resp.response.headers().get("Content-Type").is_some() {
                 let mut r = cgi::Response::new(b.to_vec());
                 for h in resp.response.headers() {
                     r.headers_mut().append(h.0, h.1.to_owned());
@@ -174,7 +174,7 @@ async fn run_command(
                 .unwrap_or_default()
                 .to_bytes();
             let b = b.as_ref();
-            if let Some(ct) = resp.response.headers().get("Content-Type") {
+            if resp.response.headers().get("Content-Type").is_some() {
                 let mut r = cgi::Response::new(b.to_vec());
                 for h in resp.response.headers() {
                     r.headers_mut().append(h.0, h.1.to_owned());
@@ -262,7 +262,7 @@ async fn run_command(
                     .unwrap_or_default()
                     .to_bytes();
                 let b = b.as_ref();
-                if let Some(ct) = resp.response.headers().get("Content-Type") {
+                if resp.response.headers().get("Content-Type").is_some() {
                     let mut r = cgi::Response::new(b.to_vec());
                     for h in resp.response.headers() {
                         r.headers_mut().append(h.0, h.1.to_owned());

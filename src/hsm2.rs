@@ -376,7 +376,7 @@ impl SecurityModuleTrait for Ssm {
                         service::log::error!("ERROR making file {}: {}", newpath.display(), e)
                     })
                     .ok()?;
-                f.write_all(kpd.as_bytes());
+                f.write_all(kpd.as_bytes()).ok()?;
                 let pubkey = rsa::RsaPublicKey::from(kp.clone());
                 let pubbytes = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&pubkey)
                     .expect("Failed to build public key bytes");
@@ -404,7 +404,7 @@ impl SecurityModuleTrait for Ssm {
                 let cert = doc.as_ref().to_vec();
                 let newpath = self.path.join(name);
                 let mut f = std::fs::File::create(newpath).ok()?;
-                f.write_all(&cert);
+                f.write_all(&cert).ok()?;
                 let k = SsmEcdsaSha256Keypair {
                     cert,
                     pubkey: ring::signature::KeyPair::public_key(&keypair)

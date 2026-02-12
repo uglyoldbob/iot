@@ -2540,8 +2540,7 @@ impl Ev1 {
                                                     Ok(())
                                                 })
                                                 .await
-                                                .map_err(|_| ());
-                                                Ok(())
+                                                .map_err(|_| ())
                                             }
                                         };
                                         match r {
