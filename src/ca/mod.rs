@@ -603,10 +603,21 @@ fn general_name_to_string(n: &x509_cert::ext::pkix::name::GeneralName) -> Option
     }
 }
 
-fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: &WebPageContext, ca: &mut Ca, issued_certificates: i64) {
+fn certificate_info(
+    main_content: &mut html::content::builders::MainBuilder,
+    s: &WebPageContext,
+    ca: &mut Ca,
+    issued_certificates: i64,
+) {
     main_content.division(|overview| {
-        overview.class("section-header").style("margin-top: 48px;").id("ca-info")
-            .heading_3(|h3| h3.class("section-title").text("Certificate Authority Information"))
+        overview
+            .class("section-header")
+            .style("margin-top: 48px;")
+            .id("ca-info")
+            .heading_3(|h3| {
+                h3.class("section-title")
+                    .text("Certificate Authority Information")
+            })
     });
     main_content.division(|card| {
         card.class("ca-card");
@@ -628,7 +639,8 @@ fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: 
         });
         card.division(|info| {
             info.class("ca-info");
-            let name = ca.root_ca_cert()
+            let name = ca
+                .root_ca_cert()
                 .ok()
                 .and_then(|r| r.x509_cert().ok())
                 .map(|c| {
@@ -641,87 +653,106 @@ fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: 
                 .unwrap_or("Unknown".to_string());
             info.division(|d2| {
                 d2.class("ca-info-item");
-                d2.division(|d3| {
-                    d3.class("ca-info-label").text("Subject DN")
-                });
-                d2.division(|d3| {
-                    d3.class("ca-info-value").text(name)
-                });
+                d2.division(|d3| d3.class("ca-info-label").text("Subject DN"));
+                d2.division(|d3| d3.class("ca-info-value").text(name));
                 d2
             });
-            let serial = ca.root_ca_cert()
+            let serial = ca
+                .root_ca_cert()
                 .ok()
                 .and_then(|r| r.x509_cert().ok())
                 .map(|c| crate::utility::display_hex(c.tbs_certificate.serial_number.as_bytes()))
                 .unwrap_or("Unknown".to_string());
             info.division(|d2| {
                 d2.class("ca-info-item");
-                d2.division(|d3| {
-                    d3.class("ca-info-label").text("Serial number")
-                });
-                d2.division(|d3| {
-                    d3.class("ca-info-value").text(serial)
-                });
+                d2.division(|d3| d3.class("ca-info-label").text("Serial number"));
+                d2.division(|d3| d3.class("ca-info-value").text(serial));
                 d2
             });
-            let valid_until = ca.root_ca_cert()
+            let valid_until = ca
+                .root_ca_cert()
                 .ok()
                 .and_then(|r| r.x509_cert().ok())
-                .map(|c| c.tbs_certificate.validity.not_after.to_date_time().to_string())
+                .map(|c| {
+                    c.tbs_certificate
+                        .validity
+                        .not_after
+                        .to_date_time()
+                        .to_string()
+                })
                 .unwrap_or("Unknown".to_string());
             info.division(|d2| {
                 d2.class("ca-info-item");
-                d2.division(|d3| {
-                    d3.class("ca-info-label").text("Valid Until")
-                });
-                d2.division(|d3| {
-                    d3.class("ca-info-value").text(valid_until)
-                });
+                d2.division(|d3| d3.class("ca-info-label").text("Valid Until"));
+                d2.division(|d3| d3.class("ca-info-value").text(valid_until));
                 d2
             });
             info.division(|d2| {
                 d2.class("ca-info-item");
+                d2.division(|d3| d3.class("ca-info-label").text("Certificates issued"));
                 d2.division(|d3| {
-                    d3.class("ca-info-label").text("Certificates issued")
-                });
-                d2.division(|d3| {
-                    d3.class("ca-info-value").text(issued_certificates.to_string())
+                    d3.class("ca-info-value")
+                        .text(issued_certificates.to_string())
                 });
                 d2
             });
             info
         });
         card.details(|d| {
-            d.summary(|s|s.text("View Additional Details"));
+            d.summary(|s| s.text("View Additional Details"));
             d.division(|d2| {
-                d2.style("padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;");
+                d2.style(
+                    "padding: 16px; background: #f7fafc; border-radius: 8px; margin-top: 12px;",
+                );
                 d2.division(|d3| {
                     d3.style("margin-bottom: 12px;");
-                    let key = ca.root_ca_cert()
+                    let key = ca
+                        .root_ca_cert()
                         .ok()
                         .and_then(|r| r.x509_cert().ok())
                         .map(|c| public_key_readable(c.tbs_certificate.subject_public_key_info))
                         .unwrap_or("Unknown".to_string());
-                    let fingerprint = ca.root_ca_cert()
+                    let fingerprint = ca
+                        .root_ca_cert()
                         .ok()
                         .and_then(|r| r.x509_cert().ok())
-                        .and_then(|c| c.tbs_certificate.subject_public_key_info.fingerprint_bytes().ok())
+                        .and_then(|c| {
+                            c.tbs_certificate
+                                .subject_public_key_info
+                                .fingerprint_bytes()
+                                .ok()
+                        })
                         .map(|d| crate::utility::display_hex(&d))
                         .unwrap_or("Unknown".to_string());
-                    let signature = ca.root_ca_cert()
+                    let signature = ca
+                        .root_ca_cert()
                         .ok()
                         .and_then(|r| r.x509_cert().ok())
                         .map(|c| signature_readable(&c.tbs_certificate.signature))
                         .unwrap_or("Unknown".to_string());
-                    let issued = ca.root_ca_cert()
+                    let issued = ca
+                        .root_ca_cert()
                         .ok()
                         .and_then(|r| r.x509_cert().ok())
-                        .map(|c| c.tbs_certificate.validity.not_before.to_date_time().to_string())
+                        .map(|c| {
+                            c.tbs_certificate
+                                .validity
+                                .not_before
+                                .to_date_time()
+                                .to_string()
+                        })
                         .unwrap_or("Unknown".to_string());
-                    d3.strong(|s| s.text("Key Algorithm")).text(format!(" {key}")).line_break(|a|a);
-                    d3.strong(|s| s.text("Signature Algorithm")).text(format!(" {signature}")).line_break(|a|a);
-                    d3.strong(|s| s.text("Issued On:")).text(format!(" {issued}")).line_break(|a|a);
-                    d3.strong(|s| s.text("Fingerprint (SHA-256):")).text(format!(" {fingerprint}"));
+                    d3.strong(|s| s.text("Key Algorithm"))
+                        .text(format!(" {key}"))
+                        .line_break(|a| a);
+                    d3.strong(|s| s.text("Signature Algorithm"))
+                        .text(format!(" {signature}"))
+                        .line_break(|a| a);
+                    d3.strong(|s| s.text("Issued On:"))
+                        .text(format!(" {issued}"))
+                        .line_break(|a| a);
+                    d3.strong(|s| s.text("Fingerprint (SHA-256):"))
+                        .text(format!(" {fingerprint}"));
                     d3
                 });
                 d2
@@ -743,7 +774,9 @@ fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: 
                         }
                     }
                     a.target("_blank");
-                    a.class("btn btn-success").download("").text("Download PEM Format");
+                    a.class("btn btn-success")
+                        .download("")
+                        .text("Download PEM Format");
                     a.span(|s| s.text("📄"));
                     a
                 });
@@ -757,7 +790,9 @@ fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: 
                         }
                     }
                     a.target("_blank");
-                    a.class("btn btn-success").download("").text("Download DER Format");
+                    a.class("btn btn-success")
+                        .download("")
+                        .text("Download DER Format");
                     a.span(|s| s.text("📄"));
                     a
                 });
@@ -771,7 +806,9 @@ fn certificate_info(main_content: &mut html::content::builders::MainBuilder, s: 
                         }
                     }
                     a.target("_blank");
-                    a.class("btn btn-secondary").download("").text("Download Certificate Chain (PEM)");
+                    a.class("btn btn-secondary")
+                        .download("")
+                        .text("Download Certificate Chain (PEM)");
                     a.span(|s| s.text("🔗"));
                     a
                 });
@@ -1332,10 +1369,262 @@ async fn handle_ca_main_user_page(
                 });
                 main_div.main(|main_content| {
                     main_content.class("content-area");
+                    main_content.division(|d| {
+                        d.class("welcome-section");
+                        d.paragraph(|p|p.text("Request certificates and download CA certificates for your organization"));
+                        d.anchor(|a| {
+                            a.href("#new-csr");
+                            a.class("btn btn-secondary");
+                            a.style(|s| s.text("background: white; color: #1e3c72;"));
+                            a.span(|s|s.text("➕"));
+                            a.text("Request New Certificate");
+                            a
+                        });
+                        d
+                    });
+                    main_content.division(|d| {
+                        d.class("section-header");
+                        d.heading_3(|h| h.class("section-title").text("Quick Actions"));
+                        d
+                    });
+                    main_content.division(|d| {
+                        d.style("display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 40px;");
+                        d.division(|d2| {
+                            d2.style("background: white; border-radius: 12px; padding: 24px; border: 2px solid #e2e8f0; transition: all 0.2s ease;");
+                            d2.division(|d3| {
+                                d3.style("display: flex; align-items: center; gap: 12px; margin-bottom: 16px;");
+                                d3.division(|d4| {
+                                    d4.style("width: 48px; height: 48px; background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 24px;");
+                                    d4.text("📝");
+                                    d4
+                                });
+                                d3.division(|d4| {
+                                    d4.style("font-size: 18px; font-weight: 700; color: #1a202c;").text("Request Certificate")
+                                });
+                                d3
+                            });
+                            d2.division(|d3| {
+                                d3.style("color: #4a5568; font-size: 14px; line-height: 1.6; margin-bottom: 16px;");
+                                d3.text("Submit a Certificate Signing Request (CSR) to obtain a new certificate for your domain or service.");
+                                d3.line_break(|a|a);
+                                d3.anchor(|a| {
+                                    a.href("#new-csr").class("btn btn-primary").span(|s|s.text("➕")).text("Create CSR")
+                                });
+                                d3
+                            });
+                            d2
+                        });
+                        d.division(|d2| {
+                            d2.style("background: white; border-radius: 12px; padding: 24px; border: 2px solid #e2e8f0; transition: all 0.2s ease;");
+                            d2.division(|d3| {
+                                d3.style("display: flex; align-items: center; gap: 12px; margin-bottom: 16px;");
+                                d3.division(|d4| {
+                                    d4.style("width: 48px; height: 48px; background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 24px;");
+                                    d4.text("⬇️");
+                                    d4
+                                });
+                                d3.division(|d4| {
+                                    d4.style("font-size: 18px; font-weight: 700; color: #1a202c;").text("Download CA Certificates")
+                                });
+                                d3
+                            });
+                            d2.division(|d3| {
+                                d3.style("color: #4a5568; font-size: 14px; line-height: 1.6; margin-bottom: 16px;");
+                                d3.text("Download the Certificate Authority certificates to install on your systems and establish trust.");
+                                d3.line_break(|a|a);
+                                d3.anchor(|a| {
+                                    a.href("#download-certs").class("btn btn-primary").span(|s|s.text("⬇️")).text("Download")
+                                });
+                                d3
+                            });
+                            d2
+                        });
+                        d.division(|d2| {
+                            d2.style("background: white; border-radius: 12px; padding: 24px; border: 2px solid #e2e8f0; transition: all 0.2s ease;");
+                            d2.division(|d3| {
+                                d3.style("display: flex; align-items: center; gap: 12px; margin-bottom: 16px;");
+                                d3.division(|d4| {
+                                    d4.style("width: 48px; height: 48px; background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 24px;");
+                                    d4.text("📚");
+                                    d4
+                                });
+                                d3.division(|d4| {
+                                    d4.style("font-size: 18px; font-weight: 700; color: #1a202c;").text("Download CA Certificates")
+                                });
+                                d3
+                            });
+                            d2.division(|d3| {
+                                d3.style("color: #4a5568; font-size: 14px; line-height: 1.6; margin-bottom: 16px;");
+                                d3.text("Learn how to generate CSRs, install certificates, and troubleshoot common issues.");
+                                d3.line_break(|a|a);
+                                d3.anchor(|a| {
+                                    a.href("#documentation").class("btn btn-primary").span(|s|s.text("📖")).text("View Docs")
+                                });
+                                d3
+                            });
+                            d2
+                        });
+                        d
+                    });
                     certificate_info(main_content, s, ca, issued_certificates);
+                    main_content.division(|d| {
+                        d.class("info-box");
+                        d.division(|d2| {
+                            d2.class("info-box-title");
+                            d2.span(|s|s.text("ℹ️"));
+                            d2
+                        });
+                        d.division(|d2| {
+                            d2.class("info-box-content");
+                            d2.strong(|s| s.text("Windows: "))
+                                .text(" Double-click the certificate file and follow the Certificate Import Wizard. Install to \"Trusted Root Certification Authorities\".")
+                                .line_break(|a|a)
+                                .line_break(|a|a);
+                            d2.strong(|s| s.text("macOS: ")).text(" Double-click the certificate file to open Keychain Access. Add to System keychain and set to \"Always Trust\".")
+                                .line_break(|a|a)
+                                .line_break(|a|a);
+                            d2.strong(|s| s.text("Linux: "))
+                                .text(" Copy the certificate to ")
+                                .code(|c|c.text("/usr/local/share/ca-certificates/"))
+                                .text(" and run ")
+                                .code(|c|c.text("sudo update-ca-certificates"))
+                                .line_break(|a|a)
+                                .line_break(|a|a);
+                            d2.text("For detailed instructions, see the ")
+                                .anchor(|a|
+                                    a.href("#documentation")
+                                        .style(|s|s.text("color: #1e3c72; font-weight: 600;"))
+                                        .text("documentation")
+                                    );
+                            d2
+                        });
+                        d
+                    });
                     main_content
                 });
                 main_div
+            });
+            d
+        });
+        b.division(|d| {
+            d.id("new-csr").class("modal");
+            d.division(|d2| {
+                d2.class("modal-content");
+                d2.division(|d3| {
+                    d3.class("modal-header");
+                    d3.heading_2(|h| h.text("Request New Certificate"));
+                    d3.anchor(|a|a.href("#").class("close-btn").text("&times;"));
+                    d3
+                });
+                d2.division(|d3| {
+                    d3.class("modal-body");
+                    d3.division(|d4| {
+                        d4.class("info-box");
+                        d4.division(|d5| {
+                            d5.class("info-box-title");
+                            d5.span(|s|s.text("ℹ️"));
+                            d5.text("Certificate Signing Request");
+                            d5
+                        });
+                        d4.division(|d5| {
+                            d5.class("info-box-content");
+                            d5.text("Fill out this form to submit a Certificate Signing Request (CSR). Your request will be reviewed by the CA administrator and you will be notified when your certificate is ready.");
+                            d5
+                        });
+                        d4
+                    });
+                    d3.form(|f| {
+                        f.method("post");
+                        f.action("/submit_csr");
+                        f.division(|d4| {
+                            d4.class("form-group");
+                            d4.select(|s| {
+                                s.name("cert_type").required(true);
+                                s.option(|o|o.value("").text("-- Select Type -- "));
+                                s.option(|o|o.value("ssl_tls").text("SSL/TLS Server Authentication"));
+                                s.option(|o|o.value("code_signing").text("Code Signing"));
+                                s.option(|o|o.value("email").text("Email (S/MIME)"));
+                                s.option(|o|o.value("client_auth").text("Client Authentication"));
+                                s
+                            });
+                            d4
+                        });
+                        f.division(|d4| {
+                            d4.class("form-grid");
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Common Name (CN)"));
+                                d5.input(|i| i.type_("text").name("common_name").placeholder("example.com or your.name@company.com").required(""));
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Organization (O)"));
+                                d5.input(|i| i.type_("text").name("organization").placeholder("Company Inc").required(""));
+                                d5
+                            });
+                            d4
+                        });
+                        f.division(|d4| {
+                            d4.class("form-grid");
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Organizational Unit (OU)"));
+                                d5.input(|i| i.type_("text").name("org_unit").placeholder("IT Department").required(""));
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Country (C)"));
+                                d5.input(|i| i.type_("text").name("country").placeholder("US").maxlength("2").required(""));
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Subject Alternative Names (SAN)"));
+                                d5.text_area(|ta| ta.rows(3).name("san").placeholder("www.example.com&#10;*.example.com&#10;api.example.com"));
+                                d5.side_comment(|s|s.style("color: #718096; font-size: 12px;").text("One domain per line. Leave empty if not needed."));
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Requested Validity Period"));
+                                d5.select(|s| {
+                                    s.name("validity");
+                                    s.option(|o|o.value("90").text("90 days"));
+                                    s.option(|o|o.value("180").text("180 days"));
+                                    s.option(|o|o.value("365").text("1 year").selected(true));
+                                    s.option(|o|o.value("730").text("2 years"));
+                                    s
+                                });
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("form-group");
+                                d5.label(|l|l.text("Business Justification"));
+                                d5.text_area(|ta| ta.rows(4).name("justification")
+                                    .placeholder("Please explain the purpose of this certificate and which service it will be used for..."));
+                                d5
+                            });
+                            d4.division(|d5| {
+                                d5.class("modal-footer");
+                                d5.anchor(|a|a.href("#").class("btn btn-secondary").text("Cancel"));
+                                d5.button(|b| {
+                                    b.type_("submit")
+                                        .class("btn btn-primary")
+                                        .span(|s| s.text("📝"))
+                                        .text("submit CSR");
+                                    b
+                                });
+                                d5
+                            });
+                            d4
+                        });
+                        f
+                    });
+                    d3
+                });
+                d2
             });
             d
         });
