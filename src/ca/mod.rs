@@ -1076,164 +1076,350 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
     .await;
 
     let mut html = html::root::Html::builder();
-    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())))
-        .body(|b| {
-            if let Some(serial) = s.get.get("serial") {
-                if let Some(csrr) = csrr {
-                    let serials = crate::utility::encode_hex(&csrr.sn);
-                    use der::DecodePem;
-                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                    if let Ok(csr) = csr {
-                        let csr_names: Vec<String> = csr
-                            .info
-                            .subject
-                            .0
-                            .iter()
-                            .map(|n| format!("{}", n))
-                            .collect();
-                        let t = csr_names.join(", ");
-                        b.anchor(|ab| {
-                            ab.text("Back to all requests");
-                            match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => {
-                                    ab.href("?action=list_pending_requests")
-                                }
-                                crate::main_config::PageDelivery::DedicatedServer => {
-                                    ab.href("list.rs")
-                                }
-                            };
-                            ab
-                        })
-                        .line_break(|a| a);
-                        b.text(t).line_break(|a| a);
-                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
-                        for attr in csr.info.attributes.iter() {
-                            for p in attr.values.iter() {
-                                let pa = cert_common::CsrAttribute::with_oid_and_any(
-                                    Oid::from_const(attr.oid),
-                                    p.to_owned(),
-                                );
-                                if let Some(pa) = pa {
-                                    match pa {
-                                        cert_common::CsrAttribute::ExtendedKeyUsage(ek) => {
-                                            for key_use in ek {
-                                                b.text(format!("\tUsage: {:?}", key_use))
-                                                    .line_break(|a| a);
+    html.head(|h| generic_head(h, s, ca).title(|t| t.text(ca.config.common_name.to_owned())));
+    html.body(|b| {
+        b.division(|d| {
+            d.class("container");
+
+            d.header(|h| {
+                h.division(|logo_div| {
+                    logo_div.class("logo");
+                    logo_div.division(|d| d.class("logo-icon").text("🔐"));
+                    logo_div.division(|d| d.class("logo-text")
+                        .heading_1(|h|h.text("Certificate Authority"))
+                        .paragraph(|p|p.text("Admin Portal")));
+                    logo_div
+                });
+                h.division(|header_actions| {
+                    header_actions.class("header-actions");
+                    header_actions.division(|user_profile| {
+                        user_profile.class("user-profile")
+                            .division(|user_avatar| {
+                                user_avatar.class("user-avatar").text("AD")
+                            })
+                            .division(|div| {
+                                div.division(|div| div.style("font-weight: 600; font-size: 14px;").text("Admin User"))
+                                    .division(|div|div.style("font-size: 12px; color: #718096;").text("Super Admin"))
+                            })
+                    });
+                    header_actions
+                });
+                h
+            });
+
+            // Main content area
+            d.division(|content| {
+                content.class("content-area");
+
+                if admin {
+                    if let Some(serial) = s.get.get("serial") {
+                        // Single CSR Detail View
+                        if let Some(csrr) = csrr {
+                            let serials = crate::utility::encode_hex(&csrr.sn);
+                            use der::DecodePem;
+                            let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                            
+                            if let Ok(csr) = csr {
+                                let csr_names: Vec<String> = csr
+                                    .info
+                                    .subject
+                                    .0
+                                    .iter()
+                                    .map(|n| format!("{}", n))
+                                    .collect();
+                                let t = csr_names.join(", ");
+
+                                // Page header
+                                content.division(|header| {
+                                    header.class("page-header");
+                                    header.heading_2(|h2| {
+                                        h2.class("page-title").text("Review Certificate Request")
+                                    });
+                                    header.anchor(|a| {
+                                        a.class("btn btn-secondary").text("← Back to All Requests");
+                                        match s.delivery {
+                                            crate::main_config::PageDelivery::Cgi => {
+                                                a.href("?")
                                             }
-                                        }
-                                        cert_common::CsrAttribute::ChallengePassword(p) => {
-                                            b.text(format!("\tChallenge password: {}", p))
-                                                .line_break(|a| a);
-                                        }
-                                        cert_common::CsrAttribute::UnstructuredName(n) => {
-                                            b.text(format!("\tChallenge name: {}", n))
-                                                .line_break(|a| a);
-                                        }
-                                        cert_common::CsrAttribute::Unrecognized(oid, _a) => {
-                                            b.text(format!("\tUnrecognized: {:?}", oid))
-                                                .line_break(|a| a);
-                                        }
+                                            crate::main_config::PageDelivery::DedicatedServer => {
+                                                a.href("list.rs")
+                                            }
+                                        };
+                                        a
+                                    });
+                                    header
+                                });
+
+                                // CSR Card
+                                content.division(|card| {
+                                    card.class("csr-card");
+
+                                    // Header section
+                                    card.division(|header| {
+                                        header.class("csr-header");
+                                        header.division(|subject| {
+                                            subject.class("csr-subject").text(t)
+                                        });
+                                        header
+                                    });
+
+                                    // Requestor Information
+                                    card.division(|info| {
+                                        info.class("section-title").text("Requestor Information")
+                                    });
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Name:"));
+                                        row.division(|value| value.class("info-value").text(csrr.name));
+                                        row
+                                    });
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Email:"));
+                                        row.division(|value| value.class("info-value").text(csrr.email));
+                                        row
+                                    });
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Phone:"));
+                                        row.division(|value| value.class("info-value").text(csrr.phone));
+                                        row
+                                    });
+
+                                    // Certificate Attributes
+                                    let has_attributes = !csr.info.attributes.is_empty();
+                                    if has_attributes {
+                                        card.division(|title| {
+                                            title.class("section-title").text("Certificate Attributes")
+                                        });
+
+                                        card.division(|attr_container| {
+                                            attr_container.class("attribute-list");
+
+                                            for attr in csr.info.attributes.iter() {
+                                                for p in attr.values.iter() {
+                                                    let pa = cert_common::CsrAttribute::with_oid_and_any(
+                                                        Oid::from_const(attr.oid),
+                                                        p.to_owned(),
+                                                    );
+                                                    if let Some(pa) = pa {
+                                                        match pa {
+                                                            cert_common::CsrAttribute::ExtendedKeyUsage(ek) => {
+                                                                for key_use in ek {
+                                                                    attr_container.division(|item| {
+                                                                        item.class("attribute-item")
+                                                                            .text(format!("Usage: {:?}", key_use))
+                                                                    });
+                                                                }
+                                                            }
+                                                            cert_common::CsrAttribute::ChallengePassword(p) => {
+                                                                attr_container.division(|item| {
+                                                                    item.class("attribute-item")
+                                                                        .text(format!("Challenge Password: {}", p))
+                                                                });
+                                                            }
+                                                            cert_common::CsrAttribute::UnstructuredName(n) => {
+                                                                attr_container.division(|item| {
+                                                                    item.class("attribute-item")
+                                                                        .text(format!("Challenge Name: {}", n))
+                                                                });
+                                                            }
+                                                            cert_common::CsrAttribute::Unrecognized(oid, _a) => {
+                                                                attr_container.division(|item| {
+                                                                    item.class("attribute-item")
+                                                                        .text(format!("Unrecognized Attribute: {:?}", oid))
+                                                                });
+                                                            }
+                                                        }
+                                                    } else {
+                                                        attr_container.division(|item| {
+                                                            item.class("attribute-item")
+                                                                .text(format!("Attribute {} not processed", attr.oid))
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                            attr_container
+                                        });
                                     }
-                                } else {
-                                    b.text(format!(
-                                        "Attribute {} {:02x?} not processed",
-                                        attr.oid, p
-                                    ))
-                                    .line_break(|a| a);
-                                }
+
+                                    // Action buttons
+                                    card.division(|actions| {
+                                        actions.class("action-section");
+                                        actions.anchor(|a| {
+                                            a.class("btn btn-primary").text("✅ Sign This Request");
+                                            match s.delivery {
+                                                crate::main_config::PageDelivery::Cgi => {
+                                                    a.href(format!("?action=request_sign&serial={}", serials))
+                                                }
+                                                crate::main_config::PageDelivery::DedicatedServer => {
+                                                    a.href(format!("request_sign.rs?serial={}", serials))
+                                                }
+                                            };
+                                            a
+                                        });
+                                        actions
+                                    });
+
+                                    card
+                                });
+
+                                // Rejection Form
+                                content.division(|reject_container| {
+                                    reject_container.class("reject-form");
+                                    
+                                    reject_container.division(|title| {
+                                        title.class("section-title").text("Reject Request")
+                                    });
+
+                                    reject_container.form(|f| {
+                                        match s.delivery {
+                                            crate::main_config::PageDelivery::Cgi => {
+                                                f.input(|i| {
+                                                    i.type_("hidden")
+                                                        .id("action")
+                                                        .name("action")
+                                                        .value("request_reject")
+                                                });
+                                            }
+                                            crate::main_config::PageDelivery::DedicatedServer => {
+                                                f.action("request_reject.rs");
+                                            }
+                                        };
+
+                                        f.input(|i| {
+                                            i.type_("hidden").id("serial").name("serial").value(serials)
+                                        });
+
+                                        f.division(|form_group| {
+                                            form_group.class("form-group");
+                                            form_group.label(|label| {
+                                                label.for_("rejection").text("Rejection Reason")
+                                            });
+                                            form_group.input(|i| {
+                                                i.type_("text")
+                                                    .id("rejection")
+                                                    .name("rejection")
+                                                    .placeholder("Provide a reason for rejection")
+                                                    .required("")
+                                            });
+                                            form_group
+                                        });
+
+                                        f.input(|i| {
+                                            i.type_("submit")
+                                                .value("❌ Reject This Request")
+                                                .class("btn btn-danger")
+                                        });
+
+                                        f
+                                    });
+
+                                    reject_container
+                                });
                             }
                         }
-                        b.anchor(|ab| {
-                            ab.text("Sign this request");
-                            match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => {
-                                    ab.href(format!("?action=request_sign&serial={}", serials))
+                    } else {
+                        // List All Pending Requests
+                        content.division(|header| {
+                            header.class("page-header");
+                            header.heading_2(|h2| {
+                                h2.class("page-title").text("Pending Certificate Requests")
+                            });
+                            header
+                        });
+
+                        let mut index_shown = 0;
+                        for (csrr, serial) in csr_list {
+                            use der::DecodePem;
+                            let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
+                            
+                            if let Ok(csr) = csr {
+                                if index_shown > 0 {
+                                    //content.tag("hr", |hr| hr);
                                 }
-                                crate::main_config::PageDelivery::DedicatedServer => {
-                                    ab.href(format!("request_sign.rs?serial={}", serials))
-                                }
-                            };
-                            ab
-                        })
-                        .line_break(|a| a);
-                        b.form(|f| {
-                            match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => {
-                                    f.input(|i| {
-                                        i.type_("hidden")
-                                            .id("action")
-                                            .name("action")
-                                            .value("request_reject")
+                                index_shown += 1;
+
+                                let csr_names: Vec<String> = csr
+                                    .info
+                                    .subject
+                                    .0
+                                    .iter()
+                                    .map(|n| format!("{}", n))
+                                    .collect();
+                                let t = csr_names.join(", ");
+                                let serials = crate::utility::encode_hex(&serial);
+
+                                content.division(|card| {
+                                    card.class("csr-card");
+
+                                    card.division(|subject| {
+                                        subject.class("csr-subject").text(t)
                                     });
-                                }
-                                crate::main_config::PageDelivery::DedicatedServer => {
-                                    f.action("request_reject.rs");
-                                }
-                            };
-                            f.text("Reject reason")
-                                .line_break(|a| a)
-                                .input(|i| {
-                                    i.type_("hidden").id("serial").name("serial").value(serials)
-                                })
-                                .input(|i| i.type_("text").id("rejection").name("rejection"))
-                                .line_break(|a| a);
-                            f.input(|i| i.type_("submit").value("Reject this request"))
-                                .line_break(|a| a);
-                            f
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Name:"));
+                                        row.division(|value| value.class("info-value").text(csrr.name));
+                                        row
+                                    });
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Email:"));
+                                        row.division(|value| value.class("info-value").text(csrr.email));
+                                        row
+                                    });
+
+                                    card.division(|row| {
+                                        row.class("info-row");
+                                        row.division(|label| label.class("info-label").text("Phone:"));
+                                        row.division(|value| value.class("info-value").text(csrr.phone));
+                                        row
+                                    });
+
+                                    card.division(|actions| {
+                                        actions.class("action-section");
+                                        actions.anchor(|a| {
+                                            a.class("btn btn-primary").text("👁️ View This Request");
+                                            match s.delivery {
+                                                crate::main_config::PageDelivery::Cgi => {
+                                                    a.href(format!("?action=list_pending_requests&serial={}", serials))
+                                                }
+                                                crate::main_config::PageDelivery::DedicatedServer => {
+                                                    a.href(format!("list.rs?serial={}", serials))
+                                                }
+                                            };
+                                            a
+                                        });
+                                        actions
+                                    });
+
+                                    card
+                                });
+                            }
+                        }
+
+                        content.division(|footer| {
+                            footer.class("action-section");
+                            footer.anchor(|a| {
+                                a.class("btn btn-secondary").text("← Back to Main Page").href("?")
+                            });
+                            footer
                         });
                     }
                 }
-            } else if admin {
-                b.text("List all pending requests");
-                b.line_break(|a| a);
-                let mut index_shown = 0;
-                for (csrr, serial) in csr_list {
-                    use der::DecodePem;
-                    let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                    if let Ok(csr) = csr {
-                        if index_shown > 0 {
-                            b.thematic_break(|a| a);
-                        }
-                        index_shown += 1;
-                        let csr_names: Vec<String> = csr
-                            .info
-                            .subject
-                            .0
-                            .iter()
-                            .map(|n| format!("{}", n))
-                            .collect();
-                        let t = csr_names.join(", ");
-                        let serials = crate::utility::encode_hex(&serial);
-                        b.anchor(|ab| {
-                            ab.text("View this request");
-                            match s.delivery {
-                                crate::main_config::PageDelivery::Cgi => ab.href(format!(
-                                    "?action=list_pending_requests&serial={}",
-                                    serials
-                                )),
-                                crate::main_config::PageDelivery::DedicatedServer => {
-                                    ab.href(format!("list.rs?serial={}", serials))
-                                }
-                            };
-                            ab
-                        })
-                        .line_break(|a| a);
-                        b.text(t).line_break(|a| a);
-                        b.text(format!("Name: {}", csrr.name)).line_break(|a| a);
-                        b.text(format!("Email: {}", csrr.email)).line_break(|a| a);
-                        b.text(format!("Phone: {}", csrr.phone)).line_break(|a| a);
-                    }
-                }
-                b.anchor(|ab| {
-                    ab.text("Back to main page");
-                    ab.href("?");
-                    ab
-                });
-            }
-            b
+
+                content
+            });
+
+            d
         });
+        b
+    });
     let html = html.build();
 
     let response = hyper::Response::new("dummy");

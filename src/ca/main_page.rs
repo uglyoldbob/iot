@@ -671,8 +671,6 @@ async fn handle_ca_main_admin_page(
                                                 a.text("Review");
                                                 a
                                             });
-                                            d.anchor(|a|a.href("#approve-modal").class("action-btn approve").text("Approve"));
-                                            d.anchor(|a|a.href("#reject-modal").class("action-btn reject").text("Reject"));
                                             d
                                         });
                                         c
