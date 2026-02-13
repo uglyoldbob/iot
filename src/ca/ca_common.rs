@@ -19,6 +19,7 @@ use der::Decode;
 use ocsp::response::RevokedInfo;
 use rcgen::RemoteKeyPair;
 use rustls_pki_types::pem::PemObject;
+use serde::ser::SerializeStructVariant;
 use serde::Serialize;
 use tokio_rustls::rustls::pki_types;
 use x509_cert::ext::pkix::AccessDescription;
@@ -4923,12 +4924,15 @@ impl Ca {
                 cert_common::CertificateSigningMethod::Https(_) => {
                     let cert: Result<CsrRejection, async_sqlite::Error> = p
                         .conn(move |conn| {
-                            let mut stmt = conn.prepare("SELECT csr.*, serials.serial FROM csr LEFT JOIN serials ON csr.id=serials.id WHERE serials.serial=?1")?;
-                            stmt.query_row(
-                                [&serial],
+                            let query = format!("SELECT csr.*, serials.serial FROM csr LEFT JOIN serials ON csr.id=serials.id WHERE serials.serial=x'{}'", crate::utility::encode_hex(&serial));
+                            eprintln!("QUERY IS {}", query);
+                            conn.query_row(
+                                &query,
+                                [],
                                 |r| {
                                     let dbentry = DbEntry::new(r);
-                                    dbentry.try_into()
+                                    let a: CsrRejection = dbentry.try_into()?;
+                                    Ok(a)
                                 },
                             )
                         })
@@ -5892,7 +5896,7 @@ impl<'a> TryFrom<DbEntry<'a>> for CsrRejection {
             email: val.row_data.get(2)?,
             phone: val.row_data.get(3)?,
             rejection: val.row_data.get(5)?,
-            serial: val.row_data.get(6)?,
+            serial: val.row_data.get(7)?,
         })
     }
 }

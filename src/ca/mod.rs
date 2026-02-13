@@ -1118,7 +1118,6 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                             let serials = crate::utility::encode_hex(&csrr.sn);
                             use der::DecodePem;
                             let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                            
                             if let Ok(csr) = csr {
                                 let csr_names: Vec<String> = csr
                                     .info
@@ -1270,11 +1269,9 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                                 // Rejection Form
                                 content.division(|reject_container| {
                                     reject_container.class("reject-form");
-                                    
                                     reject_container.division(|title| {
                                         title.class("section-title").text("Reject Request")
                                     });
-
                                     reject_container.form(|f| {
                                         match s.delivery {
                                             crate::main_config::PageDelivery::Cgi => {
@@ -1322,94 +1319,6 @@ async fn handle_ca_list_https_requests(ca: &mut Ca, s: &WebPageContext) -> WebRe
                                 });
                             }
                         }
-                    } else {
-                        // List All Pending Requests
-                        content.division(|header| {
-                            header.class("page-header");
-                            header.heading_2(|h2| {
-                                h2.class("page-title").text("Pending Certificate Requests")
-                            });
-                            header
-                        });
-
-                        let mut index_shown = 0;
-                        for (csrr, serial) in csr_list {
-                            use der::DecodePem;
-                            let csr = x509_cert::request::CertReq::from_pem(&csrr.cert);
-                            
-                            if let Ok(csr) = csr {
-                                if index_shown > 0 {
-                                    //content.tag("hr", |hr| hr);
-                                }
-                                index_shown += 1;
-
-                                let csr_names: Vec<String> = csr
-                                    .info
-                                    .subject
-                                    .0
-                                    .iter()
-                                    .map(|n| format!("{}", n))
-                                    .collect();
-                                let t = csr_names.join(", ");
-                                let serials = crate::utility::encode_hex(&serial);
-
-                                content.division(|card| {
-                                    card.class("csr-card");
-
-                                    card.division(|subject| {
-                                        subject.class("csr-subject").text(t)
-                                    });
-
-                                    card.division(|row| {
-                                        row.class("info-row");
-                                        row.division(|label| label.class("info-label").text("Name:"));
-                                        row.division(|value| value.class("info-value").text(csrr.name));
-                                        row
-                                    });
-
-                                    card.division(|row| {
-                                        row.class("info-row");
-                                        row.division(|label| label.class("info-label").text("Email:"));
-                                        row.division(|value| value.class("info-value").text(csrr.email));
-                                        row
-                                    });
-
-                                    card.division(|row| {
-                                        row.class("info-row");
-                                        row.division(|label| label.class("info-label").text("Phone:"));
-                                        row.division(|value| value.class("info-value").text(csrr.phone));
-                                        row
-                                    });
-
-                                    card.division(|actions| {
-                                        actions.class("action-section");
-                                        actions.anchor(|a| {
-                                            a.class("btn btn-primary").text("👁️ View This Request");
-                                            match s.delivery {
-                                                crate::main_config::PageDelivery::Cgi => {
-                                                    a.href(format!("?action=list_pending_requests&serial={}", serials))
-                                                }
-                                                crate::main_config::PageDelivery::DedicatedServer => {
-                                                    a.href(format!("list.rs?serial={}", serials))
-                                                }
-                                            };
-                                            a
-                                        });
-                                        actions
-                                    });
-
-                                    card
-                                });
-                            }
-                        }
-
-                        content.division(|footer| {
-                            footer.class("action-section");
-                            footer.anchor(|a| {
-                                a.class("btn btn-secondary").text("← Back to Main Page").href("?")
-                            });
-                            footer
-                        });
                     }
                 }
 
@@ -1800,9 +1709,7 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
             if cert.is_none() {
                 csr = ca.get_csr_by_serial(serial.clone()).await;
             }
-            if csr.is_none() {
-                rejection = Some(ca.get_rejection_reason_by_serial(serial.clone()).await);
-            }
+            rejection = ca.get_rejection_reason_by_serial(serial.clone()).await;
             myserial = crate::utility::encode_hex(&serial);
         }
     }
@@ -1987,32 +1894,22 @@ async fn handle_ca_view_user_https_cert(ca: &mut Ca, s: &WebPageContext) -> WebR
                     service::log::error!("Error reading certificate {:?}", e);
                 }
             }
+        } else if let Some(reason) = rejection {
+            if reason.is_empty() {
+                b.text("Your request is rejected: No reason given")
+                    .line_break(|a| a);
+            } else {
+                b.text(format!("Your request is rejected: {}", reason))
+                    .line_break(|a| a);
+            }
+            b.text(format!("{}", time::OffsetDateTime::now_utc()))
+                .line_break(|a| a);
         } else if csr.is_some() {
             b.text(format!(
                 "Your request is pending at {}",
                 time::OffsetDateTime::now_utc()
             ))
             .line_break(|a| a);
-        } else if let Some(reason) = rejection {
-            match reason {
-                Some(reason) => {
-                    if reason.is_empty() {
-                        b.text("Your request is rejected: No reason given")
-                            .line_break(|a| a);
-                    } else {
-                        b.text(format!("Your request is rejected: {}", reason))
-                            .line_break(|a| a);
-                    }
-                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
-                        .line_break(|a| a);
-                }
-                None => {
-                    b.text("Your request is rejected: No reason given")
-                        .line_break(|a| a);
-                    b.text(format!("{}", time::OffsetDateTime::now_utc()))
-                        .line_break(|a| a);
-                }
-            }
         }
         b.anchor(|ab| {
             ab.text("Back to main page");
